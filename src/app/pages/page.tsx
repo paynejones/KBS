@@ -20,26 +20,41 @@ export default function PagesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function loadPages() {
-    setLoading(true);
-    setError("");
+useEffect(() => {
+  let cancelled = false;
 
+  async function fetchPages() {
     try {
       const response = await fetch("/api/pages");
 
-      if (!response.ok) throw new Error("Unable to load pages.");
+      if (!response.ok) {
+        throw new Error("Failed to load pages");
+      }
 
-      setPages(await response.json());
-    } catch {
-      setError("Could not load your pages. Check that the server is running.");
-    } finally {
-      setLoading(false);
+      const data = await response.json();
+
+      if (!cancelled) {
+        setPages(data);
+      }
+    } catch (error) {
+      if (!cancelled) {
+        console.error("Failed to load pages:", error);
+        setError("Failed to load pages. Please try again.");
+      }
+    }    finally {
+      if (!cancelled) {
+        setLoading(false);
+      }
     }
+
   }
 
-  useEffect(() => {
-    void loadPages();
-  }, []);
+  void fetchPages();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   async function createPage() {
     setError("");

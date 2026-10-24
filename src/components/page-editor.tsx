@@ -1,10 +1,11 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Button } from "@/components/ui/button";
+import { EditorToolbar } from "@/components/editor-toolbar";
 
 type PageData = {
   id: string;
@@ -20,6 +21,17 @@ export function PageEditor({ id }: { id: string }) {
   const [status, setStatus] = useState<SaveStatus>("loading");
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveInProgress = useRef(false);
+  const dirty = useRef(false);
+  const latestContent = useRef<{
+    content: string;
+    contentJson: Record<string, unknown>;
+  }>({
+    content: "",
+    contentJson: {},
+  });
 
 
   const editor = useEditor({
@@ -83,59 +95,88 @@ export function PageEditor({ id }: { id: string }) {
   }, [editor, id]);
 
   const savePage = useCallback(
-    async (updates: {
-      title?: string;
-      content?: string;
-      contentJson?: Record<string, unknown>;
-    }) => {
-      setStatus("saving");
-      setError("");
+  async (updates: {
+    title?: string;
+    content?: string;
+    contentJson?: Record<string, unknown>;
+  }) => {
+    setStatus("saving");
+    setError("");
 
-      try {
-        const response = await fetch(`/api/pages/${id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updates),
-        });
+    try {
+      const response = await fetch(`/api/pages/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
 
-        if (!response.ok) {
-          throw new Error("Save failed. Please try again.");
-        }
-
-        setStatus("saved");
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Save failed.");
-        setStatus("error");
+      if (!response.ok) {
+        throw new Error("Save failed. Please try again.");
       }
-    },
-    [id],
-  );
 
-  useEffect(() => {
-    if (!editor || !loaded) return;
+      setStatus("saved");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed.");
+      setStatus("error");
+    }
+  },
+  [id],
+);
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
+useEffect(() => {
+  if (!editor || !loaded) return;
 
-    const handleUpdate = () => {
-      setStatus("saving");
-      if (timer) clearTimeout(timer);
+  let cancelled = false;
 
-      timer = setTimeout(() => {
-        void savePage({
-          content: editor.getText(),
-          contentJson: editor.getJSON() as Record<string, unknown>,
-        });
-      }, 800);
+  async function flushSave() {
+    if (saveInProgress.current || !dirty.current) return;
+
+    saveInProgress.current = true;
+    dirty.current = false;
+
+    const snapshot = { ...latestContent.current };
+
+    try {
+      await savePage(snapshot);
+    } finally {
+      saveInProgress.current = false;
+
+      if (!cancelled && dirty.current) {
+        void flushSave();
+      }
+    }
+  }
+
+  const handleUpdate = () => {
+    latestContent.current = {
+      content: editor.getText(),
+      contentJson: editor.getJSON() as Record<string, unknown>,
     };
 
-    editor.setEditable(true);
-    editor.on("update", handleUpdate);
+    dirty.current = true;
+    setStatus("saving");
 
-    return () => {
-      editor.off("update", handleUpdate);
-      if (timer) clearTimeout(timer);
-    };
-  }, [editor, loaded, savePage]);
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+    }
+
+    saveTimer.current = setTimeout(() => {
+      void flushSave();
+    }, 800);
+  };
+
+  editor.setEditable(true);
+  editor.on("update", handleUpdate);
+
+  return () => {
+    cancelled = true;
+    editor.off("update", handleUpdate);
+
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+    }
+  };
+}, [editor, loaded, savePage]);
 
   if (status === "loading" && !loaded) {
     return <p className="text-sm text-muted-foreground">Loading page…</p>;
@@ -187,6 +228,7 @@ export function PageEditor({ id }: { id: string }) {
       )}
 
       <div className="rounded-lg border p-5 md:p-8">
+        <EditorToolbar editor={editor} />
         <EditorContent editor={editor} />
       </div>
     </div>
