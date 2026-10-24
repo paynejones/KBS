@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 
 const navigation = [
   { label: "Home", href: "/", icon: FileText },
-  { label: "Pages", href: "/#pages", icon: FileText },
+  { label: "Pages", href: "/pages", icon: FileText },
   { label: "Databases", href: "/#databases", icon: Database },
   { label: "Favorites", href: "/#favorites", icon: Star },
 ];
