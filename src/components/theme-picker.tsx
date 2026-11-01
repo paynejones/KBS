@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { Palette } from "lucide-react";
 
 const themes = [
@@ -11,6 +11,8 @@ const themes = [
 ] as const;
 
 type Theme = (typeof themes)[number]["value"];
+const THEME_CHANGE_EVENT = "kbs:theme-change";
+let volatileTheme: Theme = "light";
 
 function isTheme(value: string | null): value is Theme {
   return themes.some((candidate) => candidate.value === value);
@@ -22,30 +24,49 @@ function applyTheme(theme: Theme) {
   root.classList.toggle("dark", theme === "dark");
 }
 
+function subscribeToTheme(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(THEME_CHANGE_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(THEME_CHANGE_EVENT, onChange);
+  };
+}
+
+function getThemeSnapshot(): Theme {
+  try {
+    const saved = window.localStorage.getItem("kbs:theme");
+    return isTheme(saved) ? saved : "light";
+  } catch {
+    return volatileTheme;
+  }
+}
+
+function getServerThemeSnapshot(): Theme {
+  return "light";
+}
+
 export function ThemePicker() {
-  const [theme, setTheme] = useState<Theme>("light");
+  const theme = useSyncExternalStore(
+    subscribeToTheme,
+    getThemeSnapshot,
+    getServerThemeSnapshot,
+  );
 
   useEffect(() => {
-    let saved: string | null = null;
-    try {
-      saved = window.localStorage.getItem("kbs:theme");
-    } catch {
-      // Keep the default theme when browser storage is unavailable.
-    }
-    const initial: Theme = isTheme(saved) ? saved : "light";
-    setTheme(initial);
-    applyTheme(initial);
-  }, []);
+    applyTheme(theme);
+  }, [theme]);
 
   function changeTheme(value: string) {
     if (!isTheme(value)) return;
-    setTheme(value);
+    volatileTheme = value;
     applyTheme(value);
     try {
       window.localStorage.setItem("kbs:theme", value);
     } catch {
       // The selected theme still applies for this session.
     }
+    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
   }
 
   return (
