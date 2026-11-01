@@ -13,6 +13,7 @@ type PageData = {
   title: string;
   content: string;
   contentJson: Record<string, unknown>;
+  parentId: string | null;
 };
 
 type SaveStatus = "loading" | "saved" | "saving" | "error";
@@ -33,6 +34,11 @@ export function PageEditor({ id }: { id: string }) {
     content: "",
     contentJson: {},
   });
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [allPages, setAllPages] = useState<
+    { id: string; title: string; parentId: string | null }[]
+  >([]);
+  const [moving, setMoving] = useState(false);
 
 
   const editor = useEditor({
@@ -47,6 +53,34 @@ export function PageEditor({ id }: { id: string }) {
       },
     },
   });
+
+  useEffect(() => {
+  let cancelled = false;
+
+  async function loadPages() {
+    try {
+      const response = await fetch("/api/pages");
+
+      if (!response.ok) {
+        throw new Error("Unable to load pages.");
+      }
+
+      const data = await response.json();
+
+      if (!cancelled) {
+        setAllPages(data);
+      }
+    } catch (error) {
+      console.error("Failed to load pages:", error);
+    }
+  }
+
+  void loadPages();
+
+  return () => {
+    cancelled = true;
+  };
+}, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +103,7 @@ export function PageEditor({ id }: { id: string }) {
         if (cancelled) return;
 
         setTitle(page.title);
+        setParentId(page.parentId ?? null);
         editor?.commands.setContent(
           page.contentJson?.type
             ? page.contentJson as Parameters<
@@ -179,6 +214,58 @@ useEffect(() => {
   };
 }, [editor, loaded, savePage]);
 
+async function movePage(newParentId: string) {
+  const nextParentId = newParentId || null;
+
+  if (nextParentId === parentId) return;
+
+  setMoving(true);
+  setError("");
+
+  try {
+    const response = await fetch(`/api/pages/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parentId: nextParentId,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Unable to move page.");
+    }
+
+    setParentId(nextParentId);
+
+    window.dispatchEvent(new Event("pages-updated"));
+  } catch (error) {
+    setError(
+      error instanceof Error ? error.message : "Unable to move page."
+    );
+  } finally {
+    setMoving(false);
+  }
+}
+
+const unavailableParentIds = new Set([id]);
+
+let foundDescendant = true;
+
+while (foundDescendant) {
+  foundDescendant = false;
+
+  for (const page of allPages) {
+    if (
+      page.parentId &&
+      unavailableParentIds.has(page.parentId) &&
+      !unavailableParentIds.has(page.id)
+    ) {
+      unavailableParentIds.add(page.id);
+      foundDescendant = true;
+    }
+  }
+}
+
   if (status === "loading" && !loaded) {
     return <p className="text-sm text-muted-foreground">Loading page…</p>;
   }
@@ -205,7 +292,40 @@ useEffect(() => {
           {status === "loading" && "Loading…"}
         </span>
       </div>
-      <PageTags pageId={id} />
+      <div className="flex flex-wrap items-center gap-3">
+        <label
+            htmlFor="move-page"
+            className="text-sm text-muted-foreground"
+        >
+            Move to:
+        </label>
+
+        <select
+            id="move-page"
+            value={parentId ?? ""}
+            onChange={(event) => void movePage(event.target.value)}
+            disabled={moving}
+            className="max-w-xs rounded-md border bg-background px-3 py-2 text-sm"
+        >
+            <option value="">Top level</option>
+
+            {allPages
+            .filter((page) => !unavailableParentIds.has(page.id))
+            .map((page) => (
+                <option key={page.id} value={page.id}>
+                {page.title || "Untitled"}
+                </option>
+            ))}
+        </select>
+
+        {moving && (
+            <span className="text-xs text-muted-foreground">
+            Moving…
+            </span>
+        )}
+        </div>
+
+        <PageTags pageId={id} />
 
       {error && (
         <div role="alert" className="text-sm text-destructive">

@@ -9,6 +9,7 @@ import {
   primaryKey,
   uniqueIndex,
   AnyPgColumn,
+  integer,
 } from "drizzle-orm/pg-core";
 
 export const pages = pgTable(
@@ -19,6 +20,7 @@ export const pages = pgTable(
         (): AnyPgColumn => pages.id,
         { onDelete: "set null" }
     ),
+    sortOrder: integer("sort_order").notNull().default(0),
 
     // Workspace ownership will be added when workspaces
     // and authentication are implemented.

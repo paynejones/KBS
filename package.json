@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:check": "tsx scripts/check-db.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:init-sort-order": "tsx src/db/initialize-sort-order.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
