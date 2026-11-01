@@ -11,7 +11,11 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   if (!editor) return null;
 
   return (
-    <div className="flex flex-wrap gap-2 border-b pb-3">
+    <div
+      role="toolbar"
+      aria-label="Text formatting"
+      className="flex touch-pan-x flex-nowrap gap-2 overflow-x-auto border-b pb-3 sm:flex-wrap sm:overflow-visible"
+    >
       <Button
         variant={editor.isActive("bold") ? "default" : "outline"}
         size="sm"

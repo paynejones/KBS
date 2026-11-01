@@ -3,10 +3,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Download, Star } from "lucide-react";
+import Image from "next/image";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { DatabaseEmbedExtension, DatabaseEmbedPicker } from "@/components/database-embed";
-import { TaskItemExtension, TaskListExtension } from "@/components/task-list-extension";
+import { CalloutExtension, TaskItemExtension, TaskListExtension, ToggleExtension } from "@/components/task-list-extension";
+import { TableCellExtension, TableExtension, TableHeaderExtension, TableRowExtension } from "@/components/table-extension";
+import { ImageExtension } from "@/components/image-extension";
 import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
 import { PageTags } from "@/components/page-tags";
@@ -21,6 +25,8 @@ type PageData = {
   contentJson: Record<string, unknown>;
   parentId: string | null;
   isFavorite: boolean;
+  icon: string | null;
+  coverImageUrl: string | null;
   updatedAt: string;
 };
 
@@ -43,11 +49,41 @@ const slashCommands: SlashCommand[] = [
   { label: "Code block", detail: "Monospaced code", keywords: "code", run: (editor) => editor.chain().focus().toggleCodeBlock().run() },
   { label: "Divider", detail: "Horizontal separator", keywords: "rule line", run: (editor) => editor.chain().focus().setHorizontalRule().run() },
   { label: "Task list", detail: "Checkbox list", keywords: "todo checklist", run: (editor) => editor.chain().focus().insertContent({ type: "taskList", content: [{ type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] }] }).run() },
+  { label: "Callout", detail: "Highlighted note", keywords: "note info warning", run: (editor) => editor.chain().focus().insertContent({ type: "callout", content: [{ type: "paragraph" }] }).run() },
+  { label: "Toggle", detail: "Collapsible content", keywords: "details collapse disclosure", run: (editor) => editor.chain().focus().insertContent({ type: "toggleBlock", content: [{ type: "paragraph" }] }).run() },
+  { label: "Table", detail: "3 rows × 2 columns", keywords: "grid cells", run: (editor) => editor.chain().focus().insertContent({ type: "table", content: [{ type: "tableRow", content: [{ type: "tableHeader", content: [{ type: "paragraph" }] }, { type: "tableHeader", content: [{ type: "paragraph" }] }] }, ...Array.from({ length: 2 }, () => ({ type: "tableRow", content: [{ type: "tableCell", content: [{ type: "paragraph" }] }, { type: "tableCell", content: [{ type: "paragraph" }] }] }))] }).run() },
+  { label: "Image", detail: "Embed from URL", keywords: "picture photo media", run: (editor) => {
+    const input = window.prompt("Image URL");
+    if (!input) return;
+    try {
+      const url = new URL(input.trim());
+      if (url.protocol !== "https:" && url.protocol !== "http:") return;
+      editor.chain().focus().insertContent({ type: "imageEmbed", attrs: { src: url.toString(), alt: "" } }).run();
+    } catch {
+      // Ignore malformed image URLs.
+    }
+  } },
   { label: "Bold", detail: "Bold text", keywords: "strong", run: (editor) => editor.chain().focus().toggleBold().run() },
   { label: "Italic", detail: "Italic text", keywords: "emphasis", run: (editor) => editor.chain().focus().toggleItalic().run() },
   { label: "Underline", detail: "Underlined text", keywords: "underlined", run: (editor) => editor.chain().focus().toggleUnderline().run() },
   { label: "Strikethrough", detail: "Crossed out text", keywords: "strike", run: (editor) => editor.chain().focus().toggleStrike().run() },
 ];
+
+const EditorBlockShortcuts = Extension.create({
+  name: "editorBlockShortcuts",
+  addKeyboardShortcuts() {
+    return {
+      "Mod-Alt-0": () => this.editor.chain().focus().setParagraph().run(),
+      "Mod-Alt-1": () => this.editor.chain().focus().setHeading({ level: 1 }).run(),
+      "Mod-Alt-2": () => this.editor.chain().focus().setHeading({ level: 2 }).run(),
+      "Mod-Shift-8": () => this.editor.chain().focus().toggleBulletList().run(),
+      "Mod-Shift-7": () => this.editor.chain().focus().toggleOrderedList().run(),
+      "Mod-Shift-9": () => this.editor.chain().focus().toggleBlockquote().run(),
+      "Mod-Alt-c": () => this.editor.chain().focus().toggleCodeBlock().run(),
+      "Mod-Alt-d": () => this.editor.chain().focus().setHorizontalRule().run(),
+    };
+  },
+});
 
 type SlashMenuState = { from: number; to: number; query: string; x: number; y: number } | null;
 
@@ -81,6 +117,9 @@ export function PageEditor({ id }: { id: string }) {
   const [moving, setMoving] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteSaving, setFavoriteSaving] = useState(false);
+  const [icon, setIcon] = useState("");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [coverImageError, setCoverImageError] = useState<"invalid" | "load" | null>(null);
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashMenuRef = useRef<SlashMenuState>(null);
@@ -94,14 +133,14 @@ export function PageEditor({ id }: { id: string }) {
 
 
   const editor = useEditor({
-    extensions: [StarterKit, TaskListExtension, TaskItemExtension, DatabaseEmbedExtension],
+    extensions: [StarterKit, EditorBlockShortcuts, ImageExtension, TableExtension, TableRowExtension, TableHeaderExtension, TableCellExtension, TaskListExtension, TaskItemExtension, CalloutExtension, ToggleExtension, DatabaseEmbedExtension],
     immediatelyRender: false,
     content: "",
     editable: false,
     editorProps: {
       attributes: {
         class:
-          "min-h-[400px] outline-none prose prose-neutral max-w-none dark:prose-invert",
+          "min-h-[45vh] outline-none prose prose-neutral max-w-none dark:prose-invert sm:min-h-[400px]",
       },
       handleKeyDown: (_view, event) => {
         const menu = slashMenuRef.current;
@@ -215,6 +254,9 @@ export function PageEditor({ id }: { id: string }) {
         setTitle(page.title);
         setParentId(page.parentId ?? null);
         setIsFavorite(page.isFavorite ?? false);
+        setIcon(page.icon ?? "");
+        setCoverImageUrl(page.coverImageUrl ?? "");
+        setCoverImageError(null);
         const serverContentJson = page.contentJson?.type
           ? page.contentJson as Parameters<NonNullable<typeof editor>["commands"]["setContent"]>[0]
           : page.content || "";
@@ -262,6 +304,8 @@ export function PageEditor({ id }: { id: string }) {
     title?: string;
     content?: string;
     contentJson?: Record<string, unknown>;
+    icon?: string | null;
+    coverImageUrl?: string | null;
   }, options: { silent?: boolean } = {}) => {
     if (!options.silent) {
       setStatus("saving");
@@ -505,6 +549,7 @@ while (foundDescendant) {
   return (
     <div className="mx-auto max-w-4xl space-y-7">
       <div className="flex min-w-0 flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        {icon && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -534,7 +579,7 @@ while (foundDescendant) {
           >
             <Star size={18} className={isFavorite ? "fill-current text-amber-500" : ""} />
           </button>
-          <span className="text-xs text-muted-foreground" role="status">
+          <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
             {status === "saving" && "Saving…"}
             {status === "saved" && "Saved"}
             {status === "error" && "Save failed"}
@@ -542,6 +587,68 @@ while (foundDescendant) {
           </span>
         </div>
       </div>
+      <section aria-label="Page appearance" className="space-y-3">
+        {coverImageUrl && coverImageError !== "invalid" && coverImageError !== "load" && (
+          <div className="relative overflow-hidden rounded-xl border bg-muted/30">
+            <Image
+              src={coverImageUrl}
+              alt=""
+              width={1600}
+              height={500}
+              unoptimized
+              loading="lazy"
+              className="h-40 w-full object-cover sm:h-52"
+              onError={() => setCoverImageError("load")}
+            />
+          </div>
+        )}
+        {coverImageError && (
+          <p role="status" className="rounded-md border border-destructive/30 px-3 py-2 text-sm text-muted-foreground">
+            {coverImageError === "invalid"
+              ? "Enter a valid image URL starting with http:// or https://."
+              : "Cover image could not be loaded. Check the URL or remove it below."}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm">
+            <span className="text-muted-foreground">Icon</span>
+            <input
+              aria-label="Page icon"
+              value={icon}
+              maxLength={8}
+              placeholder="＋"
+              onChange={(event) => setIcon(event.target.value)}
+              onBlur={() => void savePage({ icon: icon.trim() || null })}
+              className="w-12 bg-transparent text-center text-lg outline-none"
+            />
+          </label>
+          <label className="flex min-w-64 flex-1 items-center gap-2 rounded-md border px-3 py-2 text-sm">
+            <span className="shrink-0 text-muted-foreground">Cover image URL</span>
+            <input
+              aria-label="Cover image URL"
+              value={coverImageUrl}
+              placeholder="https://…"
+              onChange={(event) => { setCoverImageUrl(event.target.value); setCoverImageError(null); }}
+              onBlur={() => {
+                const value = coverImageUrl.trim();
+                if (!value) {
+                  void savePage({ coverImageUrl: null });
+                  return;
+                }
+                try {
+                  const url = new URL(value);
+                  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Invalid protocol");
+                  setCoverImageUrl(url.toString());
+                  void savePage({ coverImageUrl: url.toString() });
+                } catch {
+                  setCoverImageError("invalid");
+                }
+              }}
+              className="min-w-0 flex-1 bg-transparent outline-none"
+            />
+          </label>
+        </div>
+      </section>
       {recoveredDraft && (
         <p role="status" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">
           Recovered unsaved changes from this device. Saving them now…
@@ -606,12 +713,14 @@ while (foundDescendant) {
         </div>
       )}
 
-      <div className="rounded-xl border bg-card px-5 py-5 sm:px-8 sm:py-7">
+      <div className="rounded-xl border bg-card px-4 py-4 sm:px-8 sm:py-7">
         <EditorToolbar editor={editor} />
         <div className="border-b py-3">
           <DatabaseEmbedPicker editor={editor} />
         </div>
-        <EditorContent editor={editor} />
+        <div className="overflow-x-auto">
+          <EditorContent editor={editor} />
+        </div>
         {slashMenu && filteredCommands.length > 0 && (
           <div
             role="listbox"

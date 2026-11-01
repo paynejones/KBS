@@ -272,6 +272,90 @@
   text-decoration: line-through;
 }
 
+.tiptap .kbs-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.tiptap .kbs-callout-icon {
+  color: var(--primary);
+  line-height: 1.7;
+}
+
+.tiptap .kbs-callout-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.tiptap .kbs-callout-content > :first-child {
+  margin-top: 0;
+}
+
+.tiptap .kbs-callout-content > :last-child {
+  margin-bottom: 0;
+}
+
+.tiptap .kbs-toggle {
+  margin: 0.75rem 0;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.tiptap .kbs-toggle > summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.tiptap .kbs-toggle-content {
+  padding: 0.65rem 0 0 1rem;
+}
+
+.tiptap .kbs-toggle-content > :first-child {
+  margin-top: 0;
+}
+
+.tiptap table.kbs-table {
+  width: 100%;
+  margin: 1rem 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.tiptap table.kbs-table th,
+.tiptap table.kbs-table td {
+  min-width: 5rem;
+  border: 1px solid var(--border);
+  padding: 0.55rem 0.7rem;
+  vertical-align: top;
+  text-align: left;
+}
+
+.tiptap table.kbs-table th {
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  font-weight: 600;
+}
+
+.tiptap table.kbs-table p {
+  margin: 0;
+}
+
+.tiptap img.kbs-image-embed {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: 42rem;
+  margin: 1rem auto;
+  border-radius: 0.65rem;
+  object-fit: contain;
+}
+
 .tiptap blockquote {
   border-left: 3px solid #9ca3af;
   padding-left: 1rem;

@@ -17,9 +17,14 @@ const updatePageSchema = z.object({
   contentJson: z.record(z.string(), z.unknown()).optional(),
   parentId: z.string().uuid().nullable().optional(),
   isFavorite: z.boolean().optional(),
+  icon: z.string().max(32).nullable().optional(),
+  coverImageUrl: z.string().url().max(2048).nullable().optional(),
 }).refine(
   (data) => Object.keys(data).length > 0,
   { message: "Provide at least one field to update" },
+).refine(
+  (data) => !data.coverImageUrl || /^https?:\/\//i.test(data.coverImageUrl),
+  { message: "Cover image URL must use HTTP or HTTPS" },
 );
 
 export async function GET(_request: Request, context: Context) {

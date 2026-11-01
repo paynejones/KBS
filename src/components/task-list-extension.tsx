@@ -17,6 +17,56 @@ function TaskItemView({ node, updateAttributes }: NodeViewProps) {
   );
 }
 
+function CalloutView() {
+  return (
+    <NodeViewWrapper className="kbs-callout" role="note">
+      <span className="kbs-callout-icon" contentEditable={false} aria-hidden="true">✦</span>
+      <NodeViewContent className="kbs-callout-content" />
+    </NodeViewWrapper>
+  );
+}
+
+function ToggleView() {
+  return (
+    <NodeViewWrapper as="details" className="kbs-toggle" open>
+      <summary contentEditable={false}>Toggle</summary>
+      <div className="kbs-toggle-content"><NodeViewContent /></div>
+    </NodeViewWrapper>
+  );
+}
+
+export const CalloutExtension = Node.create({
+  name: "callout",
+  group: "block",
+  content: "block+",
+  defining: true,
+  parseHTML() {
+    return [{ tag: 'div[data-type="callout"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "callout" }), 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(CalloutView);
+  },
+});
+
+export const ToggleExtension = Node.create({
+  name: "toggleBlock",
+  group: "block",
+  content: "block+",
+  defining: true,
+  parseHTML() {
+    return [{ tag: 'details[data-type="toggleBlock"]', contentElement: "div[data-toggle-content]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["details", mergeAttributes(HTMLAttributes, { "data-type": "toggleBlock" }), ["summary", { contenteditable: "false" }, "Toggle"], ["div", { "data-toggle-content": "" }, 0]];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ToggleView);
+  },
+});
+
 export const TaskListExtension = Node.create({
   name: "taskList",
   group: "block",

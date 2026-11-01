@@ -23,6 +23,8 @@ export const pages = pgTable(
     ),
     sortOrder: integer("sort_order").notNull().default(0),
     isFavorite: boolean("is_favorite").notNull().default(false),
+    icon: text("icon"),
+    coverImageUrl: text("cover_image_url"),
 
     // Workspace ownership will be added when workspaces
     // and authentication are implemented.

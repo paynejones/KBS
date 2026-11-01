@@ -16,6 +16,21 @@ The app already includes nested pages, a basic rich-text editor, page reordering
 
 This is a code-level inventory, not a claim that every feature has the same polish or breadth as its Notion equivalent.
 
+## Parity with the current personal workspace
+
+KBS does not need broad Notion feature parity. It should be able to represent the workflows already in use in the user's Notion workspace: a home dashboard for tasks and projects, media libraries for anime, manga, movies, series, and games, release and progress tracking, and pages for game development and story ideas.
+
+The following gaps are specific to those workflows and should guide the existing priorities below:
+
+- **Media presentation:** support page icons and covers, uploaded or linked images/files, and image-backed gallery cards. Remote image URLs are a useful starting point, but should have clear loading, broken-link, and alt-text behavior. Gallery cards should be able to use a record's media property as their cover.
+- **Page and web links:** keep page links and backlinks, add inline link creation while writing, and make linked pages easier to scan in context. Support saving an external URL with its title, description, source, and optional selected text, with a useful preview and a direct open action.
+- **Home dashboard:** allow configurable widgets for saved database views and useful queues, including tasks due soon, current projects, currently watching/reading/playing, and selected media or hobby views. Include quick actions for common capture and record creation. Widgets must remain views over existing records.
+- **Calendars:** add calendar views for tasks and dated media releases, with useful date filters and named views. A record's release date or a task's due date should be visible from both its database and the home dashboard.
+- **Status and progress:** make named, filtered views practical for workflows such as watchlist, currently watching, waiting, finished, dropped, backlog, and top rated. Add formulas and progress indicators so episode/chapter counts and project/task completion can surface as percentages or rollups where the underlying data supports them.
+- **Creative project flow:** make it easy to connect story and game ideas to a project, its tasks, and related reference pages, so an idea can move into active work without being copied between separate lists.
+
+These are acceptance goals for the relevant roadmap items, not a requirement to reproduce every Notion feature or recreate the current workspace's data model exactly.
+
 ## Near-term priorities
 
 ### 1. Make the editor feel complete
@@ -26,6 +41,7 @@ This is the current top priority: writing and shaping a page should feel natural
 - Add practical block types: task lists, code blocks, tables, callouts, toggles, dividers, and image/file embeds.
 - Support drag-and-drop or other direct block reordering, with predictable selection and undo behavior.
 - Add page icon and cover support, with clear loading and failure states for media.
+- Add image and file support that works in page content and database gallery cards; allow remote images as well as uploaded media, with alt text and visible error states.
 - Improve editor focus, selection, mobile editing, and save-state feedback.
 - Preserve reliable draft recovery and add an explicit way to recover or discard a recovered draft.
 
@@ -46,6 +62,7 @@ KBS already stores explicit links and backlinks, so those can seed the graph. Gr
 
 - Add wiki-style `[[page name]]` linking with autocomplete, link creation, and graceful handling of renamed pages.
 - Make backlinks easier to scan, including a count and context/snippet for where the link appears.
+- Add an inline link control for external URLs and pages, with page-name autocomplete; keep the existing page-connections panel for managing relationships and backlinks.
 - Add a quick capture action that creates an inbox page without requiring the user to choose a destination first.
 - Add a command palette for creating pages/databases, jumping to favorites and recent pages, and common navigation actions. Search already uses Ctrl/Cmd+K; extend that interaction or reserve a consistent shortcut scheme.
 - Add recent pages and recently edited pages for quick return paths.
@@ -58,6 +75,7 @@ Make it easy to save something now and organize it later.
 - Add a dedicated inbox for quick notes, ideas, URLs, tasks, and references.
 - Let captured items become regular pages or database records without losing their source or capture date.
 - Store URL title, address, description, and optional selected text for saved links.
+- Render saved links as compact previews that show the title and source and open the original URL directly.
 - Add file, image, and PDF capture after attachment storage and previews are in place.
 - Consider a browser extension as a later companion to the core inbox, not a prerequisite.
 
@@ -75,6 +93,7 @@ Create a useful landing page from existing KBS data, with simple configurable se
 
 - Start with recent pages, favorites, the capture inbox, and selected databases or views.
 - Add tasks due soon and current projects after task and date workflows are established.
+- Support dashboard sections for saved database views, including active media queues and release dates, plus quick actions for capturing a note or creating a common record.
 - Keep widgets as saved views over existing information rather than creating a second copy of the data.
 - Add a personal timeline for dated notes, milestones, and tasks once date properties and calendar views are reliable.
 
@@ -97,9 +116,11 @@ Create a useful landing page from existing KBS data, with simple configurable se
 ### 9. Complete everyday database workflows
 
 - Add calendar and list views first, followed by timeline and chart views where they solve real use cases.
+- Use calendar views for both task due dates and media release dates; make it possible to surface the same views on the personal home dashboard.
 - Support structured, per-view filters and multiple sort/group rules, rather than relying on a single text filter and sort configuration.
 - Add per-view property visibility and view duplication/reordering.
 - Add formula properties and a file/media property; consider person and status properties when identity or team workflows arrive.
+- Use formula, relation, and rollup properties to show simple progress measures such as episodes or chapters completed and project task completion; show media properties on gallery cards.
 - Improve record editing with a focused page/detail view and better relation selection.
 - Add database templates that can be applied when creating records, and make template management discoverable.
 - Add import paths for CSV and Markdown exports, complementing existing exports and Markdown helpers.

@@ -39,6 +39,18 @@ function renderList(node: TiptapNode, ordered: boolean): string {
   }).join("\n") + "\n\n";
 }
 
+function renderTable(node: TiptapNode): string {
+  const rows = (node.content ?? []).map((row) =>
+    (row.content ?? []).map((cell) => (cell.content ?? []).map((block) =>
+      block.type === "paragraph" ? (block.content ?? []).map(renderInline).join("") : renderBlock(block).trim(),
+    ).join(" ").replace(/\|/g, "\\|").replace(/\n/g, " ")),
+  );
+  if (!rows.length) return "";
+  const width = Math.max(...rows.map((row) => row.length));
+  const format = (row: string[]) => `| ${Array.from({ length: width }, (_, index) => row[index] ?? "").join(" | ")} |`;
+  return `${format(rows[0])}\n${format(Array.from({ length: width }, () => "---"))}\n${rows.slice(1).map(format).join("\n")}\n\n`;
+}
+
 function renderBlock(node: TiptapNode): string {
   switch (node.type) {
     case "paragraph":
@@ -59,8 +71,15 @@ function renderBlock(node: TiptapNode): string {
     }
     case "horizontalRule":
       return "---\n\n";
+    case "table":
+      return renderTable(node);
     case "databaseEmbed":
       return renderInline(node) + "\n";
+    case "imageEmbed": {
+      const src = String(node.attrs?.src ?? "").replace(/[()\s]/g, (char) => encodeURIComponent(char));
+      const alt = String(node.attrs?.alt ?? "").replace(/([\\\]])/g, "\\$1");
+      return src ? `![${alt}](${src})\n\n` : "";
+    }
     default:
       return (node.content ?? []).map(renderBlock).join("");
   }
