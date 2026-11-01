@@ -15,6 +15,13 @@
       "when": 1793490254696,
       "tag": "0001_graceful_namor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793492001997,
+      "tag": "0002_exotic_scream",
+      "breakpoints": true
     }
   ]
 }

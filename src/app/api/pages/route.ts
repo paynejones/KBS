@@ -8,6 +8,7 @@ import { pages, pageTags, tags  } from "@/db/schema";
 
 const createPageSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+  parentId: z.string().uuid().nullable().optional(),
 });
 
 export async function GET(request: Request) {
@@ -90,16 +91,39 @@ export async function POST(request: Request) {
   const body: unknown = await request.json().catch(() => null);
   const parsed = createPageSchema.safeParse(body);
 
+  // Validate before accessing parsed.data
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid page data" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
+  const parentId = parsed.data.parentId ?? null;
+
+  // Verify that the parent page exists
+  if (parentId) {
+    const [parentPage] = await db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(eq(pages.id, parentId))
+      .limit(1);
+
+    if (!parentPage) {
+      return NextResponse.json(
+        { error: "Parent page not found." },
+        { status: 404 }
+      );
+    }
+  }
+
+  // Create the page
   const [page] = await db
     .insert(pages)
-    .values({ title: parsed.data.title ?? "Untitled" })
+    .values({
+      title: parsed.data.title ?? "Untitled",
+      parentId,
+    })
     .returning();
 
   return NextResponse.json(page, { status: 201 });

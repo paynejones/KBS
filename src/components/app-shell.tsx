@@ -8,6 +8,7 @@ import {
   Star,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { PageTree } from "@/components/page-tree";
 
 const navigation = [
   { label: "Home", href: "/", icon: FileText },
@@ -44,6 +45,8 @@ export function AppShell({
             </Link>
           ))}
         </nav>
+
+        <PageTree />
 
         <Separator className="my-5" />
 

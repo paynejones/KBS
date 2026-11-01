@@ -8,12 +8,17 @@ import {
   jsonb,
   primaryKey,
   uniqueIndex,
+  AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 export const pages = pgTable(
   "pages",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    parentId: uuid("parent_id").references(
+        (): AnyPgColumn => pages.id,
+        { onDelete: "set null" }
+    ),
 
     // Workspace ownership will be added when workspaces
     // and authentication are implemented.
@@ -40,6 +45,7 @@ export const pages = pgTable(
   },
   (table) => [
     index("pages_updated_at_idx").on(table.updatedAt),
+    index("pages_parent_id_idx").on(table.parentId),
   ],
 );
 
