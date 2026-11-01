@@ -239,6 +239,39 @@
   padding-left: 0.25rem;
 }
 
+.tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.tiptap .kbs-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding-left: 0;
+  margin: 0.35rem 0;
+}
+
+.tiptap .kbs-task-item > input[type="checkbox"] {
+  flex: none;
+  margin-top: 0.38rem;
+  accent-color: var(--primary);
+}
+
+.tiptap .kbs-task-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.tiptap .kbs-task-content p {
+  margin: 0;
+}
+
+.tiptap .kbs-task-item[data-checked="true"] .kbs-task-content {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+
 .tiptap blockquote {
   border-left: 3px solid #9ca3af;
   padding-left: 1rem;

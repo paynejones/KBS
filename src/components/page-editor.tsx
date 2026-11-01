@@ -6,6 +6,7 @@ import { ChevronDown, Download, Star } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { DatabaseEmbedExtension, DatabaseEmbedPicker } from "@/components/database-embed";
+import { TaskItemExtension, TaskListExtension } from "@/components/task-list-extension";
 import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
 import { PageTags } from "@/components/page-tags";
@@ -24,6 +25,31 @@ type PageData = {
 };
 
 type SaveStatus = "loading" | "saved" | "saving" | "error";
+
+type SlashCommand = {
+  label: string;
+  detail: string;
+  keywords: string;
+  run: (editor: NonNullable<ReturnType<typeof useEditor>>) => void;
+};
+
+const slashCommands: SlashCommand[] = [
+  { label: "Text", detail: "Plain paragraph", keywords: "paragraph text", run: (editor) => editor.chain().focus().setParagraph().run() },
+  { label: "Heading 1", detail: "Large section heading", keywords: "h1 title", run: (editor) => editor.chain().focus().setHeading({ level: 1 }).run() },
+  { label: "Heading 2", detail: "Medium section heading", keywords: "h2 subtitle", run: (editor) => editor.chain().focus().setHeading({ level: 2 }).run() },
+  { label: "Bullet list", detail: "Unordered list", keywords: "ul bullets", run: (editor) => editor.chain().focus().toggleBulletList().run() },
+  { label: "Numbered list", detail: "Ordered list", keywords: "ol ordered", run: (editor) => editor.chain().focus().toggleOrderedList().run() },
+  { label: "Blockquote", detail: "Indented quote", keywords: "quote", run: (editor) => editor.chain().focus().toggleBlockquote().run() },
+  { label: "Code block", detail: "Monospaced code", keywords: "code", run: (editor) => editor.chain().focus().toggleCodeBlock().run() },
+  { label: "Divider", detail: "Horizontal separator", keywords: "rule line", run: (editor) => editor.chain().focus().setHorizontalRule().run() },
+  { label: "Task list", detail: "Checkbox list", keywords: "todo checklist", run: (editor) => editor.chain().focus().insertContent({ type: "taskList", content: [{ type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] }] }).run() },
+  { label: "Bold", detail: "Bold text", keywords: "strong", run: (editor) => editor.chain().focus().toggleBold().run() },
+  { label: "Italic", detail: "Italic text", keywords: "emphasis", run: (editor) => editor.chain().focus().toggleItalic().run() },
+  { label: "Underline", detail: "Underlined text", keywords: "underlined", run: (editor) => editor.chain().focus().toggleUnderline().run() },
+  { label: "Strikethrough", detail: "Crossed out text", keywords: "strike", run: (editor) => editor.chain().focus().toggleStrike().run() },
+];
+
+type SlashMenuState = { from: number; to: number; query: string; x: number; y: number } | null;
 
 export function PageEditor({ id }: { id: string }) {
   const [title, setTitle] = useState("");
@@ -55,10 +81,20 @@ export function PageEditor({ id }: { id: string }) {
   const [moving, setMoving] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteSaving, setFavoriteSaving] = useState(false);
+  const [slashMenu, setSlashMenu] = useState<SlashMenuState>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const slashMenuRef = useRef<SlashMenuState>(null);
+  const slashIndexRef = useRef(0);
+  const filteredCommands = slashCommands.filter((command) =>
+    `${command.label} ${command.keywords}`.toLowerCase().includes(slashMenu?.query.toLowerCase() ?? ""),
+  );
+
+  useEffect(() => { slashMenuRef.current = slashMenu; }, [slashMenu]);
+  useEffect(() => { slashIndexRef.current = slashIndex; }, [slashIndex]);
 
 
   const editor = useEditor({
-    extensions: [StarterKit, DatabaseEmbedExtension],
+    extensions: [StarterKit, TaskListExtension, TaskItemExtension, DatabaseEmbedExtension],
     immediatelyRender: false,
     content: "",
     editable: false,
@@ -67,8 +103,66 @@ export function PageEditor({ id }: { id: string }) {
         class:
           "min-h-[400px] outline-none prose prose-neutral max-w-none dark:prose-invert",
       },
+      handleKeyDown: (_view, event) => {
+        const menu = slashMenuRef.current;
+        if (!menu) return false;
+        const available = slashCommands.filter((command) =>
+          `${command.label} ${command.keywords}`.toLowerCase().includes(menu.query.toLowerCase()),
+        );
+        if (event.key === "ArrowDown" && available.length) {
+          event.preventDefault();
+          setSlashIndex((index) => (index + 1) % available.length);
+          return true;
+        }
+        if (event.key === "ArrowUp" && available.length) {
+          event.preventDefault();
+          setSlashIndex((index) => (index - 1 + available.length) % available.length);
+          return true;
+        }
+        if (event.key === "Escape") {
+          setSlashMenu(null);
+          return true;
+        }
+        if (event.key === "Enter" && available.length) {
+          event.preventDefault();
+          const command = available[slashIndexRef.current % available.length];
+          editor?.chain().focus().deleteRange({ from: menu.from, to: menu.to }).run();
+          command.run(editor!);
+          setSlashMenu(null);
+          return true;
+        }
+        return false;
+      },
     },
   });
+
+  useEffect(() => {
+    if (!editor) return;
+    const updateSlashMenu = () => {
+      const { $from, empty } = editor.state.selection;
+      if (!empty || $from.parent.type.name !== "paragraph") {
+        setSlashMenu(null);
+        return;
+      }
+      const beforeCursor = $from.parent.textBetween(0, $from.parentOffset, "\n", "\ufffc");
+      const match = /(?:^|\s)\/([\w-]*)$/.exec(beforeCursor);
+      if (!match) {
+        setSlashMenu(null);
+        return;
+      }
+      const from = $from.pos - match[0].length + match[0].lastIndexOf("/");
+      const coords = editor.view.coordsAtPos($from.pos);
+      setSlashIndex(0);
+      setSlashMenu({ from, to: $from.pos, query: match[1], x: coords.left, y: coords.bottom + 6 });
+    };
+    editor.on("selectionUpdate", updateSlashMenu);
+    editor.on("transaction", updateSlashMenu);
+    updateSlashMenu();
+    return () => {
+      editor.off("selectionUpdate", updateSlashMenu);
+      editor.off("transaction", updateSlashMenu);
+    };
+  }, [editor]);
 
   useEffect(() => {
   let cancelled = false;
@@ -518,6 +612,35 @@ while (foundDescendant) {
           <DatabaseEmbedPicker editor={editor} />
         </div>
         <EditorContent editor={editor} />
+        {slashMenu && filteredCommands.length > 0 && (
+          <div
+            role="listbox"
+            aria-label="Insert block"
+            className="fixed z-50 w-72 overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: Math.min(slashMenu.x, window.innerWidth - 300), top: slashMenu.y }}
+          >
+            {filteredCommands.map((command, index) => (
+              <button
+                key={command.label}
+                type="button"
+                role="option"
+                aria-selected={index === slashIndex}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setSlashIndex(index)}
+                onClick={() => {
+                  if (!editor || !slashMenu) return;
+                  editor.chain().focus().deleteRange({ from: slashMenu.from, to: slashMenu.to }).run();
+                  command.run(editor);
+                  setSlashMenu(null);
+                }}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left ${index === slashIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+              >
+                <span className="text-sm font-medium">{command.label}</span>
+                <span className="text-xs text-muted-foreground">{command.detail}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
