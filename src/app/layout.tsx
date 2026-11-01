@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,6 +13,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const themeInitialization = `try {
+  const theme = localStorage.getItem("kbs:theme");
+  if (["light", "dark", "warm", "forest"].includes(theme)) {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }
+} catch {}`;
+
 export const metadata: Metadata = {
   title: "Knowledge Base",
   description: "A focused workspace for notes, pages, and structured data.",
@@ -22,8 +31,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <Script id="kbs-theme-init" strategy="beforeInteractive">
+          {themeInitialization}
+        </Script>
+      </body>
     </html>
   );
 }

@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Star } from "lucide-react";
+import { ChevronDown, Download, Star } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { DatabaseEmbedExtension, DatabaseEmbedPicker } from "@/components/database-embed";
@@ -420,18 +420,32 @@ while (foundDescendant) {
         />
 
         <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={exportMarkdown} disabled={!editor}>
-          <Download size={15} /> Export Markdown
-        </Button>
-        <button type="button" onClick={() => void toggleFavorite()} disabled={favoriteSaving} aria-pressed={isFavorite} aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"} title={isFavorite ? "Remove from favorites" : "Add to favorites"} className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50">
-          <Star size={18} className={isFavorite ? "fill-current text-amber-500" : ""} />
-        </button>
-        <span className="text-xs text-muted-foreground" role="status">
-          {status === "saving" && "Saving…"}
-          {status === "saved" && "Saved"}
-          {status === "error" && "Save failed"}
-          {status === "loading" && "Loading…"}
-        </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={exportMarkdown}
+            disabled={!editor}
+          >
+            <Download size={15} /> Export Markdown
+          </Button>
+          <button
+            type="button"
+            onClick={() => void toggleFavorite()}
+            disabled={favoriteSaving}
+            aria-pressed={isFavorite}
+            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            <Star size={18} className={isFavorite ? "fill-current text-amber-500" : ""} />
+          </button>
+          <span className="text-xs text-muted-foreground" role="status">
+            {status === "saving" && "Saving…"}
+            {status === "saved" && "Saved"}
+            {status === "error" && "Save failed"}
+            {status === "loading" && "Loading…"}
+          </span>
         </div>
       </div>
       {recoveredDraft && (
@@ -440,41 +454,49 @@ while (foundDescendant) {
         </p>
       )}
       {draftWarning && <p role="status" className="text-xs text-muted-foreground">{draftWarning}</p>}
-      <div className="flex flex-wrap items-center gap-3">
-        <label
-            htmlFor="move-page"
-            className="text-sm text-muted-foreground"
-        >
-            Move to:
-        </label>
-
-        <select
-            id="move-page"
-            value={parentId ?? ""}
-            onChange={(event) => void movePage(event.target.value)}
-            disabled={moving}
-            className="max-w-xs rounded-md border bg-background px-3 py-2 text-sm"
-        >
-            <option value="">Top level</option>
-
-            {allPages
-            .filter((page) => !unavailableParentIds.has(page.id))
-            .map((page) => (
-                <option key={page.id} value={page.id}>
-                {page.title || "Untitled"}
-                </option>
-            ))}
-        </select>
-
-        {moving && (
-            <span className="text-xs text-muted-foreground">
-            Moving…
+      <details className="group rounded-xl border bg-card">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <span>
+            <span className="block font-medium">Page details</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Organization, tags, and linked pages
             </span>
-        )}
+          </span>
+          <ChevronDown
+            size={17}
+            aria-hidden="true"
+            className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+          />
+        </summary>
+        <div className="grid gap-6 border-t p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label htmlFor="move-page" className="text-sm font-medium">
+              Move to
+            </label>
+            <select
+              id="move-page"
+              value={parentId ?? ""}
+              onChange={(event) => void movePage(event.target.value)}
+              disabled={moving}
+              className="min-w-0 max-w-full rounded-md border bg-background px-3 py-2 text-sm sm:max-w-xs"
+            >
+              <option value="">Top level</option>
+              {allPages
+                .filter((page) => !unavailableParentIds.has(page.id))
+                .map((page) => (
+                  <option key={page.id} value={page.id}>
+                    {page.title || "Untitled"}
+                  </option>
+                ))}
+            </select>
+            {moving && (
+              <span className="text-xs text-muted-foreground">Moving…</span>
+            )}
+          </div>
+          <PageTags pageId={id} />
+          <PageLinks pageId={id} pages={allPages} />
         </div>
-
-        <PageTags pageId={id} />
-        <PageLinks pageId={id} pages={allPages} />
+      </details>
 
       {error && (
         <div role="alert" className="text-sm text-destructive">

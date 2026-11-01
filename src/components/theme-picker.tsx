@@ -12,6 +12,10 @@ const themes = [
 
 type Theme = (typeof themes)[number]["value"];
 
+function isTheme(value: string | null): value is Theme {
+  return themes.some((candidate) => candidate.value === value);
+}
+
 function applyTheme(theme: Theme) {
   const root = document.documentElement;
   root.dataset.theme = theme;
@@ -28,28 +32,26 @@ export function ThemePicker() {
     } catch {
       // Keep the default theme when browser storage is unavailable.
     }
-    const initial = themes.some((candidate) => candidate.value === saved)
-      ? (saved as Theme)
-      : "light";
+    const initial: Theme = isTheme(saved) ? saved : "light";
     setTheme(initial);
     applyTheme(initial);
   }, []);
 
   function changeTheme(value: string) {
-    if (!themes.some((candidate) => candidate.value === value)) return;
-    const nextTheme = value as Theme;
-    setTheme(nextTheme);
-    applyTheme(nextTheme);
+    if (!isTheme(value)) return;
+    setTheme(value);
+    applyTheme(value);
     try {
-      window.localStorage.setItem("kbs:theme", nextTheme);
+      window.localStorage.setItem("kbs:theme", value);
     } catch {
       // The selected theme still applies for this session.
     }
   }
 
   return (
-    <label className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-sm text-muted-foreground">
+    <label className="flex shrink-0 items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-sm text-muted-foreground">
       <Palette size={15} aria-hidden="true" />
+      <span className="size-2 rounded-full bg-primary ring-2 ring-primary/15" aria-hidden="true" />
       <span className="sr-only">Color theme</span>
       <select
         aria-label="Color theme"

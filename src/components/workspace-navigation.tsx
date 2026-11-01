@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Database, FileText, Star } from "lucide-react";
+import { Database, Files, House, Star } from "lucide-react";
 
 const navigation = [
-  { label: "Home", href: "/", icon: FileText },
-  { label: "Pages", href: "/pages", icon: FileText },
+  { label: "Home", href: "/", icon: House },
+  { label: "Pages", href: "/pages", icon: Files },
   { label: "Databases", href: "/databases", icon: Database },
   { label: "Favorites", href: "/favorites", icon: Star },
 ];

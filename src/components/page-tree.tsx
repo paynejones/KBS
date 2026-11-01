@@ -542,20 +542,18 @@ function clearDragState() {
 
       {renderPages()}
 
-      <div
-        onDragOver={(event) => {
-            if (draggingId) {
+      {draggingId && (
+        <div
+          onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
-            }
-        }}
-        onDrop={(event) => handleDrop(event)}
-        className={`min-h-8 rounded-md border border-dashed p-2 text-center text-xs text-muted-foreground ${
-            draggingId ? "border-primary bg-accent" : "border-transparent"
-        }`}
+          }}
+          onDrop={(event) => handleDrop(event)}
+          className="min-h-8 rounded-md border border-dashed border-primary bg-accent p-2 text-center text-xs text-muted-foreground"
         >
-        Drop here to move to top level
+          Drop here to move to top level
         </div>
+      )}
     </div>
   );
 }

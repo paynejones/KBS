@@ -275,14 +275,19 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold">
+            <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground">
+              YOUR WORKSPACE
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
               {favoritesOnly ? "Favorites" : "Pages"}
             </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Your notes and documents.
+            <p className="mt-2 text-muted-foreground">
+              {favoritesOnly
+                ? "The pages you’ve saved for quick access."
+                : "Browse, search, and organize your notes and documents."}
             </p>
           </div>
 
@@ -388,9 +393,9 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
         )}
 
         {loading ? (
-          <div role="status" aria-label="Loading pages" className="animate-pulse divide-y rounded-lg border">
+          <div role="status" aria-label="Loading pages" className="grid animate-pulse gap-3 sm:grid-cols-2">
             {Array.from({ length: 4 }, (_, index) => (
-              <div key={index} className="grid gap-2 px-4 py-4">
+              <div key={index} className="grid gap-2 rounded-xl border bg-card p-4">
                 <span className="h-4 w-2/5 rounded bg-muted" />
                 <span className="h-3 w-1/4 rounded bg-muted" />
               </div>
@@ -402,7 +407,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
             <Button type="button" variant="outline" size="sm" onClick={() => { setLoading(true); setRetryKey((current) => current + 1); }}>Try again</Button>
           </div>
         ) : filteredPages.length === 0 ? (
-          <div className="rounded-lg border p-8 text-center">
+          <div className="rounded-xl border bg-card p-8 text-center">
             <p className="font-medium">
               {hasFilters ? "No matching pages" : "No pages yet"}
             </p>
@@ -413,20 +418,22 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
             </p>
           </div>
         ) : (
-          <div className="divide-y rounded-lg border">
+          <div className="grid gap-3 sm:grid-cols-2">
             {filteredPages.map((page) => (
               <div
                 key={page.id}
-                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-accent/50"
+                className="flex min-w-0 items-start gap-2 rounded-xl border bg-card p-4 transition-colors hover:border-primary/25 hover:bg-accent/20 sm:p-5"
               >
                 <Link
                   href={`/pages/${page.id}`}
                   className="min-w-0 flex-1"
                 >
-                  <span className="font-medium">{page.title}</span>
+                  <span className="block truncate font-medium tracking-tight">
+                    {page.title || "Untitled"}
+                  </span>
 
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    Updated {new Date(page.updatedAt).toLocaleString()}
+                  <span className="mt-2 block text-xs text-muted-foreground">
+                    Updated {new Date(page.updatedAt).toLocaleDateString()}
                   </span>
 
                   {page.tags.length > 0 && (

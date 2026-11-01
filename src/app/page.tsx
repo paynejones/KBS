@@ -87,8 +87,8 @@ export default function Home() {
 
   return (
     <AppShell>
-      <div className="space-y-12">
-        <section className="relative overflow-hidden rounded-2xl border bg-card px-6 py-8 sm:px-9 sm:py-10">
+      <div className="space-y-10">
+        <section className="relative overflow-hidden rounded-2xl border bg-card px-5 py-7 sm:px-9 sm:py-10">
           <div className="pointer-events-none absolute -right-12 -top-20 size-64 rounded-full bg-primary/5 blur-2xl" />
           <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -99,31 +99,44 @@ export default function Home() {
                 Welcome back
               </h1>
               <p className="mt-3 max-w-lg text-muted-foreground">
-                Your notes, projects, and ideas in one place. Pick up where you left off.
+                Your notes, projects, and ideas—all in one place.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button className="flex-1 sm:flex-none" onClick={() => void createPage()} disabled={creating}>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => void createPage()}
+                disabled={creating}
+              >
                 <Plus size={16} />
                 {creating ? "Creating…" : "New page"}
               </Button>
-              <Button type="button" variant="outline" className="flex-1 sm:flex-none" onClick={() => router.push("/databases")}>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => router.push("/databases")}
+              >
                 <Database size={16} /> Browse databases
               </Button>
             </div>
           </div>
         </section>
 
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
 
-        <section className="space-y-5" aria-labelledby="recent-pages-heading">
+        <section className="space-y-4" aria-labelledby="recent-pages-heading">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium tracking-wide text-muted-foreground">PICK UP WHERE YOU LEFT OFF</p>
-              <h2 id="recent-pages-heading" className="mt-1 text-xl font-semibold tracking-tight">
-                Recently updated
-              </h2>
-            </div>
+            <h2
+              id="recent-pages-heading"
+              className="text-xl font-semibold tracking-tight"
+            >
+              Recently updated
+            </h2>
             <Link
               href="/pages"
               className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -133,9 +146,16 @@ export default function Home() {
           </div>
 
           {loading ? (
-            <div role="status" aria-label="Loading recent pages" className="grid gap-3 sm:grid-cols-2">
+            <div
+              role="status"
+              aria-label="Loading recent pages"
+              className="grid gap-3 sm:grid-cols-2"
+            >
               {Array.from({ length: 4 }, (_, index) => (
-                <div key={index} className="flex h-[74px] animate-pulse items-center gap-3 rounded-lg border p-4">
+                <div
+                  key={index}
+                  className="flex h-[74px] animate-pulse items-center gap-3 rounded-xl border bg-card p-4"
+                >
                   <span className="size-9 shrink-0 rounded-md bg-muted" />
                   <span className="grid flex-1 gap-2">
                     <span className="h-4 w-2/5 rounded bg-muted" />
@@ -145,9 +165,19 @@ export default function Home() {
               ))}
             </div>
           ) : loadError ? (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 p-4">
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-card p-4">
               <p className="text-sm text-destructive">{loadError}</p>
-              <Button type="button" variant="outline" size="sm" onClick={() => { setLoading(true); setRetryKey((current) => current + 1); }}>Try again</Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLoading(true);
+                  setRetryKey((current) => current + 1);
+                }}
+              >
+                Try again
+              </Button>
             </div>
           ) : pages.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -169,13 +199,16 @@ export default function Home() {
                         Updated {new Date(page.updatedAt).toLocaleDateString()}
                       </p>
                     </div>
-                    <ArrowRight size={16} className="mt-1 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                    <ArrowRight
+                      size={16}
+                      className="mt-1 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                    />
                   </div>
                 </Link>
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed p-8 text-center">
+            <div className="rounded-xl border border-dashed bg-card p-8 text-center">
               <FileText className="mx-auto text-muted-foreground" size={22} />
               <p className="mt-3 font-medium">Start with a page</p>
               <p className="mt-1 text-sm text-muted-foreground">
