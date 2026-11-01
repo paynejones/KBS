@@ -6,6 +6,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
+import { PageTags } from "@/components/page-tags";
 
 type PageData = {
   id: string;
@@ -204,6 +205,7 @@ useEffect(() => {
           {status === "loading" && "Loading…"}
         </span>
       </div>
+      <PageTags pageId={id} />
 
       {error && (
         <div role="alert" className="text-sm text-destructive">
