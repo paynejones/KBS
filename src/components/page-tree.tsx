@@ -63,24 +63,28 @@ export function PageTree() {
   }
 
   useEffect(() => {
-  try {
-    const saved = localStorage.getItem("kbs-expanded-pages");
+  const timer = window.setTimeout(() => {
+    try {
+      const saved = localStorage.getItem("kbs-expanded-pages");
 
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved);
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
 
-      if (
-        Array.isArray(parsed) &&
-        parsed.every((id) => typeof id === "string")
-      ) {
-        setExpanded(new Set(parsed));
+        if (
+          Array.isArray(parsed) &&
+          parsed.every((id) => typeof id === "string")
+        ) {
+          setExpanded(new Set(parsed));
+        }
       }
+    } catch (error) {
+      console.error("Could not restore expanded pages:", error);
+    } finally {
+      setExpandedLoaded(true);
     }
-  } catch (error) {
-    console.error("Could not restore expanded pages:", error);
-  } finally {
-    setExpandedLoaded(true);
-  }
+  }, 0);
+
+  return () => window.clearTimeout(timer);
 }, []);
 
 useEffect(() => {
@@ -97,7 +101,7 @@ useEffect(() => {
 }, [expanded, expandedLoaded]);
 
   useEffect(() => {
-    loadPages();
+    const initialLoad = window.setTimeout(() => void loadPages(), 0);
 
     function handlePagesUpdated() {
       loadPages();
@@ -106,6 +110,7 @@ useEffect(() => {
     window.addEventListener("pages-updated", handlePagesUpdated);
 
     return () => {
+      window.clearTimeout(initialLoad);
       window.removeEventListener("pages-updated", handlePagesUpdated);
     };
   }, []);
@@ -376,7 +381,7 @@ function clearDragState() {
                 onDragEnd={clearDragState}
                 onDragOver={(event) => handleDragOver(event, page.id)}
                 onDrop={(event) => handleDrop(event, page.id)}
-                className={`group relative flex items-center gap-1 rounded-md hover:bg-accent ${
+                className={`group relative flex items-center gap-1 rounded-md hover:bg-accent focus-within:bg-accent ${
                     draggingId === page.id ? "opacity-40" : ""
                 } ${
                     dragOverId === page.id && dragPosition === "inside"
@@ -395,7 +400,7 @@ function clearDragState() {
             <button
               type="button"
               onClick={() => toggleExpanded(page.id)}
-              className="flex h-6 w-5 shrink-0 items-center justify-center rounded hover:bg-muted"
+              className="flex h-6 w-5 shrink-0 items-center justify-center rounded hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={isExpanded ? "Collapse page" : "Expand page"}
             >
               {hasChildren ? (
@@ -434,7 +439,7 @@ function clearDragState() {
             ) : (
               <Link
                 href={`/pages/${page.id}`}
-                className="min-w-0 flex-1 truncate py-1.5 pr-1 text-sm"
+                className="min-w-0 flex-1 truncate rounded-sm py-1.5 pr-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 title={page.title}
               >
                 {page.title || "Untitled"}
@@ -464,12 +469,12 @@ function clearDragState() {
                 </button>
               </div>
             ) : (
-              <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <button
                   type="button"
                   onClick={() => reorderPage(page.id, "up")}
                   disabled={index === 0 || isReordering}
-                  className="rounded p-1 hover:bg-muted disabled:opacity-30"
+                  className="rounded p-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30"
                   aria-label="Move page up"
                   title="Move up"
                 >
@@ -480,7 +485,7 @@ function clearDragState() {
                   type="button"
                   onClick={() => reorderPage(page.id, "down")}
                   disabled={index === children.length - 1 || isReordering}
-                  className="rounded p-1 hover:bg-muted disabled:opacity-30"
+                  className="rounded p-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30"
                   aria-label="Move page down"
                   title="Move down"
                 >
@@ -490,7 +495,7 @@ function clearDragState() {
                 <button
                   type="button"
                   onClick={() => startRenaming(page)}
-                  className="rounded p-1 hover:bg-muted"
+                  className="rounded p-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label="Rename page"
                   title="Rename"
                 >
@@ -501,7 +506,7 @@ function clearDragState() {
                   type="button"
                   onClick={() => createSubpage(page.id)}
                   disabled={creatingParent === page.id}
-                  className="rounded p-1 hover:bg-muted disabled:opacity-50"
+                  className="rounded p-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   aria-label="Create subpage"
                   title="Create subpage"
                 >

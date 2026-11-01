@@ -23,6 +23,7 @@ export async function POST(request: Request) {
 
   const { pageId, direction } = parsed.data;
 
+  try {
   // Find the page being moved.
   const [page] = await db
     .select()
@@ -80,4 +81,8 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Failed to reorder pages:", error);
+    return NextResponse.json({ error: "Failed to reorder pages." }, { status: 500 });
+  }
 }

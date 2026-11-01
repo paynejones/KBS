@@ -16,6 +16,7 @@ const updatePageSchema = z.object({
   content: z.string().max(2_000_000).optional(),
   contentJson: z.record(z.string(), z.unknown()).optional(),
   parentId: z.string().uuid().nullable().optional(),
+  isFavorite: z.boolean().optional(),
 }).refine(
   (data) => Object.keys(data).length > 0,
   { message: "Provide at least one field to update" },
@@ -28,17 +29,22 @@ export async function GET(_request: Request, context: Context) {
     return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
   }
 
-  const [page] = await db
-    .select()
-    .from(pages)
-    .where(eq(pages.id, id))
-    .limit(1);
+  try {
+    const [page] = await db
+      .select()
+      .from(pages)
+      .where(eq(pages.id, id))
+      .limit(1);
 
-  if (!page) {
-    return NextResponse.json({ error: "Page not found" }, { status: 404 });
+    if (!page) {
+      return NextResponse.json({ error: "Page not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(page);
+  } catch (error) {
+    console.error("Failed to fetch page:", error);
+    return NextResponse.json({ error: "Failed to fetch page" }, { status: 500 });
   }
-
-  return NextResponse.json(page);
 }
 
 
@@ -62,6 +68,7 @@ export async function PATCH(request: Request, context: Context) {
     );
   }
 
+  try {
   // Confirm the page exists.
     const [existingPage] = await db
     .select({
@@ -177,6 +184,10 @@ export async function PATCH(request: Request, context: Context) {
     .returning();
 
   return NextResponse.json(page);
+  } catch (error) {
+    console.error("Failed to update page:", error);
+    return NextResponse.json({ error: "Failed to update page" }, { status: 500 });
+  }
 }
 
 
@@ -191,36 +202,36 @@ export async function DELETE(_request: Request, context: Context) {
     );
   }
 
-  // Find the page being deleted.
-  const [page] = await db
-    .select({
-      id: pages.id,
-      parentId: pages.parentId,
-    })
-    .from(pages)
-    .where(eq(pages.id, id))
-    .limit(1);
+  try {
+    const deleted = await db.transaction(async (tx) => {
+      const [page] = await tx
+        .select({ id: pages.id, parentId: pages.parentId })
+        .from(pages)
+        .where(eq(pages.id, id))
+        .limit(1);
 
-  if (!page) {
-    return NextResponse.json(
-      { error: "Page not found" },
-      { status: 404 }
-    );
+      if (!page) return false;
+
+      await tx
+        .update(pages)
+        .set({ parentId: page.parentId, updatedAt: new Date() })
+        .where(eq(pages.parentId, id));
+
+      const [deletedPage] = await tx
+        .delete(pages)
+        .where(eq(pages.id, id))
+        .returning({ id: pages.id });
+
+      return Boolean(deletedPage);
+    });
+
+    if (!deleted) {
+      return NextResponse.json({ error: "Page not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete page:", error);
+    return NextResponse.json({ error: "Failed to delete page" }, { status: 500 });
   }
-
-  // Move its direct children to its parent.
-  await db
-    .update(pages)
-    .set({
-      parentId: page.parentId,
-      updatedAt: new Date(),
-    })
-    .where(eq(pages.parentId, id));
-
-  // Delete the page itself.
-  await db
-    .delete(pages)
-    .where(eq(pages.id, id));
-
-  return NextResponse.json({ success: true });
 }

@@ -17,6 +17,8 @@ import { pages, pageTags, tags } from "@/db/schema";
 const createPageSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   parentId: z.string().uuid().nullable().optional(),
+  content: z.string().max(2_000_000).optional(),
+  contentJson: z.record(z.string(), z.unknown()).optional(),
 });
 
 export async function GET(request: Request) {
@@ -24,12 +26,18 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("q")?.trim();
     const tagId = searchParams.get("tagId");
+    const favoritesOnly = searchParams.get("favorite") === "true";
+
+    if (tagId && !z.string().uuid().safeParse(tagId).success) {
+      return NextResponse.json({ error: "Invalid tag ID." }, { status: 400 });
+    }
 
     const results = await db
       .select()
       .from(pages)
       .where(
         and(
+          favoritesOnly ? eq(pages.isFavorite, true) : undefined,
           query
             ? or(
                 ilike(pages.title, `%${query}%`),
@@ -104,6 +112,7 @@ export async function POST(request: Request) {
 
   const parentId = parsed.data.parentId ?? null;
 
+  try {
   if (parentId) {
     const [parentPage] = await db
       .select({ id: pages.id })
@@ -139,8 +148,14 @@ export async function POST(request: Request) {
       title: parsed.data.title ?? "Untitled",
       parentId,
       sortOrder: nextSortOrder,
+      content: parsed.data.content ?? "",
+      contentJson: parsed.data.contentJson ?? {},
     })
     .returning();
 
   return NextResponse.json(page, { status: 201 });
+  } catch (error) {
+    console.error("Failed to create page:", error);
+    return NextResponse.json({ error: "Failed to create page." }, { status: 500 });
+  }
 }

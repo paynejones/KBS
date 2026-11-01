@@ -1,37 +1,48 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { Star, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { markdownFileToPage } from "@/lib/markdown-import";
 
 type PageSummary = {
   id: string;
   title: string;
   createdAt: string;
   updatedAt: string;
+  isFavorite: boolean;
   tags: {
     id: string;
     name: string;
   }[];
 };
 
-export default function PagesPage() {
+export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolean }) {
   const router = useRouter();
 
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [allTags, setAllTags] = useState<
     { id: string; name: string }[]
   >([]);
   const [selectedTagId, setSelectedTagId] = useState("");
+  const [updatedFrom, setUpdatedFrom] = useState("");
+  const [updatedThrough, setUpdatedThrough] = useState("");
+  const [sortOrder, setSortOrder] = useState("updated-desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [retryKey, setRetryKey] = useState(0);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const importInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +84,7 @@ export default function PagesPage() {
     let cancelled = false;
 
     async function fetchPages() {
+      setLoadError("");
       try {
         const params = new URLSearchParams();
 
@@ -84,6 +96,8 @@ export default function PagesPage() {
           params.set("tagId", selectedTagId);
         }
 
+        if (favoritesOnly) params.set("favorite", "true");
+
         const response = await fetch(`/api/pages?${params.toString()}`);
 
         if (!response.ok) {
@@ -94,12 +108,12 @@ export default function PagesPage() {
 
         if (!cancelled) {
           setPages(data);
-          setError("");
+          setLoadError("");
         }
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load pages:", error);
-          setError("Failed to load pages. Please try again.");
+          setLoadError("Failed to load pages.");
         }
       } finally {
         if (!cancelled) {
@@ -113,7 +127,29 @@ export default function PagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, selectedTagId]);
+  }, [debouncedSearch, selectedTagId, favoritesOnly, refreshKey, retryKey]);
+
+  async function toggleFavorite(page: PageSummary) {
+    const isFavorite = !page.isFavorite;
+    setError("");
+    try {
+      const response = await fetch(`/api/pages/${page.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isFavorite }),
+      });
+      if (!response.ok) throw new Error("Could not update favorite.");
+      setPages((previous) =>
+        favoritesOnly && !isFavorite
+          ? previous.filter((item) => item.id !== page.id)
+          : previous.map((item) =>
+              item.id === page.id ? { ...item, isFavorite } : item,
+            ),
+      );
+    } catch {
+      setError("Could not update favorite. Please try again.");
+    }
+  }
 
   async function createPage() {
     setError("");
@@ -134,6 +170,49 @@ export default function PagesPage() {
     } catch {
       setError("Could not create a page. Please try again.");
     }
+  }
+
+  async function importMarkdown(files: File[]) {
+    if (files.length === 0) return;
+    setImporting(true);
+    setImportMessage("");
+    setError("");
+    let imported = 0;
+    const failures: string[] = [];
+
+    for (const file of files) {
+      if (!/\.(md|markdown)$/i.test(file.name)) {
+        failures.push(`${file.name}: unsupported file type`);
+        continue;
+      }
+      if (file.size > 2_000_000) {
+        failures.push(`${file.name}: file exceeds the 2 MB limit`);
+        continue;
+      }
+      try {
+        const importedPage = markdownFileToPage(await file.text(), file.name);
+        const response = await fetch("/api/pages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(importedPage),
+        });
+        if (!response.ok) throw new Error("Server could not create page");
+        imported++;
+      } catch {
+        failures.push(`${file.name}: import failed`);
+      }
+    }
+
+    if (imported > 0) {
+      setRefreshKey((current) => current + 1);
+      window.dispatchEvent(new Event("pages-updated"));
+    }
+    setImportMessage(
+      failures.length > 0
+        ? `Imported ${imported} of ${files.length} files. ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? `; and ${failures.length - 3} more` : ""}`
+        : `Imported ${imported} ${imported === 1 ? "page" : "pages"}.`,
+    );
+    setImporting(false);
   }
 
   async function deletePage(page: PageSummary) {
@@ -169,20 +248,65 @@ export default function PagesPage() {
     }
   }
 
+  const dateKey = (value: string) => {
+    const date = new Date(value);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const filteredPages = pages
+    .filter((page) => {
+      const updated = dateKey(page.updatedAt);
+      return (!updatedFrom || updated >= updatedFrom) &&
+        (!updatedThrough || updated <= updatedThrough);
+    })
+    .sort((left, right) => {
+      switch (sortOrder) {
+        case "updated-asc": return new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime();
+        case "created-desc": return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+        case "created-asc": return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+        case "title-asc": return left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+        case "title-desc": return right.title.localeCompare(left.title, undefined, { sensitivity: "base" });
+        default: return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      }
+    });
+  const hasFilters = Boolean(search.trim() || selectedTagId || updatedFrom || updatedThrough);
+
   return (
     <AppShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold">Pages</h1>
+            <h1 className="text-3xl font-semibold">
+              {favoritesOnly ? "Favorites" : "Pages"}
+            </h1>
             <p className="mt-2 text-sm text-muted-foreground">
               Your notes and documents.
             </p>
           </div>
 
-          <Button onClick={() => void createPage()}>
-            New page
-          </Button>
+          {!favoritesOnly && (
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={importInput}
+                type="file"
+                accept=".md,.markdown,text/markdown"
+                multiple
+                className="hidden"
+                aria-label="Choose Markdown files to import"
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? []);
+                  event.currentTarget.value = "";
+                  void importMarkdown(files);
+                }}
+              />
+              <Button type="button" variant="outline" onClick={() => importInput.current?.click()} disabled={importing}>
+                {importing ? "Importing…" : "Import Markdown"}
+              </Button>
+              <Button onClick={() => void createPage()}>New page</Button>
+            </div>
+          )}
         </div>
 
         <div className="relative">
@@ -212,11 +336,12 @@ export default function PagesPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="grid grid-cols-1 items-end gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2 lg:flex lg:flex-wrap">
           <select
+            aria-label="Filter pages by tag"
             value={selectedTagId}
             onChange={(event) => setSelectedTagId(event.target.value)}
-            className="w-full max-w-xs rounded-md border bg-background px-3 py-2 text-sm"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm sm:col-span-2 lg:w-auto lg:min-w-40"
           >
             <option value="">All tags</option>
 
@@ -227,15 +352,26 @@ export default function PagesPage() {
             ))}
           </select>
 
-          {selectedTagId && (
-            <button
-              type="button"
-              onClick={() => setSelectedTagId("")}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Clear filter
-            </button>
-          )}
+          <label className="grid gap-1 text-xs text-muted-foreground">
+            Updated from
+            <input type="date" value={updatedFrom} max={updatedThrough || undefined} onChange={(event) => setUpdatedFrom(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
+          </label>
+          <label className="grid gap-1 text-xs text-muted-foreground">
+            Updated through
+            <input type="date" value={updatedThrough} min={updatedFrom || undefined} onChange={(event) => setUpdatedThrough(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
+          </label>
+          <label className="grid gap-1 text-xs text-muted-foreground">
+            Sort
+            <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground lg:w-auto">
+              <option value="updated-desc">Recently updated</option>
+              <option value="updated-asc">Least recently updated</option>
+              <option value="created-desc">Recently created</option>
+              <option value="created-asc">Oldest created</option>
+              <option value="title-asc">Title A–Z</option>
+              <option value="title-desc">Title Z–A</option>
+            </select>
+          </label>
+          {hasFilters && <Button type="button" variant="ghost" size="sm" onClick={() => { setSearch(""); setSelectedTagId(""); setUpdatedFrom(""); setUpdatedThrough(""); setSortOrder("updated-desc"); }}>Clear filters</Button>}
         </div>
 
         {error && (
@@ -243,25 +379,42 @@ export default function PagesPage() {
             {error}
           </p>
         )}
+        {importMessage && <p role="status" className="text-sm text-muted-foreground">{importMessage}</p>}
+
+        {!loading && !loadError && (
+          <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
+            Showing {filteredPages.length} {favoritesOnly ? "favorite" : "page"}{filteredPages.length === 1 ? "" : "s"}
+          </p>
+        )}
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">
-            Loading pages…
-          </p>
-        ) : pages.length === 0 ? (
+          <div role="status" aria-label="Loading pages" className="animate-pulse divide-y rounded-lg border">
+            {Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="grid gap-2 px-4 py-4">
+                <span className="h-4 w-2/5 rounded bg-muted" />
+                <span className="h-3 w-1/4 rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        ) : loadError ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 p-4">
+            <p className="text-sm text-destructive">{loadError}</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => { setLoading(true); setRetryKey((current) => current + 1); }}>Try again</Button>
+          </div>
+        ) : filteredPages.length === 0 ? (
           <div className="rounded-lg border p-8 text-center">
             <p className="font-medium">
-              {search.trim() ? "No matching pages" : "No pages yet"}
+              {hasFilters ? "No matching pages" : "No pages yet"}
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              {search.trim()
-                ? "Try a different search term."
+              {hasFilters
+                ? "Try changing or clearing your filters."
                 : "Create your first note to get started."}
             </p>
           </div>
         ) : (
           <div className="divide-y rounded-lg border">
-            {pages.map((page) => (
+            {filteredPages.map((page) => (
               <div
                 key={page.id}
                 className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-accent/50"
@@ -294,6 +447,16 @@ export default function PagesPage() {
                   type="button"
                   variant="ghost"
                   size="icon"
+                  onClick={() => void toggleFavorite(page)}
+                  aria-label={page.isFavorite ? `Remove ${page.title} from favorites` : `Add ${page.title} to favorites`}
+                  title={page.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <Star size={16} className={page.isFavorite ? "fill-current text-amber-500" : "text-muted-foreground"} />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   disabled={deletingId !== null}
                   onClick={() => void deletePage(page)}
                   aria-label={`Delete ${page.title}`}
@@ -312,4 +475,8 @@ export default function PagesPage() {
       </div>
     </AppShell>
   );
+}
+
+export default function PagesPage() {
+  return <PagesBrowser />;
 }

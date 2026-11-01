@@ -34,3 +34,21 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Reliability checks
+
+Run the pure reliability tests with:
+
+```bash
+npm test
+```
+
+Run the PostgreSQL transaction checks with:
+
+```bash
+npm run test:db
+```
+
+The database check uses `DATABASE_URL` only to create a uniquely named temporary database, applies the project migrations there, runs the checks, and drops that temporary database afterward. It requires permission to create databases and connect to the PostgreSQL `postgres` database. It does not run mutations against the configured application database.
+
+See [the deployment readiness runbook](docs/deployment-readiness.md) for migration, backup, restore, security, and monitoring requirements before hosting.

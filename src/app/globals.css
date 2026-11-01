@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -117,15 +117,80 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+html[data-theme="warm"] {
+  color-scheme: light;
+  --background: #f7f4ed;
+  --foreground: #302d25;
+  --card: #fffdf8;
+  --card-foreground: #302d25;
+  --popover: #fffdf8;
+  --popover-foreground: #302d25;
+  --primary: #665642;
+  --primary-foreground: #fffdf8;
+  --secondary: #ebe5d9;
+  --secondary-foreground: #302d25;
+  --muted: #eee9df;
+  --muted-foreground: #766e60;
+  --accent: #eae4d7;
+  --accent-foreground: #302d25;
+  --destructive: #a44135;
+  --border: #e3dccf;
+  --input: #e3dccf;
+  --ring: #8b7454;
+  --sidebar: #f1ede4;
+  --sidebar-foreground: #302d25;
+  --sidebar-primary: #665642;
+  --sidebar-primary-foreground: #fffdf8;
+  --sidebar-accent: #e6dfd1;
+  --sidebar-accent-foreground: #302d25;
+  --sidebar-border: #e3dccf;
+  --sidebar-ring: #8b7454;
+}
+
+html[data-theme="forest"] {
+  color-scheme: light;
+  --background: #f2f6f0;
+  --foreground: #202c22;
+  --card: #fbfdf9;
+  --card-foreground: #202c22;
+  --popover: #fbfdf9;
+  --popover-foreground: #202c22;
+  --primary: #375b40;
+  --primary-foreground: #f8fbf6;
+  --secondary: #e2ece1;
+  --secondary-foreground: #202c22;
+  --muted: #e9f0e7;
+  --muted-foreground: #607264;
+  --accent: #e1ebdf;
+  --accent-foreground: #263a2a;
+  --destructive: #a43d34;
+  --border: #d9e3d6;
+  --input: #d9e3d6;
+  --ring: #64816a;
+  --sidebar: #eaf1e7;
+  --sidebar-foreground: #202c22;
+  --sidebar-primary: #375b40;
+  --sidebar-primary-foreground: #f8fbf6;
+  --sidebar-accent: #dce8da;
+  --sidebar-accent-foreground: #263a2a;
+  --sidebar-border: #d9e3d6;
+  --sidebar-ring: #64816a;
+}
+
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   }
   html {
     @apply font-sans;
+    overflow-x: clip;
   }
 }
 

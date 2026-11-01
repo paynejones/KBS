@@ -1,6 +1,6 @@
 
 import { NextResponse } from "next/server";
-import { and, eq, isNull, ne, max } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
 import { z } from "zod";

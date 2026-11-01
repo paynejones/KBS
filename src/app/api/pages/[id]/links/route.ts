@@ -1,0 +1,107 @@
+import { and, eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/db";
+import { pageLinks, pages } from "@/db/schema";
+
+type Context = { params: Promise<{ id: string }> };
+const idSchema = z.string().uuid();
+const linkSchema = z.object({ targetPageId: z.string().uuid() });
+
+export async function GET(_request: Request, context: Context) {
+  const { id } = await context.params;
+  if (!idSchema.safeParse(id).success) {
+    return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
+  }
+
+  try {
+    const [page] = await db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(eq(pages.id, id))
+      .limit(1);
+    if (!page) {
+      return NextResponse.json({ error: "Page not found" }, { status: 404 });
+    }
+
+    const [links, backlinks] = await Promise.all([
+      db
+        .select({ id: pages.id, title: pages.title })
+        .from(pageLinks)
+        .innerJoin(pages, eq(pageLinks.targetPageId, pages.id))
+        .where(eq(pageLinks.sourcePageId, id))
+        .orderBy(pages.title),
+      db
+        .select({ id: pages.id, title: pages.title })
+        .from(pageLinks)
+        .innerJoin(pages, eq(pageLinks.sourcePageId, pages.id))
+        .where(eq(pageLinks.targetPageId, id))
+        .orderBy(pages.title),
+    ]);
+
+    return NextResponse.json({ links, backlinks });
+  } catch (error) {
+    console.error("Failed to load page links:", error);
+    return NextResponse.json({ error: "Failed to load page links" }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request, context: Context) {
+  const { id } = await context.params;
+  if (!idSchema.safeParse(id).success) {
+    return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
+  }
+  const parsed = linkSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid target page" }, { status: 400 });
+  }
+  if (parsed.data.targetPageId === id) {
+    return NextResponse.json({ error: "A page cannot link to itself" }, { status: 400 });
+  }
+
+  try {
+    const [target] = await db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(eq(pages.id, parsed.data.targetPageId))
+      .limit(1);
+    if (!target) {
+      return NextResponse.json({ error: "Target page not found" }, { status: 404 });
+    }
+
+    await db
+      .insert(pageLinks)
+      .values({ sourcePageId: id, targetPageId: target.id })
+      .onConflictDoNothing();
+    return NextResponse.json({ success: true }, { status: 201 });
+  } catch (error) {
+    console.error("Failed to link pages:", error);
+    return NextResponse.json({ error: "Failed to link pages" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request, context: Context) {
+  const { id } = await context.params;
+  if (!idSchema.safeParse(id).success) {
+    return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
+  }
+  const parsed = linkSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid target page" }, { status: 400 });
+  }
+
+  try {
+    await db
+      .delete(pageLinks)
+      .where(
+        and(
+          eq(pageLinks.sourcePageId, id),
+          eq(pageLinks.targetPageId, parsed.data.targetPageId),
+        ),
+      );
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Failed to unlink pages:", error);
+    return NextResponse.json({ error: "Failed to unlink pages" }, { status: 500 });
+  }
+}

@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { pageTags, pages, tags } from "@/db/schema";
 import { z } from "zod";
 
+const pageIdSchema = z.string().uuid();
+
 const assignTagSchema = z.object({
   tagId: z.string().uuid(),
 });
@@ -21,6 +23,10 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+
+    if (!pageIdSchema.safeParse(id).success) {
+      return Response.json({ error: "Invalid page ID." }, { status: 400 });
+    }
 
     const results = await db
       .select({
@@ -49,7 +55,11 @@ export async function POST(
   try {
     const { id } = await params;
 
-    const body = await request.json();
+    if (!pageIdSchema.safeParse(id).success) {
+      return Response.json({ error: "Invalid page ID." }, { status: 400 });
+    }
+
+    const body: unknown = await request.json().catch(() => null);
     const parsed = assignTagSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -111,7 +121,11 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    const body = await request.json();
+    if (!pageIdSchema.safeParse(id).success) {
+      return Response.json({ error: "Invalid page ID." }, { status: 400 });
+    }
+
+    const body: unknown = await request.json().catch(() => null);
     const parsed = removeTagSchema.safeParse(body);
 
     if (!parsed.success) {

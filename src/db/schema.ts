@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   AnyPgColumn,
   integer,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 export const pages = pgTable(
@@ -21,6 +22,7 @@ export const pages = pgTable(
         { onDelete: "set null" }
     ),
     sortOrder: integer("sort_order").notNull().default(0),
+    isFavorite: boolean("is_favorite").notNull().default(false),
 
     // Workspace ownership will be added when workspaces
     // and authentication are implemented.
@@ -87,4 +89,149 @@ export const pageTags = pgTable(
 
     index("page_tags_tag_id_idx").on(table.tagId),
   ]
+);
+
+export const pageLinks = pgTable(
+  "page_links",
+  {
+    sourcePageId: uuid("source_page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    targetPageId: uuid("target_page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourcePageId, table.targetPageId] }),
+    index("page_links_target_page_id_idx").on(table.targetPageId),
+  ],
+);
+
+// Databases own records and properties. Views are separate so full-page and
+// future embedded database views can reference the same underlying records.
+export const databases = pgTable(
+  "databases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull().default("Untitled database"),
+    description: text("description").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("databases_updated_at_idx").on(table.updatedAt)],
+);
+
+export const databaseProperties = pgTable(
+  "database_properties",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    databaseId: uuid("database_id")
+      .notNull()
+      .references(() => databases.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type").notNull().default("text"),
+    options: jsonb("options")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("database_properties_database_id_idx").on(table.databaseId)],
+);
+
+export const databaseRecords = pgTable(
+  "database_records",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    databaseId: uuid("database_id")
+      .notNull()
+      .references(() => databases.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id").references(() => pages.id, { onDelete: "set null" }),
+    title: text("title").notNull().default("Untitled"),
+    values: jsonb("values")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("database_records_database_id_idx").on(table.databaseId),
+    index("database_records_updated_at_idx").on(table.updatedAt),
+  ],
+);
+
+export const databaseViews = pgTable(
+  "database_views",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    databaseId: uuid("database_id")
+      .notNull()
+      .references(() => databases.id, { onDelete: "cascade" }),
+    name: text("name").notNull().default("Table"),
+    type: text("type").notNull().default("table"),
+    config: jsonb("config")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("database_views_database_id_idx").on(table.databaseId)],
+);
+
+export const databaseTemplates = pgTable(
+  "database_templates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    databaseId: uuid("database_id")
+      .notNull()
+      .references(() => databases.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    title: text("title").notNull().default("Untitled"),
+    values: jsonb("values")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("database_templates_database_id_idx").on(table.databaseId)],
+);
+
+export const databaseRecordRelations = pgTable(
+  "database_record_relations",
+  {
+    sourceRecordId: uuid("source_record_id")
+      .notNull()
+      .references(() => databaseRecords.id, { onDelete: "cascade" }),
+    propertyId: uuid("property_id")
+      .notNull()
+      .references(() => databaseProperties.id, { onDelete: "cascade" }),
+    targetRecordId: uuid("target_record_id")
+      .notNull()
+      .references(() => databaseRecords.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceRecordId, table.propertyId, table.targetRecordId] }),
+    index("database_record_relations_target_record_id_idx").on(table.targetRecordId),
+  ],
 );

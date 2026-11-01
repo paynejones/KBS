@@ -1,6 +1,6 @@
 
 import "dotenv/config";
-import { asc, eq, isNull } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db, pool } from "@/db";
 import { pages } from "@/db/schema";
 
