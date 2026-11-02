@@ -28,6 +28,22 @@ async function expectFailure<T>(action: () => Promise<T>): Promise<T> {
   }
 }
 
+async function waitForDatabaseConnectionsToClose(admin: Client, databaseName: string) {
+  const timeoutAt = Date.now() + 10_000;
+
+  while (Date.now() < timeoutAt) {
+    const result = await admin.query<{ connections: string }>(
+      "SELECT count(*)::text AS connections FROM pg_stat_activity WHERE datname = $1",
+      [databaseName],
+    );
+
+    if (Number(result.rows[0]?.connections ?? 0) === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Timed out waiting for connections to temporary database ${databaseName} to close.`);
+}
+
 async function main() {
   const configuredUrl = process.env.DATABASE_URL;
   if (!configuredUrl) throw new Error("DATABASE_URL is required to run database integration checks.");
@@ -426,10 +442,17 @@ async function main() {
     console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, database CRUD, relations, rollups, views, and templates.");
   } finally {
     if (applicationPool) await applicationPool.end();
-    if (databaseCreated) {
-      await admin.query(`DROP DATABASE "${testDatabaseName}" WITH (FORCE)`);
+    try {
+      if (databaseCreated) {
+        // Pool.end() starts client shutdown, but the PostgreSQL socket close can
+        // finish just after its promise resolves. Wait for the server to see
+        // those sessions disappear before dropping the temporary database.
+        await waitForDatabaseConnectionsToClose(admin, testDatabaseName);
+        await admin.query(`DROP DATABASE "${testDatabaseName}"`);
+      }
+    } finally {
+      await admin.end();
     }
-    await admin.end();
   }
 }
 

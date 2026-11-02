@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Download, Star } from "lucide-react";
 import Image from "next/image";
 import { useEditor, EditorContent } from "@tiptap/react";
-import { Extension } from "@tiptap/core";
+import { Extension, type Editor } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { DatabaseEmbedExtension, DatabaseEmbedPicker } from "@/components/database-embed";
 import { CalloutExtension, TaskItemExtension, TaskListExtension, ToggleExtension } from "@/components/task-list-extension";
@@ -16,7 +17,7 @@ import { EditorToolbar } from "@/components/editor-toolbar";
 import { PageTags } from "@/components/page-tags";
 import { PageLinks } from "@/components/page-links";
 import { tiptapToMarkdown } from "@/lib/markdown";
-import { readRecoverablePageDraft } from "@/lib/page-draft";
+import { readRecoverablePageDraft, type PageDraft } from "@/lib/page-draft";
 
 type PageData = {
   id: string;
@@ -69,6 +70,36 @@ const slashCommands: SlashCommand[] = [
   { label: "Strikethrough", detail: "Crossed out text", keywords: "strike", run: (editor) => editor.chain().focus().toggleStrike().run() },
 ];
 
+function moveTopLevelBlock(editor: Editor, direction: -1 | 1) {
+  const { state } = editor;
+  const { selection } = state;
+  const from = selection.$from;
+  const to = selection.$to;
+  const index = from.index(0);
+  if (index !== to.index(0) || from.depth < 1) return false;
+
+  const block = state.doc.child(index);
+  const blockStart = from.before(1);
+  const beforeSize = Array.from({ length: index }, (_, i) => state.doc.child(i).nodeSize)
+    .reduce((sum, size) => sum + size, 0);
+  if (beforeSize !== blockStart) return false;
+
+  const neighborIndex = index + direction;
+  if (neighborIndex < 0 || neighborIndex >= state.doc.childCount) return false;
+  const neighbor = state.doc.child(neighborIndex);
+  const destination = direction < 0
+    ? blockStart - neighbor.nodeSize
+    : blockStart + neighbor.nodeSize;
+  const relativeFrom = selection.from - blockStart;
+  const relativeTo = selection.to - blockStart;
+  const transaction = state.tr.delete(blockStart, blockStart + block.nodeSize).insert(destination, block);
+  const selectionFrom = Math.max(destination + 1, Math.min(destination + relativeFrom, transaction.doc.content.size - 1));
+  const selectionTo = Math.max(selectionFrom, Math.min(destination + relativeTo, transaction.doc.content.size - 1));
+  transaction.setSelection(TextSelection.create(transaction.doc, selectionFrom, selectionTo));
+  editor.view.dispatch(transaction.scrollIntoView());
+  return true;
+}
+
 const EditorBlockShortcuts = Extension.create({
   name: "editorBlockShortcuts",
   addKeyboardShortcuts() {
@@ -81,6 +112,8 @@ const EditorBlockShortcuts = Extension.create({
       "Mod-Shift-9": () => this.editor.chain().focus().toggleBlockquote().run(),
       "Mod-Alt-c": () => this.editor.chain().focus().toggleCodeBlock().run(),
       "Mod-Alt-d": () => this.editor.chain().focus().setHorizontalRule().run(),
+      "Alt-Shift-ArrowUp": () => moveTopLevelBlock(this.editor, -1),
+      "Alt-Shift-ArrowDown": () => moveTopLevelBlock(this.editor, 1),
     };
   },
 });
@@ -95,6 +128,7 @@ export function PageEditor({ id }: { id: string }) {
   const [loaded, setLoaded] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [recoveredDraft, setRecoveredDraft] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<PageDraft | null>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveInProgress = useRef(false);
@@ -268,15 +302,16 @@ export function PageEditor({ id }: { id: string }) {
         } catch {
           // Local draft storage can be unavailable in private browsing contexts.
         }
-        const contentToLoad = recovered?.contentJson ?? serverContentJson;
+        const contentToLoad = serverContentJson;
         latestContent.current = {
-          content: recovered?.content ?? page.content ?? "",
-          contentJson: recovered?.contentJson ?? (page.contentJson ?? {}),
-          revision: recovered?.revision ?? 0,
+          content: page.content ?? "",
+          contentJson: page.contentJson ?? {},
+          revision: 0,
         };
-        draftRevision.current = recovered?.revision ?? 0;
-        dirty.current = Boolean(recovered);
-        setRecoveredDraft(Boolean(recovered));
+        draftRevision.current = 0;
+        dirty.current = false;
+        setRecoveredDraft(false);
+        setPendingDraft(recovered);
         editor?.commands.setContent(
           contentToLoad,
         );
@@ -441,6 +476,23 @@ async function retryContentSave() {
       // The server copy is saved; an uncleared local draft is ignored when stale.
     }
   }
+}
+
+function recoverLocalDraft() {
+  if (!editor || !pendingDraft) return;
+  draftRevision.current = pendingDraft.revision;
+  setRecoveredDraft(true);
+  editor.commands.setContent(pendingDraft.contentJson as Parameters<typeof editor.commands.setContent>[0]);
+  setPendingDraft(null);
+}
+
+function discardLocalDraft() {
+  try {
+    localStorage.removeItem(draftStorageKey);
+  } catch {
+    setDraftWarning("This browser could not remove the local recovered draft.");
+  }
+  setPendingDraft(null);
 }
 
 async function movePage(newParentId: string) {
@@ -649,9 +701,18 @@ while (foundDescendant) {
           </label>
         </div>
       </section>
+      {pendingDraft && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          <p className="text-sm text-muted-foreground">An unsaved local draft is available for this page.</p>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" onClick={recoverLocalDraft}>Recover draft</Button>
+            <Button type="button" size="sm" variant="outline" onClick={discardLocalDraft}>Discard draft</Button>
+          </div>
+        </div>
+      )}
       {recoveredDraft && (
         <p role="status" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">
-          Recovered unsaved changes from this device. Saving them now…
+          Recovered draft loaded. Saving changes…
         </p>
       )}
       {draftWarning && <p role="status" className="text-xs text-muted-foreground">{draftWarning}</p>}
@@ -715,6 +776,7 @@ while (foundDescendant) {
 
       <div className="rounded-xl border bg-card px-4 py-4 sm:px-8 sm:py-7">
         <EditorToolbar editor={editor} />
+        <p className="pb-2 pt-1 text-xs text-muted-foreground">Reorder a block: Alt+Shift+↑ / ↓</p>
         <div className="border-b py-3">
           <DatabaseEmbedPicker editor={editor} />
         </div>
