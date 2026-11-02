@@ -1,9 +1,9 @@
 
 import { NextResponse } from "next/server";
-import { eq, max, isNull } from "drizzle-orm";
+import { desc, eq, inArray, max, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { pages } from "@/db/schema";
+import { pageRevisions, pages } from "@/db/schema";
 
 type Context = {
   params: Promise<{ id: string }>;
@@ -76,10 +76,7 @@ export async function PATCH(request: Request, context: Context) {
   try {
   // Confirm the page exists.
     const [existingPage] = await db
-    .select({
-        id: pages.id,
-        parentId: pages.parentId,
-    })
+    .select()
     .from(pages)
     .where(eq(pages.id, id))
     .limit(1);
@@ -176,17 +173,53 @@ export async function PATCH(request: Request, context: Context) {
     nextSortOrder = (result?.maxSortOrder ?? -1) + 1;
   }
 
-  const [page] = await db
-    .update(pages)
-    .set({
-      ...parsed.data,
-      ...(nextSortOrder !== undefined
-        ? { sortOrder: nextSortOrder }
-        : {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(pages.id, id))
-    .returning();
+  const page = await db.transaction(async (tx) => {
+    const contentChanged =
+      (parsed.data.title !== undefined && parsed.data.title !== existingPage.title) ||
+      (parsed.data.content !== undefined && parsed.data.content !== existingPage.content) ||
+      (parsed.data.contentJson !== undefined && JSON.stringify(parsed.data.contentJson) !== JSON.stringify(existingPage.contentJson));
+
+    if (contentChanged) {
+      const [latestRevision] = await tx
+        .select({ createdAt: pageRevisions.createdAt })
+        .from(pageRevisions)
+        .where(eq(pageRevisions.pageId, id))
+        .orderBy(desc(pageRevisions.createdAt))
+        .limit(1);
+
+      if (!latestRevision || Date.now() - latestRevision.createdAt.getTime() >= 60_000) {
+        await tx.insert(pageRevisions).values({
+          pageId: id,
+          title: existingPage.title,
+          content: existingPage.content,
+          contentJson: existingPage.contentJson,
+        });
+
+        const oldRevisions = await tx
+          .select({ id: pageRevisions.id })
+          .from(pageRevisions)
+          .where(eq(pageRevisions.pageId, id))
+          .orderBy(desc(pageRevisions.createdAt))
+          .offset(100);
+
+        if (oldRevisions.length) {
+          await tx.delete(pageRevisions).where(inArray(pageRevisions.id, oldRevisions.map((revision) => revision.id)));
+        }
+      }
+    }
+
+    const [updatedPage] = await tx
+      .update(pages)
+      .set({
+        ...parsed.data,
+        ...(nextSortOrder !== undefined ? { sortOrder: nextSortOrder } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(pages.id, id))
+      .returning();
+
+    return updatedPage;
+  });
 
   return NextResponse.json(page);
   } catch (error) {

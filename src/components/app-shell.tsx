@@ -81,7 +81,7 @@ export function AppShell({
 
       <nav
         aria-label="Mobile navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-lg backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-lg backdrop-blur md:hidden"
       >
         <Suspense fallback={<WorkspaceNavigationFallback mobile />}>
           <WorkspaceNavigation mobile />

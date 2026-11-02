@@ -55,6 +55,19 @@ export const pages = pgTable(
   ],
 );
 
+export const pageRevisions = pgTable(
+  "page_revisions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pageId: uuid("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    contentJson: jsonb("content_json").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("page_revisions_page_created_idx").on(table.pageId, table.createdAt)],
+);
+
 export const tags = pgTable(
   "tags",
   {

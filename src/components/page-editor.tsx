@@ -32,6 +32,7 @@ type PageData = {
 };
 
 type SaveStatus = "loading" | "saved" | "saving" | "error";
+type PageRevision = { id: string; title: string; content: string; createdAt: string };
 
 type SlashCommand = {
   label: string;
@@ -154,6 +155,10 @@ export function PageEditor({ id }: { id: string }) {
   const [icon, setIcon] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [coverImageError, setCoverImageError] = useState<"invalid" | "load" | null>(null);
+  const [revisions, setRevisions] = useState<PageRevision[]>([]);
+  const [loadingRevisions, setLoadingRevisions] = useState(false);
+  const [revisionError, setRevisionError] = useState("");
+  const [restoringRevision, setRestoringRevision] = useState("");
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashMenuRef = useRef<SlashMenuState>(null);
@@ -495,6 +500,43 @@ function discardLocalDraft() {
   setPendingDraft(null);
 }
 
+async function loadRevisions() {
+  setLoadingRevisions(true);
+  setRevisionError("");
+  try {
+    const response = await fetch(`/api/pages/${id}/revisions`);
+    if (!response.ok) throw new Error("Unable to load page history.");
+    setRevisions(await response.json() as PageRevision[]);
+  } catch (historyError) {
+    setRevisionError(historyError instanceof Error ? historyError.message : "Unable to load page history.");
+  } finally {
+    setLoadingRevisions(false);
+  }
+}
+
+async function restoreRevision(revisionId: string) {
+  if (!window.confirm("Restore this version? The current page will be saved to history first.")) return;
+  setRestoringRevision(revisionId);
+  setRevisionError("");
+  try {
+    const response = await fetch(`/api/pages/${id}/revisions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revisionId }),
+    });
+    if (!response.ok) throw new Error("Unable to restore this version.");
+    const page = await response.json() as PageData;
+    setTitle(page.title);
+    editor?.commands.setContent(page.contentJson as Parameters<typeof editor.commands.setContent>[0]);
+    setStatus("saved");
+    await loadRevisions();
+  } catch (historyError) {
+    setRevisionError(historyError instanceof Error ? historyError.message : "Unable to restore this version.");
+  } finally {
+    setRestoringRevision("");
+  }
+}
+
 async function movePage(newParentId: string) {
   const nextParentId = newParentId || null;
 
@@ -757,6 +799,43 @@ while (foundDescendant) {
           </div>
           <PageTags pageId={id} />
           <PageLinks pageId={id} pages={allPages} />
+        </div>
+      </details>
+
+      <details className="group rounded-xl border bg-card" onToggle={(event) => { if (event.currentTarget.open) void loadRevisions(); }}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <span>
+            <span className="block font-medium">Page history</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">Review or restore an earlier saved version</span>
+          </span>
+          <ChevronDown size={17} aria-hidden="true" className="shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-3 border-t p-4">
+          {loadingRevisions && <p role="status" className="text-sm text-muted-foreground">Loading history…</p>}
+          {revisionError && <p role="alert" className="text-sm text-destructive">{revisionError}</p>}
+          {!loadingRevisions && revisions.length === 0 && !revisionError && (
+            <p className="text-sm text-muted-foreground">No saved revisions yet. A snapshot is created when page content changes.</p>
+          )}
+          {revisions.map((revision) => (
+            <article key={revision.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{revision.title || "Untitled"}</p>
+                <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">{revision.content || "Empty page"}</p>
+                <time className="mt-1 block text-xs text-muted-foreground" dateTime={revision.createdAt}>
+                  {new Date(revision.createdAt).toLocaleString()}
+                </time>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={Boolean(restoringRevision)}
+                onClick={() => void restoreRevision(revision.id)}
+              >
+                {restoringRevision === revision.id ? "Restoring…" : "Restore"}
+              </Button>
+            </article>
+          ))}
         </div>
       </details>
 
