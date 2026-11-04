@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseProperties, databaseTemplates } from "@/db/schema";
-import { validateDatabaseRecordValues } from "@/lib/database-values";
+import { missingAttachmentIds } from "@/lib/attachment-store";
+import { referencedAttachmentIds, validateDatabaseRecordValues } from "@/lib/database-values";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
@@ -26,6 +27,8 @@ export async function POST(request: Request, context: Context) {
       : [];
     const valueError = validateDatabaseRecordValues(parsed.data.values, templateProperties);
     if (valueError) return NextResponse.json({ error: valueError }, { status: 400 });
+    const missing = await missingAttachmentIds(referencedAttachmentIds(parsed.data.values, templateProperties));
+    if (missing.length > 0) return NextResponse.json({ error: "A file value points to a missing attachment." }, { status: 400 });
     const [template] = await db.insert(databaseTemplates).values({ databaseId: id, ...parsed.data }).returning();
     return NextResponse.json(template, { status: 201 });
   } catch (error) {

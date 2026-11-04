@@ -109,6 +109,22 @@ export const pageTags = pgTable(
   ]
 );
 
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    size: integer("size").notNull(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("attachments_created_at_idx").on(table.createdAt)],
+);
+
 export const pageLinks = pgTable(
   "page_links",
   {

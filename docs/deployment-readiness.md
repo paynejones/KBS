@@ -26,7 +26,9 @@ The application builds and its unit and PostgreSQL integration checks pass local
 
 ## Backups and restore
 
-The supplied `compose.yaml` persists local PostgreSQL data in a Docker volume; a volume is not a backup. For hosted production, enable the database provider's automated backups and point-in-time recovery where available. Set retention to match the recovery objective for the data.
+The supplied `compose.yaml` persists local PostgreSQL data in a Docker volume; a volume is not a backup. Uploaded images and files are stored on disk under `data/attachments` unless `ATTACHMENTS_DIR` is set. A PostgreSQL dump does not include those files; back up that directory with the database.
+
+For hosted production, enable the database provider's automated backups and point-in-time recovery where available. Set retention to match the recovery objective for the data.
 
 For an additional manual backup with PostgreSQL client tools installed:
 

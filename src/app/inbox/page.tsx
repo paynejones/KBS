@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ExternalLink, Inbox as InboxIcon, Link2, Plus } from "lucide-react";
@@ -38,27 +38,31 @@ export default function InboxPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const loadInbox = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/inbox");
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Could not load your inbox.");
-      setItems(data);
-      setError("");
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load your inbox.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
+    let cancelled = false;
+    async function loadInbox() {
+      try {
+        const response = await fetch("/api/inbox");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Could not load your inbox.");
+        if (!cancelled) {
+          setItems(data);
+          setError("");
+        }
+      } catch (loadError) {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load your inbox.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
     void loadInbox();
     const refresh = () => { void loadInbox(); };
     window.addEventListener("inbox-updated", refresh);
-    return () => window.removeEventListener("inbox-updated", refresh);
-  }, [loadInbox]);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("inbox-updated", refresh);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

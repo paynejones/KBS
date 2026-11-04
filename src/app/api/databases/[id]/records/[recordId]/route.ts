@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseProperties, databaseRecordRelations, databaseRecords, pages } from "@/db/schema";
-import { validateDatabaseRecordValues } from "@/lib/database-values";
+import { missingAttachmentIds } from "@/lib/attachment-store";
+import { referencedAttachmentIds, validateDatabaseRecordValues } from "@/lib/database-values";
 
 type Context = { params: Promise<{ id: string; recordId: string }> };
 const recordSchema = z.object({
@@ -40,6 +41,8 @@ export async function PATCH(request: Request, context: Context) {
         : [];
       const valueError = validateDatabaseRecordValues(parsed.data.values, valueProperties);
       if (valueError) return NextResponse.json({ error: valueError }, { status: 400 });
+      const missing = await missingAttachmentIds(referencedAttachmentIds(parsed.data.values, valueProperties));
+      if (missing.length > 0) return NextResponse.json({ error: "A file value points to a missing attachment." }, { status: 400 });
     }
 
     if (parsed.data.pageId) {

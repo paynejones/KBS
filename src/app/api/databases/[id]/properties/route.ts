@@ -7,7 +7,7 @@ import { databases, databaseProperties } from "@/db/schema";
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["text", "number", "checkbox", "select", "multi_select", "date", "url", "relation", "rollup"]).default("text"),
+  type: z.enum(["text", "number", "checkbox", "select", "multi_select", "date", "url", "file", "relation", "rollup"]).default("text"),
   options: z.record(z.string(), z.unknown()).optional(),
 });
 

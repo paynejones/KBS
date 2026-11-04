@@ -20,6 +20,9 @@
 # production
 /build
 
+# uploaded attachments (override with ATTACHMENTS_DIR)
+/data
+
 # misc
 .DS_Store
 *.pem

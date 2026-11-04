@@ -1,9 +1,8 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Download, Plus, Star } from "lucide-react";
-import Image from "next/image";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { Extension, type Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
@@ -12,6 +11,8 @@ import { DatabaseEmbedExtension, DatabaseEmbedPicker } from "@/components/databa
 import { CalloutExtension, TaskItemExtension, TaskListExtension, ToggleExtension } from "@/components/task-list-extension";
 import { TableCellExtension, TableExtension, TableHeaderExtension, TableRowExtension } from "@/components/table-extension";
 import { ImageExtension } from "@/components/image-extension";
+import { MediaImage } from "@/components/media-image";
+import { isAllowedMediaUrl, pickLocalFile, uploadAttachment } from "@/lib/media";
 import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
 import { PageTags } from "@/components/page-tags";
@@ -54,7 +55,22 @@ const slashCommands: SlashCommand[] = [
   { label: "Callout", detail: "Highlighted note", keywords: "note info warning", run: (editor) => editor.chain().focus().insertContent({ type: "callout", content: [{ type: "paragraph" }] }).run() },
   { label: "Toggle", detail: "Collapsible content", keywords: "details collapse disclosure", run: (editor) => editor.chain().focus().insertContent({ type: "toggleBlock", content: [{ type: "paragraph" }] }).run() },
   { label: "Table", detail: "3 rows × 2 columns", keywords: "grid cells", run: (editor) => editor.chain().focus().insertContent({ type: "table", content: [{ type: "tableRow", content: [{ type: "tableHeader", content: [{ type: "paragraph" }] }, { type: "tableHeader", content: [{ type: "paragraph" }] }] }, ...Array.from({ length: 2 }, () => ({ type: "tableRow", content: [{ type: "tableCell", content: [{ type: "paragraph" }] }, { type: "tableCell", content: [{ type: "paragraph" }] }] }))] }).run() },
-  { label: "Image", detail: "Embed from URL", keywords: "picture photo media", run: (editor) => {
+  { label: "Image", detail: "Upload or drop an image", keywords: "picture photo media upload", run: (editor) => {
+    void (async () => {
+      const file = await pickLocalFile("image/jpeg,image/png,image/gif,image/webp,image/avif");
+      if (!file) return;
+      try {
+        const uploaded = await uploadAttachment(file);
+        editor.chain().focus().insertContent({ type: "imageEmbed", attrs: { src: uploaded.url, alt: "" } }).run();
+      } catch {
+        editor.view.dom.dispatchEvent(new CustomEvent("kbs-media-error", {
+          bubbles: true,
+          detail: "Could not upload the image.",
+        }));
+      }
+    })();
+  } },
+  { label: "Image from URL", detail: "Embed a remote image", keywords: "picture photo media link", run: (editor) => {
     const input = window.prompt("Image URL");
     if (!input) return;
     try {
@@ -157,6 +173,7 @@ export function PageEditor({ id }: { id: string }) {
   const [icon, setIcon] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [coverImageError, setCoverImageError] = useState<"invalid" | "load" | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [revisions, setRevisions] = useState<PageRevision[]>([]);
   const [loadingRevisions, setLoadingRevisions] = useState(false);
   const [revisionError, setRevisionError] = useState("");
@@ -172,9 +189,12 @@ export function PageEditor({ id }: { id: string }) {
   const matchingWikiPagesRef = useRef<PageOption[]>([]);
   const wikiCreateAllowedRef = useRef(false);
   const wikiMenuOptionCountRef = useRef(0);
-  const matchingWikiPages = wikiMenu
-    ? allPages.filter((page) => page.id !== id && page.title.toLowerCase().includes(wikiMenu.query.trim().toLowerCase())).slice(0, 7)
-    : [];
+  const matchingWikiPages = useMemo(
+    () => wikiMenu
+      ? allPages.filter((page) => page.id !== id && page.title.toLowerCase().includes(wikiMenu.query.trim().toLowerCase())).slice(0, 7)
+      : [],
+    [allPages, id, wikiMenu],
+  );
   const canCreateWikiPage = Boolean(wikiMenu?.query.trim()) && !allPages.some((page) => page.title.toLowerCase() === wikiMenu?.query.trim().toLowerCase());
   const wikiMenuOptionCount = matchingWikiPages.length + (canCreateWikiPage ? 1 : 0);
   const filteredCommands = slashCommands.filter((command) =>
@@ -258,6 +278,16 @@ export function PageEditor({ id }: { id: string }) {
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor) return;
+    const onMediaError = (event: Event) => {
+      const detail = "detail" in event ? String((event as CustomEvent).detail ?? "") : "";
+      setError(detail || "Could not upload the image.");
+    };
+    editor.view.dom.addEventListener("kbs-media-error", onMediaError);
+    return () => editor.view.dom.removeEventListener("kbs-media-error", onMediaError);
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -613,6 +643,37 @@ function discardLocalDraft() {
   setPendingDraft(null);
 }
 
+async function uploadCoverImage() {
+  setCoverUploading(true);
+  setCoverImageError(null);
+  setError("");
+  try {
+    const file = await pickLocalFile("image/jpeg,image/png,image/gif,image/webp,image/avif");
+    if (!file) return;
+    const uploaded = await uploadAttachment(file);
+    setCoverImageUrl(uploaded.url);
+    await savePage({ coverImageUrl: uploaded.url });
+  } catch (uploadError) {
+    setError(uploadError instanceof Error ? uploadError.message : "Could not upload the cover image.");
+  } finally {
+    setCoverUploading(false);
+  }
+}
+
+function saveCoverFromInput() {
+  const value = coverImageUrl.trim();
+  if (!value) {
+    void savePage({ coverImageUrl: null });
+    return;
+  }
+  if (!isAllowedMediaUrl(value)) {
+    setCoverImageError("invalid");
+    return;
+  }
+  setCoverImageUrl(value);
+  void savePage({ coverImageUrl: value });
+}
+
 async function loadRevisions() {
   setLoadingRevisions(true);
   setRevisionError("");
@@ -795,25 +856,18 @@ while (foundDescendant) {
         </div>
       </div>
       <section aria-label="Page appearance" className="space-y-3">
-        {coverImageUrl && coverImageError !== "invalid" && coverImageError !== "load" && (
-          <div className="relative overflow-hidden rounded-xl border bg-muted/30">
-            <Image
+        {coverImageUrl && coverImageError !== "invalid" && (
+          <div className="overflow-hidden rounded-xl border bg-muted/30">
+            <MediaImage
               src={coverImageUrl}
-              alt=""
-              width={1600}
-              height={500}
-              unoptimized
-              loading="lazy"
+              alt={title ? `${title} cover` : "Page cover"}
               className="h-40 w-full object-cover sm:h-52"
-              onError={() => setCoverImageError("load")}
             />
           </div>
         )}
-        {coverImageError && (
+        {coverImageError === "invalid" && (
           <p role="status" className="rounded-md border border-destructive/30 px-3 py-2 text-sm text-muted-foreground">
-            {coverImageError === "invalid"
-              ? "Enter a valid image URL starting with http:// or https://."
-              : "Cover image could not be loaded. Check the URL or remove it below."}
+            Cover must be an uploaded image or an http:// or https:// URL.
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -829,28 +883,22 @@ while (foundDescendant) {
               className="w-12 bg-transparent text-center text-lg outline-none"
             />
           </label>
+          <Button type="button" variant="outline" size="sm" disabled={coverUploading} onClick={() => void uploadCoverImage()}>
+            {coverUploading ? "Uploading…" : "Upload cover"}
+          </Button>
+          {coverImageUrl && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => { setCoverImageUrl(""); void savePage({ coverImageUrl: null }); }}>
+              Remove cover
+            </Button>
+          )}
           <label className="flex min-w-64 flex-1 items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <span className="shrink-0 text-muted-foreground">Cover image URL</span>
+            <span className="shrink-0 text-muted-foreground">Cover URL</span>
             <input
               aria-label="Cover image URL"
               value={coverImageUrl}
-              placeholder="https://…"
+              placeholder="https://… or uploaded file"
               onChange={(event) => { setCoverImageUrl(event.target.value); setCoverImageError(null); }}
-              onBlur={() => {
-                const value = coverImageUrl.trim();
-                if (!value) {
-                  void savePage({ coverImageUrl: null });
-                  return;
-                }
-                try {
-                  const url = new URL(value);
-                  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Invalid protocol");
-                  setCoverImageUrl(url.toString());
-                  void savePage({ coverImageUrl: url.toString() });
-                } catch {
-                  setCoverImageError("invalid");
-                }
-              }}
+              onBlur={saveCoverFromInput}
               className="min-w-0 flex-1 bg-transparent outline-none"
             />
           </label>
