@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { PageTree } from "@/components/page-tree";
 import { GlobalSearch } from "@/components/global-search";
 import { MobileSearchButton } from "@/components/mobile-search-button";
+import { MobileQuickCaptureButton, QuickCapture } from "@/components/quick-capture";
 import { ThemePicker } from "@/components/theme-picker";
 import {
   WorkspaceNavigation,
@@ -66,6 +67,7 @@ export function AppShell({
               <BookOpenText size={17} aria-hidden="true" /> KBS
             </Link>
             <div className="ml-auto flex items-center gap-2 md:ml-0">
+              <QuickCapture />
               <div className="hidden md:block">
                 <GlobalSearch />
               </div>
@@ -81,12 +83,13 @@ export function AppShell({
 
       <nav
         aria-label="Mobile navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-lg backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-8 border-t bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-lg backdrop-blur md:hidden"
       >
         <Suspense fallback={<WorkspaceNavigationFallback mobile />}>
           <WorkspaceNavigation mobile />
         </Suspense>
         <MobileSearchButton />
+        <MobileQuickCaptureButton />
       </nav>
     </div>
   );

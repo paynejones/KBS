@@ -25,6 +25,9 @@ export const pages = pgTable(
     isFavorite: boolean("is_favorite").notNull().default(false),
     icon: text("icon"),
     coverImageUrl: text("cover_image_url"),
+    isInbox: boolean("is_inbox").notNull().default(false),
+    sourceUrl: text("source_url"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }),
 
     // Workspace ownership will be added when workspaces
     // and authentication are implemented.

@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     const query = searchParams.get("q")?.trim();
     const tagId = searchParams.get("tagId");
     const favoritesOnly = searchParams.get("favorite") === "true";
+    const includeInbox = searchParams.get("includeInbox") === "true";
 
     if (tagId && !z.string().uuid().safeParse(tagId).success) {
       return NextResponse.json({ error: "Invalid tag ID." }, { status: 400 });
@@ -38,6 +39,7 @@ export async function GET(request: Request) {
       .where(
         and(
           favoritesOnly ? eq(pages.isFavorite, true) : undefined,
+          !includeInbox ? eq(pages.isInbox, false) : undefined,
           query
             ? or(
                 ilike(pages.title, `%${query}%`),

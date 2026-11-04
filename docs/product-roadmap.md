@@ -16,6 +16,13 @@ The app already includes nested pages, a basic rich-text editor, page reordering
 
 This is a code-level inventory, not a claim that every feature has the same polish or breadth as its Notion equivalent.
 
+## Recently completed
+
+- Added a workspace graph view for navigating page connections.
+- Added an inbox for quick notes and URLs, with page/database organization, saved-link previews, and capture timestamps.
+- Added quick capture from the workspace header and mobile navigation, with a keyboard shortcut.
+- Added editor slash commands, keyboard shortcuts, common block types, and wiki-style `[[page]]` autocomplete. Inline page links use stable page IDs, and new targets can be created from the autocomplete menu.
+
 ## Parity with the current personal workspace
 
 KBS does not need broad Notion feature parity. It should be able to represent the workflows already in use in the user's Notion workspace: a home dashboard for tasks and projects, media libraries for anime, manga, movies, series, and games, release and progress tracking, and pages for game development and story ideas.
@@ -37,8 +44,8 @@ These are acceptance goals for the relevant roadmap items, not a requirement to 
 
 This is the current top priority: writing and shaping a page should feel natural before adding more ways to browse pages.
 
-- Add slash-command insertion and keyboard shortcuts for common blocks and formatting.
-- Add practical block types: task lists, code blocks, tables, callouts, toggles, dividers, and image/file embeds.
+- [x] Add slash-command insertion and keyboard shortcuts for common blocks and formatting.
+- [x] Add practical block types: task lists, code blocks, tables, callouts, toggles, dividers, and remote image embeds.
 - Support drag-and-drop or other direct block reordering, with predictable selection and undo behavior.
 - Add page icon and cover support, with clear loading and failure states for media.
 - Add image and file support that works in page content and database gallery cards; allow remote images as well as uploaded media, with alt text and visible error states.
@@ -49,7 +56,7 @@ This is the current top priority: writing and shaping a page should feel natural
 
 Add an Obsidian-style connection map that makes page relationships visible and navigable.
 
-- Provide a workspace graph showing pages as nodes and links as edges.
+- [x] Provide a workspace graph showing pages as nodes and links as edges.
 - Provide a local graph centered on the open page, with controls for neighborhood depth.
 - Support zoom, pan, drag, node search, and opening a page from its node.
 - Distinguish explicit links from parent/child structure, and optionally show shared tags as a separate relation.
@@ -60,10 +67,10 @@ KBS already stores explicit links and backlinks, so those can seed the graph. Gr
 
 ### 3. Make page linking and capture faster
 
-- Add wiki-style `[[page name]]` linking with autocomplete, link creation, and graceful handling of renamed pages.
+- [x] Add wiki-style `[[page name]]` linking with autocomplete and link creation. Links use stable page IDs so renaming a page does not break its destination.
 - Make backlinks easier to scan, including a count and context/snippet for where the link appears.
 - Add an inline link control for external URLs and pages, with page-name autocomplete; keep the existing page-connections panel for managing relationships and backlinks.
-- Add a quick capture action that creates an inbox page without requiring the user to choose a destination first.
+- [x] Add a quick capture action that creates an inbox page without requiring the user to choose a destination first.
 - Add a command palette for creating pages/databases, jumping to favorites and recent pages, and common navigation actions. Search already uses Ctrl/Cmd+K; extend that interaction or reserve a consistent shortcut scheme.
 - Add recent pages and recently edited pages for quick return paths.
 - Add page templates for repeatable note structures.
@@ -72,10 +79,10 @@ KBS already stores explicit links and backlinks, so those can seed the graph. Gr
 
 Make it easy to save something now and organize it later.
 
-- Add a dedicated inbox for quick notes, ideas, URLs, tasks, and references.
-- Let captured items become regular pages or database records without losing their source or capture date.
+- [x] Add a dedicated inbox for quick notes, ideas, and URLs.
+- [x] Let captured items become regular pages or database records without losing their source or capture date.
 - Store URL title, address, description, and optional selected text for saved links.
-- Render saved links as compact previews that show the title and source and open the original URL directly.
+- [x] Render saved links as compact previews that show the title and source and open the original URL directly.
 - Add file, image, and PDF capture after attachment storage and previews are in place.
 - Consider a browser extension as a later companion to the core inbox, not a prerequisite.
 
@@ -145,14 +152,13 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 
 ## Suggested sequence
 
-1. Editor blocks, slash commands, keyboard shortcuts, and reliable media handling.
-2. Universal capture inbox and faster page linking.
-3. Graph view, related pages, and orphan discovery.
-4. Command center, recents, and saved searches.
-5. Cross-page/database relationships and useful personal dashboard.
-6. Database views, filters, and import.
-7. Trash, revisions, and full export/restore.
-8. Personal workflows such as decision journal, reading list, and focus view.
-9. Multi-user identity, permissions, and collaboration when needed.
+1. Finish editor media handling and improve mobile editing and save feedback.
+2. Improve page connections with backlink context and inline page/external link controls.
+3. Add recent pages, page templates, and a command palette.
+4. Add related-item discovery, orphan views, and useful personal dashboard sections.
+5. Expand database views, filters, and import.
+6. Add trash, revisions, and full export/restore.
+7. Add personal workflows such as a decision journal, reading list, and focus view.
+8. Add multi-user identity, permissions, and collaboration when needed.
 
 Revisit the sequence using actual usage: prioritize the improvements that remove friction in capture, finding, connecting, and safely changing knowledge.

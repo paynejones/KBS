@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Download, Star } from "lucide-react";
+import { ChevronDown, Download, Plus, Star } from "lucide-react";
 import Image from "next/image";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { Extension, type Editor } from "@tiptap/core";
@@ -120,6 +120,8 @@ const EditorBlockShortcuts = Extension.create({
 });
 
 type SlashMenuState = { from: number; to: number; query: string; x: number; y: number } | null;
+type WikiMenuState = { from: number; to: number; query: string; x: number; y: number } | null;
+type PageOption = { id: string; title: string; parentId: string | null };
 
 export function PageEditor({ id }: { id: string }) {
   const [title, setTitle] = useState("");
@@ -163,16 +165,35 @@ export function PageEditor({ id }: { id: string }) {
   const [slashIndex, setSlashIndex] = useState(0);
   const slashMenuRef = useRef<SlashMenuState>(null);
   const slashIndexRef = useRef(0);
+  const [wikiMenu, setWikiMenu] = useState<WikiMenuState>(null);
+  const [wikiIndex, setWikiIndex] = useState(0);
+  const wikiMenuRef = useRef<WikiMenuState>(null);
+  const wikiIndexRef = useRef(0);
+  const matchingWikiPagesRef = useRef<PageOption[]>([]);
+  const wikiCreateAllowedRef = useRef(false);
+  const wikiMenuOptionCountRef = useRef(0);
+  const matchingWikiPages = wikiMenu
+    ? allPages.filter((page) => page.id !== id && page.title.toLowerCase().includes(wikiMenu.query.trim().toLowerCase())).slice(0, 7)
+    : [];
+  const canCreateWikiPage = Boolean(wikiMenu?.query.trim()) && !allPages.some((page) => page.title.toLowerCase() === wikiMenu?.query.trim().toLowerCase());
+  const wikiMenuOptionCount = matchingWikiPages.length + (canCreateWikiPage ? 1 : 0);
   const filteredCommands = slashCommands.filter((command) =>
     `${command.label} ${command.keywords}`.toLowerCase().includes(slashMenu?.query.toLowerCase() ?? ""),
   );
 
   useEffect(() => { slashMenuRef.current = slashMenu; }, [slashMenu]);
   useEffect(() => { slashIndexRef.current = slashIndex; }, [slashIndex]);
+  useEffect(() => { wikiMenuRef.current = wikiMenu; }, [wikiMenu]);
+  useEffect(() => { wikiIndexRef.current = wikiIndex; }, [wikiIndex]);
+  useEffect(() => {
+    matchingWikiPagesRef.current = matchingWikiPages;
+    wikiCreateAllowedRef.current = canCreateWikiPage;
+    wikiMenuOptionCountRef.current = wikiMenuOptionCount;
+  }, [matchingWikiPages, canCreateWikiPage, wikiMenuOptionCount]);
 
 
   const editor = useEditor({
-    extensions: [StarterKit, EditorBlockShortcuts, ImageExtension, TableExtension, TableRowExtension, TableHeaderExtension, TableCellExtension, TaskListExtension, TaskItemExtension, CalloutExtension, ToggleExtension, DatabaseEmbedExtension],
+    extensions: [StarterKit.configure({ link: { openOnClick: false, HTMLAttributes: { class: "text-primary underline underline-offset-2" } } }), EditorBlockShortcuts, ImageExtension, TableExtension, TableRowExtension, TableHeaderExtension, TableCellExtension, TaskListExtension, TaskItemExtension, CalloutExtension, ToggleExtension, DatabaseEmbedExtension],
     immediatelyRender: false,
     content: "",
     editable: false,
@@ -182,6 +203,30 @@ export function PageEditor({ id }: { id: string }) {
           "min-h-[45vh] outline-none prose prose-neutral max-w-none dark:prose-invert sm:min-h-[400px]",
       },
       handleKeyDown: (_view, event) => {
+        const wikiMenu = wikiMenuRef.current;
+        if (wikiMenu) {
+          if (event.key === "ArrowDown" && wikiMenuOptionCountRef.current > 0) {
+            event.preventDefault();
+            setWikiIndex((index) => (index + 1) % wikiMenuOptionCountRef.current);
+            return true;
+          }
+          if (event.key === "ArrowUp" && wikiMenuOptionCountRef.current > 0) {
+            event.preventDefault();
+            setWikiIndex((index) => (index - 1 + wikiMenuOptionCountRef.current) % wikiMenuOptionCountRef.current);
+            return true;
+          }
+          if (event.key === "Escape") {
+            setWikiMenu(null);
+            return true;
+          }
+          if (event.key === "Enter" && wikiMenuOptionCountRef.current > 0) {
+            event.preventDefault();
+            const selectedPage = matchingWikiPagesRef.current[wikiIndexRef.current];
+            if (selectedPage) void insertWikiPage(selectedPage, wikiMenu);
+            else if (wikiCreateAllowedRef.current) void createWikiPage(wikiMenu);
+            return true;
+          }
+        }
         const menu = slashMenuRef.current;
         if (!menu) return false;
         const available = slashCommands.filter((command) =>
@@ -241,6 +286,74 @@ export function PageEditor({ id }: { id: string }) {
       editor.off("transaction", updateSlashMenu);
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const updateWikiMenu = () => {
+      const { $from, empty } = editor.state.selection;
+      if (!empty || $from.parent.type.name !== "paragraph") {
+        setWikiMenu(null);
+        return;
+      }
+      const beforeCursor = $from.parent.textBetween(0, $from.parentOffset, "\n", "\ufffc");
+      const match = /(?:^|\s)\[\[([^\]]*)$/.exec(beforeCursor);
+      if (!match) {
+        setWikiMenu(null);
+        return;
+      }
+      const from = $from.pos - match[1].length - 2;
+      const coords = editor.view.coordsAtPos($from.pos);
+      setWikiIndex(0);
+      setWikiMenu({ from, to: $from.pos, query: match[1], x: coords.left, y: coords.bottom + 6 });
+    };
+    editor.on("selectionUpdate", updateWikiMenu);
+    editor.on("transaction", updateWikiMenu);
+    updateWikiMenu();
+    return () => {
+      editor.off("selectionUpdate", updateWikiMenu);
+      editor.off("transaction", updateWikiMenu);
+    };
+  }, [editor]);
+
+  async function attachPageLink(targetPageId: string) {
+    const response = await fetch(`/api/pages/${id}/links`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetPageId }),
+    });
+    if (!response.ok) throw new Error("The page link could not be saved.");
+  }
+
+  async function insertWikiPage(page: PageOption, menu = wikiMenuRef.current) {
+    if (!editor || !menu) return;
+    try {
+      await attachPageLink(page.id);
+      editor.chain().focus().deleteRange({ from: menu.from, to: menu.to })
+        .insertContent({ type: "text", text: page.title || "Untitled", marks: [{ type: "link", attrs: { href: `/pages/${page.id}` } }] })
+        .run();
+      setWikiMenu(null);
+    } catch (linkError) {
+      setError(linkError instanceof Error ? linkError.message : "The page link could not be saved.");
+    }
+  }
+
+  async function createWikiPage(menu = wikiMenuRef.current) {
+    if (!editor || !menu?.query.trim()) return;
+    const pageTitle = menu.query.trim().slice(0, 200);
+    try {
+      const response = await fetch("/api/pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: pageTitle }),
+      });
+      const page: PageOption = await response.json();
+      if (!response.ok) throw new Error("Could not create the linked page.");
+      setAllPages((current) => [...current, page]);
+      await insertWikiPage(page, menu);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create the linked page.");
+    }
+  }
 
   useEffect(() => {
   let cancelled = false;
@@ -862,6 +975,45 @@ while (foundDescendant) {
         <div className="overflow-x-auto">
           <EditorContent editor={editor} />
         </div>
+        {wikiMenu && (
+          <div
+            role="listbox"
+            aria-label="Link to a page"
+            className="fixed z-50 w-80 overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: Math.min(wikiMenu.x, window.innerWidth - 330), top: wikiMenu.y }}
+          >
+            {matchingWikiPages.map((page, index) => (
+              <button
+                key={page.id}
+                type="button"
+                role="option"
+                aria-selected={index === wikiIndex}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setWikiIndex(index)}
+                onClick={() => void insertWikiPage(page, wikiMenu)}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left ${index === wikiIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+              >
+                <span className="truncate text-sm font-medium">{page.title || "Untitled"}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">Page</span>
+              </button>
+            ))}
+            {canCreateWikiPage && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={wikiIndex === matchingWikiPages.length}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setWikiIndex(matchingWikiPages.length)}
+                onClick={() => void createWikiPage(wikiMenu)}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm ${wikiIndex === matchingWikiPages.length ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+              >
+                <Plus size={15} /> Create page “{wikiMenu.query.trim().slice(0, 80)}”
+              </button>
+            )}
+            {!matchingWikiPages.length && !canCreateWikiPage && <p className="px-3 py-2 text-sm text-muted-foreground">No other pages to link.</p>}
+            <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">↑↓ to choose · Enter to insert · Esc to close</p>
+          </div>
+        )}
         {slashMenu && filteredCommands.length > 0 && (
           <div
             role="listbox"
