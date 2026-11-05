@@ -74,7 +74,7 @@ async function main() {
     process.env.DATABASE_URL = testUrl.toString();
     const [
       { db, pool },
-      { pages, databases, databaseRecords, databaseRecordRelations },
+      { pages, pageLinks, databases, databaseRecords, databaseRecordRelations },
       { POST: createDatabase },
       { GET: getDatabase, DELETE: deleteDatabase },
       { POST: createProperty },
@@ -112,6 +112,7 @@ async function main() {
     const { POST: restoreTrashPage } = await import("../src/app/api/trash/[id]/restore/route");
     const { DELETE: purgeTrashPage } = await import("../src/app/api/trash/[id]/route");
     const { GET: exportWorkspace } = await import("../src/app/api/export/route");
+    const { GET: getPageLinks } = await import("../src/app/api/pages/[id]/links/route");
 
     assert.equal((await listPages(makeRequest("/api/pages?tagId=invalid", "GET"))).status, 400,
       "page listing should reject malformed tag filters");
@@ -243,6 +244,38 @@ async function main() {
     assert.equal(exported.format, "kbs-export");
     assert.ok(exported.counts.pages > 0 && exported.pages.some((page) => page.id === root.id),
       "the workspace export should include existing pages");
+
+    const backlinkSourceResponse = await createPage(makeRequest("/api/pages", "POST", {
+      title: "Backlink source",
+      content: "Reading notes about the harvest plan.",
+      contentJson: {
+        type: "doc",
+        content: [{
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Reading notes about " },
+            { type: "text", text: "the harvest plan", marks: [{ type: "link", attrs: { href: `/pages/${root.id}` } }] },
+          ],
+        }],
+      },
+    }));
+    assert.equal(backlinkSourceResponse.status, 201);
+    const backlinkSource = await backlinkSourceResponse.json() as { id: string };
+    await db.insert(pageLinks).values({ sourcePageId: backlinkSource.id, targetPageId: root.id });
+
+    const rootLinksResponse = await getPageLinks(makeRequest(`/api/pages/${root.id}/links`, "GET"), routeContext({ id: root.id }));
+    assert.equal(rootLinksResponse.status, 200);
+    const rootLinks = await rootLinksResponse.json() as { backlinks: { id: string; contexts: string[] }[] };
+    const rootBacklink = rootLinks.backlinks.find((entry) => entry.id === backlinkSource.id);
+    assert.ok(rootBacklink, "a page linking to another should appear in its backlinks");
+    assert.match(rootBacklink?.contexts[0] ?? "", /Reading notes about the harvest plan/,
+      "backlinks should quote the sentence around the inline link");
+
+    await deletePage(makeRequest(`/api/pages/${backlinkSource.id}`, "DELETE"), routeContext({ id: backlinkSource.id }));
+    const rootLinksAfterTrash = await getPageLinks(makeRequest(`/api/pages/${root.id}/links`, "GET"), routeContext({ id: root.id }));
+    const rootLinksAfterTrashBody = await rootLinksAfterTrash.json() as { backlinks: { id: string }[] };
+    assert.equal(rootLinksAfterTrashBody.backlinks.some((entry) => entry.id === backlinkSource.id), false,
+      "trashed pages should not appear in backlinks");
 
     const viewRollbackPool = new Pool({ connectionString: testUrl.toString() });
     try {
@@ -476,7 +509,7 @@ async function main() {
 
     await pool.end();
     applicationPool = undefined;
-    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, trash and restore, workspace export, database CRUD, relations, rollups, views, and templates.");
+    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, trash and restore, backlink context, workspace export, database CRUD, relations, rollups, views, and templates.");
   } finally {
     if (applicationPool) await applicationPool.end();
     try {

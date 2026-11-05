@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/reliability.test.ts tests/recents.test.ts tests/trash.test.ts",
+    "test": "tsx --test tests/reliability.test.ts tests/recents.test.ts tests/trash.test.ts tests/backlinks.test.ts",
     "test:db": "tsx scripts/test-db-reliability.ts",
     "db:check": "tsx scripts/check-db.ts",
     "db:generate": "drizzle-kit generate",

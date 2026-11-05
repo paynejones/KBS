@@ -6,6 +6,7 @@ import { ArrowUpRight, Link2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type PageRef = { id: string; title: string };
+type Backlink = PageRef & { contexts: string[] };
 type PageOption = PageRef & { parentId: string | null };
 
 export function PageLinks({
@@ -16,7 +17,7 @@ export function PageLinks({
   pages: PageOption[];
 }) {
   const [links, setLinks] = useState<PageRef[]>([]);
-  const [backlinks, setBacklinks] = useState<PageRef[]>([]);
+  const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [targetId, setTargetId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,7 +27,7 @@ export function PageLinks({
     try {
       const response = await fetch(`/api/pages/${pageId}/links`);
       if (!response.ok) throw new Error("Could not load page links.");
-      const data: { links: PageRef[]; backlinks: PageRef[] } =
+      const data: { links: PageRef[]; backlinks: Backlink[] } =
         await response.json();
       setLinks(data.links);
       setBacklinks(data.backlinks);
@@ -48,7 +49,7 @@ export function PageLinks({
       try {
         const response = await fetch(`/api/pages/${pageId}/links`);
         if (!response.ok) throw new Error("Could not load page links.");
-        const data: { links: PageRef[]; backlinks: PageRef[] } =
+        const data: { links: PageRef[]; backlinks: Backlink[] } =
           await response.json();
         if (!cancelled) {
           setLinks(data.links);
@@ -132,7 +133,10 @@ export function PageLinks({
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="space-y-2">
-          <h3 className="text-sm font-medium">Linked pages</h3>
+          <h3 className="text-sm font-medium">
+            Linked pages
+            {links.length > 0 && <span className="ml-1 text-muted-foreground">({links.length})</span>}
+          </h3>
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading links…</p>
           ) : links.length ? (
@@ -180,17 +184,27 @@ export function PageLinks({
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-sm font-medium">Backlinks</h3>
+          <h3 className="text-sm font-medium">
+            Backlinks
+            {backlinks.length > 0 && <span className="ml-1 text-muted-foreground">({backlinks.length})</span>}
+          </h3>
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading backlinks…</p>
           ) : backlinks.length ? (
-            <ul className="space-y-1">
+            <ul className="space-y-3">
               {backlinks.map((page) => (
                 <li key={page.id}>
                   <Link href={`/pages/${page.id}`} className="inline-flex items-center gap-1 text-sm hover:underline">
                     <span className="truncate">{page.title || "Untitled"}</span>
                     <ArrowUpRight size={13} />
                   </Link>
+                  {page.contexts.length > 0 && (
+                    <ul className="mt-1 space-y-1 border-l pl-2 text-xs text-muted-foreground">
+                      {page.contexts.map((context) => (
+                        <li key={context} className="line-clamp-2">{context}</li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ul>

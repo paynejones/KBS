@@ -18,6 +18,7 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Backlinks now show a count plus a quoted snippet of the sentence around each inline link, so a mention can be judged without opening every source page.
 - Added a trash: deleting a page moves it and its subpages there, with restore and permanent delete. Trashing preserves tags, links, and revisions; permanent delete removes attachments that nothing else references.
 - Added unused-file detection and cleanup, plus a full workspace JSON export and a `npm run restore:export` restore path documented in [backup and restore](backup-and-restore.md).
 - Added a command palette (Ctrl/Cmd+K) that searches pages and database records, jumps to favorites and recent pages, opens common destinations, and creates pages or databases without leaving the keyboard.
@@ -78,7 +79,7 @@ This is the current top product priority after media: jump, create, and connect 
 
 - [x] Add wiki-style `[[page name]]` linking with autocomplete and link creation. Links use stable page IDs so renaming a page does not break its destination.
 - [x] Add a quick capture action that creates an inbox page without requiring the user to choose a destination first.
-- Make backlinks easier to scan, including a count and context/snippet for where the link appears.
+- [x] Make backlinks easier to scan, with a count and a quoted snippet of the sentence where each inline link appears.
 - Add an inline link control for external URLs and pages, with page-name autocomplete; keep the existing page-connections panel for managing relationships and backlinks.
 - [x] Add a command palette for creating pages/databases, jumping to favorites and recent pages, and common navigation actions. It owns Ctrl/Cmd+K, replacing the previous search-only overlay.
 - [x] Add recent pages for quick return paths. Visits are stored per browser, surfaced on the home page as “Jump back in” and at the top of the command palette, and kept separate from the server-driven recently-updated list.
@@ -165,7 +166,7 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 ## Suggested sequence
 
 1. Add page templates and finish the remaining editor polish (block reordering, mobile editing, save-state feedback).
-2. Improve page connections with backlink context and inline page/external link controls; store richer metadata for captured URLs.
+2. Add an inline link control for external URLs and pages, and store richer metadata for captured URLs.
 3. Add related-item discovery, orphan views, and useful personal dashboard sections.
 4. Expand database views (calendar/list first), structured filters, formulas, and import.
 5. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.

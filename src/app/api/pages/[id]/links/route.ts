@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { pageLinks, pages } from "@/db/schema";
+import { backlinkContexts } from "@/lib/backlinks";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
@@ -18,26 +19,35 @@ export async function GET(_request: Request, context: Context) {
     const [page] = await db
       .select({ id: pages.id })
       .from(pages)
-      .where(eq(pages.id, id))
+      .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
       .limit(1);
     if (!page) {
       return NextResponse.json({ error: "Page not found" }, { status: 404 });
     }
 
-    const [links, backlinks] = await Promise.all([
+    const [links, backlinkRows] = await Promise.all([
       db
         .select({ id: pages.id, title: pages.title })
         .from(pageLinks)
         .innerJoin(pages, eq(pageLinks.targetPageId, pages.id))
-        .where(eq(pageLinks.sourcePageId, id))
+        .where(and(eq(pageLinks.sourcePageId, id), isNull(pages.deletedAt)))
         .orderBy(pages.title),
       db
-        .select({ id: pages.id, title: pages.title })
+        .select({ id: pages.id, title: pages.title, contentJson: pages.contentJson })
         .from(pageLinks)
         .innerJoin(pages, eq(pageLinks.sourcePageId, pages.id))
-        .where(eq(pageLinks.targetPageId, id))
+        .where(and(eq(pageLinks.targetPageId, id), isNull(pages.deletedAt)))
         .orderBy(pages.title),
     ]);
+
+    // Quote the sentence around each inline link so a backlink can be judged
+    // without opening the source page. Links added from the connections panel
+    // have no content behind them and therefore no snippets.
+    const backlinks = backlinkRows.map(({ id: sourceId, title, contentJson }) => ({
+      id: sourceId,
+      title,
+      contexts: backlinkContexts(contentJson, id),
+    }));
 
     return NextResponse.json({ links, backlinks });
   } catch (error) {
@@ -63,7 +73,7 @@ export async function POST(request: Request, context: Context) {
     const [target] = await db
       .select({ id: pages.id })
       .from(pages)
-      .where(eq(pages.id, parsed.data.targetPageId))
+      .where(and(eq(pages.id, parsed.data.targetPageId), isNull(pages.deletedAt)))
       .limit(1);
     if (!target) {
       return NextResponse.json({ error: "Target page not found" }, { status: 404 });
