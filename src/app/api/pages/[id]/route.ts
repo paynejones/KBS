@@ -1,10 +1,11 @@
 
 import { NextResponse } from "next/server";
-import { desc, eq, inArray, max, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, max } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { pageRevisions, pages } from "@/db/schema";
 import { isAllowedMediaUrl } from "@/lib/media";
+import { collectSubtreeIds } from "@/lib/trash";
 
 type Context = {
   params: Promise<{ id: string }>;
@@ -39,7 +40,7 @@ export async function GET(_request: Request, context: Context) {
     const [page] = await db
       .select()
       .from(pages)
-      .where(eq(pages.id, id))
+      .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
       .limit(1);
 
     if (!page) {
@@ -79,7 +80,7 @@ export async function PATCH(request: Request, context: Context) {
     const [existingPage] = await db
     .select()
     .from(pages)
-    .where(eq(pages.id, id))
+    .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
     .limit(1);
 
   if (!existingPage) {
@@ -242,33 +243,36 @@ export async function DELETE(_request: Request, context: Context) {
   }
 
   try {
-    const deleted = await db.transaction(async (tx) => {
-      const [page] = await tx
+    const trashedCount = await db.transaction(async (tx) => {
+      const hierarchy = await tx
         .select({ id: pages.id, parentId: pages.parentId })
+        .from(pages);
+
+      const [page] = await tx
+        .select({ id: pages.id })
         .from(pages)
         .where(eq(pages.id, id))
         .limit(1);
 
-      if (!page) return false;
+      if (!page) return null;
+
+      // Trashing a page trashes its whole subtree so children are never
+      // left pointing at a page that no longer renders.
+      const ids = collectSubtreeIds(hierarchy, id);
 
       await tx
         .update(pages)
-        .set({ parentId: page.parentId, updatedAt: new Date() })
-        .where(eq(pages.parentId, id));
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(inArray(pages.id, ids));
 
-      const [deletedPage] = await tx
-        .delete(pages)
-        .where(eq(pages.id, id))
-        .returning({ id: pages.id });
-
-      return Boolean(deletedPage);
+      return ids.length;
     });
 
-    if (!deleted) {
+    if (trashedCount === null) {
       return NextResponse.json({ error: "Page not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, trashedCount });
   } catch (error) {
     console.error("Failed to delete page:", error);
     return NextResponse.json({ error: "Failed to delete page" }, { status: 500 });

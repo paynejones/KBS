@@ -38,6 +38,7 @@ export async function GET(request: Request) {
       .from(pages)
       .where(
         and(
+          isNull(pages.deletedAt),
           favoritesOnly ? eq(pages.isFavorite, true) : undefined,
           !includeInbox ? eq(pages.isInbox, false) : undefined,
           query
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
     const [parentPage] = await db
       .select({ id: pages.id })
       .from(pages)
-      .where(eq(pages.id, parentId))
+      .where(and(eq(pages.id, parentId), isNull(pages.deletedAt)))
       .limit(1);
 
     if (!parentPage) {

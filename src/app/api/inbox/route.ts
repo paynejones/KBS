@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -17,7 +17,7 @@ const captureSchema = z.object({
 export async function GET() {
   try {
     const items = await db.select().from(pages)
-      .where(eq(pages.isInbox, true))
+      .where(and(eq(pages.isInbox, true), isNull(pages.deletedAt)))
       .orderBy(desc(pages.capturedAt), desc(pages.createdAt));
     return NextResponse.json(items);
   } catch (error) {

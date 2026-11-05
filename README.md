@@ -51,4 +51,6 @@ npm run test:db
 
 The database check uses `DATABASE_URL` only to create a uniquely named temporary database, applies the project migrations there, runs the checks, and drops that temporary database afterward. It requires permission to create databases and connect to the PostgreSQL `postgres` database. It does not run mutations against the configured application database.
 
-See [the deployment readiness runbook](docs/deployment-readiness.md) for migration, backup, restore, security, and monitoring requirements before hosting.
+See [the deployment readiness runbook](docs/deployment-readiness.md) for migration, security, and monitoring requirements before hosting.
+
+See [backup and restore](docs/backup-and-restore.md) for the workspace JSON export, the attachments directory, and the `npm run restore:export` restore path.

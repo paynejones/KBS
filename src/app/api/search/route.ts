@@ -1,4 +1,4 @@
-import { desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { databases, databaseRecords, pages } from "@/db/schema";
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const [pageResults, recordResults] = await Promise.all([
       db.select({ id: pages.id, title: pages.title, updatedAt: pages.updatedAt })
         .from(pages)
-        .where(or(ilike(pages.title, pattern), ilike(pages.content, pattern)))
+        .where(and(isNull(pages.deletedAt), or(ilike(pages.title, pattern), ilike(pages.content, pattern))))
         .orderBy(desc(pages.updatedAt))
         .limit(8),
       db.select({

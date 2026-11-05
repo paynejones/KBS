@@ -108,6 +108,10 @@ async function main() {
     const { POST: assignTag } = await import("../src/app/api/pages/[id]/tags/route");
     const { POST: createTag } = await import("../src/app/api/tags/route");
     const { GET: search } = await import("../src/app/api/search/route");
+    const { GET: listTrash } = await import("../src/app/api/trash/route");
+    const { POST: restoreTrashPage } = await import("../src/app/api/trash/[id]/restore/route");
+    const { DELETE: purgeTrashPage } = await import("../src/app/api/trash/[id]/route");
+    const { GET: exportWorkspace } = await import("../src/app/api/export/route");
 
     assert.equal((await listPages(makeRequest("/api/pages?tagId=invalid", "GET"))).status, 400,
       "page listing should reject malformed tag filters");
@@ -154,7 +158,7 @@ async function main() {
     assert.equal(reloadedSmokePage.isFavorite, true);
 
     assert.equal((await deletePage(makeRequest(`/api/pages/${smokePage.id}`, "DELETE"), smokePageContext)).status, 200,
-      "isolated smoke-test page should be removable");
+      "isolated smoke-test page should move to the trash");
 
     const [failureParent] = await db.insert(pages).values({ title: "rollback target" }).returning();
     const [failureChild] = await db.insert(pages).values({ title: "rollback child", parentId: failureParent.id }).returning();
@@ -162,34 +166,34 @@ async function main() {
     const triggerPool = new Pool({ connectionString: testUrl.toString() });
     try {
       await triggerPool.query(`
-        CREATE FUNCTION reject_test_page_delete() RETURNS trigger AS $$
+        CREATE FUNCTION reject_test_page_trash() RETURNS trigger AS $$
         BEGIN
-          IF OLD.title = 'rollback target' THEN
+          IF NEW.deleted_at IS NOT NULL AND OLD.title = 'rollback target' THEN
             RAISE EXCEPTION 'intentional transaction rollback check';
           END IF;
-          RETURN OLD;
+          RETURN NEW;
         END;
         $$ LANGUAGE plpgsql;
-        CREATE TRIGGER reject_test_page_delete
-          BEFORE DELETE ON pages
-          FOR EACH ROW EXECUTE FUNCTION reject_test_page_delete();
+        CREATE TRIGGER reject_test_page_trash
+          BEFORE UPDATE ON pages
+          FOR EACH ROW EXECUTE FUNCTION reject_test_page_trash();
       `);
 
-      const failedDelete = await expectFailure(() =>
+      const failedTrash = await expectFailure(() =>
         deletePage(
           makeRequest(`/api/pages/${failureParent.id}`, "DELETE"),
           routeContext({ id: failureParent.id }),
         ),
       );
-      assert.equal(failedDelete.status, 500, "a failed delete should return a controlled server error");
+      assert.equal(failedTrash.status, 500, "a failed trash should return a controlled server error");
 
       const [parentAfterFailure] = await db.select().from(pages).where(eq(pages.id, failureParent.id));
       const [childAfterFailure] = await db.select().from(pages).where(eq(pages.id, failureChild.id));
-      assert.ok(parentAfterFailure, "the parent should remain after the transaction fails");
-      assert.equal(childAfterFailure?.parentId, failureParent.id, "the child's parent should roll back with the failed delete");
+      assert.equal(parentAfterFailure?.deletedAt, null, "the parent should stay out of the trash when the transaction fails");
+      assert.equal(childAfterFailure?.deletedAt, null, "the subtree should roll back with the failed trash");
     } finally {
-      await triggerPool.query("DROP TRIGGER IF EXISTS reject_test_page_delete ON pages");
-      await triggerPool.query("DROP FUNCTION IF EXISTS reject_test_page_delete()");
+      await triggerPool.query("DROP TRIGGER IF EXISTS reject_test_page_trash ON pages");
+      await triggerPool.query("DROP FUNCTION IF EXISTS reject_test_page_trash()");
       await triggerPool.end();
     }
 
@@ -202,10 +206,43 @@ async function main() {
     );
     assert.equal(successfulDelete.status, 200);
 
-    const [deletedTarget] = await db.select().from(pages).where(eq(pages.id, target.id));
-    const [grandchildAfterDelete] = await db.select().from(pages).where(eq(pages.id, grandchild.id));
-    assert.equal(deletedTarget, undefined, "the requested page should be deleted");
-    assert.equal(grandchildAfterDelete?.parentId, root.id, "direct children should be reparented to the deleted page's parent");
+    const [trashedTarget] = await db.select().from(pages).where(eq(pages.id, target.id));
+    const [trashedGrandchild] = await db.select().from(pages).where(eq(pages.id, grandchild.id));
+    assert.ok(trashedTarget?.deletedAt, "deleting a page should move it to the trash instead of removing it");
+    assert.ok(trashedGrandchild?.deletedAt, "deleting a page should move its whole subtree to the trash");
+    assert.equal(trashedGrandchild?.parentId, target.id, "trashing should keep the subtree intact for restore");
+
+    const pagesAfterTrash = await (await listPages(makeRequest("/api/pages", "GET"))).json() as { id: string }[];
+    assert.ok(!pagesAfterTrash.some((page) => page.id === target.id || page.id === grandchild.id),
+      "trashed pages should not appear in page listings");
+    assert.equal((await getPage(makeRequest(`/api/pages/${target.id}`, "GET"), routeContext({ id: target.id }))).status, 404,
+      "trashed pages should not be readable through the page API");
+
+    const trashListing = await (await listTrash()).json() as { items: { id: string; descendantCount: number }[] };
+    const trashedRootEntry = trashListing.items.find((item) => item.id === target.id);
+    assert.equal(trashedRootEntry?.descendantCount, 1, "the trash should list the trashed subtree once with its nested pages");
+
+    assert.equal((await restoreTrashPage(makeRequest(`/api/trash/${target.id}/restore`, "POST"), routeContext({ id: target.id }))).status, 200);
+    const [restoredTarget] = await db.select().from(pages).where(eq(pages.id, target.id));
+    const [restoredGrandchild] = await db.select().from(pages).where(eq(pages.id, grandchild.id));
+    assert.equal(restoredTarget?.deletedAt, null, "restoring should clear the trash mark");
+    assert.equal(restoredGrandchild?.deletedAt, null, "restoring should clear the trash mark on the subtree");
+    assert.equal(restoredTarget?.parentId, root.id, "restoring should keep the original parent");
+
+    await deletePage(makeRequest(`/api/pages/${target.id}`, "DELETE"), routeContext({ id: target.id }));
+    const purgeResponse = await purgeTrashPage(makeRequest(`/api/trash/${target.id}`, "DELETE"), routeContext({ id: target.id }));
+    assert.equal(purgeResponse.status, 200, "permanent delete should succeed for a trashed page");
+    assert.equal((await db.select().from(pages).where(eq(pages.id, target.id))).length, 0,
+      "permanent delete should remove the page row");
+    assert.equal((await db.select().from(pages).where(eq(pages.id, grandchild.id))).length, 0,
+      "permanent delete should remove the whole subtree");
+
+    const exportResponse = await exportWorkspace();
+    assert.equal(exportResponse.status, 200);
+    const exported = await exportResponse.json() as { format: string; counts: { pages: number }; pages: { id: string }[] };
+    assert.equal(exported.format, "kbs-export");
+    assert.ok(exported.counts.pages > 0 && exported.pages.some((page) => page.id === root.id),
+      "the workspace export should include existing pages");
 
     const viewRollbackPool = new Pool({ connectionString: testUrl.toString() });
     try {
@@ -439,7 +476,7 @@ async function main() {
 
     await pool.end();
     applicationPool = undefined;
-    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, database CRUD, relations, rollups, views, and templates.");
+    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, trash and restore, workspace export, database CRUD, relations, rollups, views, and templates.");
   } finally {
     if (applicationPool) await applicationPool.end();
     try {

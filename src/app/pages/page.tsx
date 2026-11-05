@@ -217,7 +217,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
 
   async function deletePage(page: PageSummary) {
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${page.title}"? Any direct child pages will be moved up one level.`
+      `Move "${page.title}" and its subpages to the trash? You can restore them from the trash screen.`
     );
 
     if (!confirmed) return;

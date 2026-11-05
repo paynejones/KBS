@@ -29,6 +29,10 @@ export const pages = pgTable(
     sourceUrl: text("source_url"),
     capturedAt: timestamp("captured_at", { withTimezone: true }),
 
+    // Soft delete. Trashed pages keep their rows so they can be restored
+    // with their revisions, tags, and links intact.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+
     // Workspace ownership will be added when workspaces
     // and authentication are implemented.
     title: text("title").notNull().default("Untitled"),
@@ -55,6 +59,7 @@ export const pages = pgTable(
   (table) => [
     index("pages_updated_at_idx").on(table.updatedAt),
     index("pages_parent_id_idx").on(table.parentId),
+    index("pages_deleted_at_idx").on(table.deletedAt),
   ],
 );
 

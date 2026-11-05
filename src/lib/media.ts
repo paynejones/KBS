@@ -27,6 +27,19 @@ export function attachmentUrl(id: string) {
   return `/api/attachments/${id}`;
 }
 
+const ATTACHMENT_REFERENCE =
+  /\/api\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
+
+/** Finds every stored attachment referenced anywhere in a page or record payload. */
+export function attachmentIdsInText(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const ids = new Set<string>();
+  for (const match of text.matchAll(ATTACHMENT_REFERENCE)) {
+    ids.add(match[1].toLowerCase());
+  }
+  return Array.from(ids);
+}
+
 export function isAllowedMediaUrl(value: string) {
   if (ATTACHMENT_PATH.test(value)) return true;
   try {

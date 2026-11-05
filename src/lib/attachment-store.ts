@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
@@ -67,6 +67,15 @@ export async function readStoredAttachment(id: string) {
     return { ...row, bytes };
   } catch {
     return null;
+  }
+}
+
+export async function removeAttachmentFile(id: string) {
+  try {
+    await unlink(attachmentPath(id));
+  } catch (error) {
+    // A missing file is already in the desired state; anything else is real.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 

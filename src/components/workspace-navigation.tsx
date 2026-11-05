@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Database, Files, GitFork, House, Inbox, Star } from "lucide-react";
+import { Database, Files, GitFork, House, Inbox, Star, Trash2 } from "lucide-react";
 
 const navigation = [
   { label: "Home", href: "/", icon: House },
@@ -11,6 +11,7 @@ const navigation = [
   { label: "Databases", href: "/databases", icon: Database },
   { label: "Favorites", href: "/favorites", icon: Star },
   { label: "Graph", href: "/graph", icon: GitFork },
+  { label: "Trash", href: "/trash", icon: Trash2 },
 ];
 
 export function WorkspaceNavigation({ mobile = false }: { mobile?: boolean }) {

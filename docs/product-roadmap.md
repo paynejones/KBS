@@ -12,12 +12,14 @@ This roadmap describes KBS as a self-hosted personal information system: a place
 
 ## Current foundation
 
-The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, and gallery views. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, and rollup. Databases can be embedded in pages, use record templates, and export as CSV or JSON. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs.
+The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, trash with restore and permanent delete, a full workspace JSON export with a restore script, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, and gallery views. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, and rollup. Databases can be embedded in pages, use record templates, and export as CSV or JSON. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs.
 
 This is a code-level inventory, not a claim that every feature has the same polish or breadth as its Notion equivalent.
 
 ## Recently completed
 
+- Added a trash: deleting a page moves it and its subpages there, with restore and permanent delete. Trashing preserves tags, links, and revisions; permanent delete removes attachments that nothing else references.
+- Added unused-file detection and cleanup, plus a full workspace JSON export and a `npm run restore:export` restore path documented in [backup and restore](backup-and-restore.md).
 - Added a command palette (Ctrl/Cmd+K) that searches pages and database records, jumps to favorites and recent pages, opens common destinations, and creates pages or databases without leaving the keyboard.
 - Added recent pages: visits are recorded per browser, shown on the home page as “Jump back in”, and offered at the top of the command palette.
 - Added a workspace graph view for navigating page connections, including a local graph with neighborhood depth, zoom, pan, drag, and node search.
@@ -114,9 +116,10 @@ Create a useful landing page from existing KBS data, with simple configurable se
 
 ### 7. Protect and organize personal data
 
-- Add a trash area with restore and permanent-delete actions.
+- [x] Add a trash area with restore and permanent-delete actions. Trashing keeps the subtree, tags, links, and revisions intact so a page can be recovered whole.
 - [x] Add page revision history and restore, so mistakes can be undone after the editor undo stack or local draft window is gone.
-- Add full workspace export/backup and a documented restore path, not just per-database exports. Include the attachments directory (`data/attachments` by default, or `ATTACHMENTS_DIR`) alongside PostgreSQL dumps.
+- [x] Add full workspace export/backup and a documented restore path, not just per-database exports. The JSON export covers every table; attachment bytes stay in `data/attachments` (or `ATTACHMENTS_DIR`) and the restore path is documented in [backup and restore](backup-and-restore.md).
+- Add scheduled or one-click backups that capture the attachments directory too, and a filesystem scan for files with no attachment row.
 - Track source and capture date for imported or clipped information (data provenance). Capture date and source URL already exist for inbox items.
 - Add optional local/offline-friendly behavior if the app's deployment model supports it; clearly communicate when edits are local versus saved to the server.
 
@@ -165,7 +168,7 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 2. Improve page connections with backlink context and inline page/external link controls; store richer metadata for captured URLs.
 3. Add related-item discovery, orphan views, and useful personal dashboard sections.
 4. Expand database views (calendar/list first), structured filters, formulas, and import.
-5. Add trash and full export/restore, including uploaded attachments.
+5. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.
 6. Add inbox file/PDF capture and personal workflows such as a decision journal, reading list, and focus view.
 7. Add multi-user identity, permissions, and collaboration when needed.
 

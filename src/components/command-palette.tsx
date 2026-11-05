@@ -20,6 +20,7 @@ import {
   Plus,
   Search,
   Star,
+  Trash2,
   X,
 } from "lucide-react";
 import { formatRecentTime, loadRecentPages, type RecentPage } from "@/lib/recents";
@@ -287,6 +288,14 @@ export function CommandPalette() {
       group: "Actions",
       icon: <GitFork size={16} />,
       run: () => go("/graph"),
+    },
+    {
+      key: "nav-trash",
+      label: "Go to trash",
+      detail: "Restore or delete pages",
+      group: "Actions",
+      icon: <Trash2 size={16} />,
+      run: () => go("/trash"),
     },
   ];
 
