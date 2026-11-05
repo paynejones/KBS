@@ -5,7 +5,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CopyPlus, Download, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { DatabaseCalendar } from "@/components/database-calendar";
+import { DatabaseViewControls } from "@/components/database-view-controls";
 import { Button } from "@/components/ui/button";
+import {
+  applyView,
+  parseViewFilters,
+  parseViewSorts,
+  type ViewFilter,
+  type ViewProperty,
+  type ViewSort,
+} from "@/lib/database-view";
 
 type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup";
 type Property = { id: string; name: string; type: PropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string } };
@@ -17,6 +27,14 @@ type RelationTargetData = { properties: Property[]; records: RelatedRecordOption
 type DatabaseView = { id: string; name: string; type: string; config: Record<string, unknown> };
 type DatabaseTemplate = { id: string; name: string; title: string; values: Record<string, unknown> };
 type DatabaseData = { id: string; name: string; properties: Property[]; records: RecordRow[]; views: DatabaseView[]; templates: DatabaseTemplate[] };
+
+function viewControlsFromConfig(config: Record<string, unknown> | undefined) {
+  return {
+    filterText: typeof config?.filterText === "string" ? config.filterText : "",
+    filters: parseViewFilters(config),
+    sorts: parseViewSorts(config),
+  };
+}
 
 function downloadFile(filename: string, content: string, mimeType: string) {
   const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
@@ -52,8 +70,8 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [rollupTargetPropertyId, setRollupTargetPropertyId] = useState("");
   const [rollupAggregation, setRollupAggregation] = useState("count");
   const [filterText, setFilterText] = useState("");
-  const [sortBy, setSortBy] = useState("title");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [filters, setFilters] = useState<ViewFilter[]>([]);
+  const [sorts, setSorts] = useState<ViewSort[]>(parseViewSorts(undefined));
   const [viewSaveError, setViewSaveError] = useState("");
   const [activeViewId, setActiveViewId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
@@ -94,12 +112,15 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         }] as const;
       }));
       setRelationTargets(Object.fromEntries(relatedOptions));
-      const tableView = loadedDatabase.views.find((view) => view.type === "table");
-      setActiveViewId(tableView?.id ?? loadedDatabase.views[0]?.id ?? "");
-      const config = tableView?.config;
-      setFilterText(typeof config?.filterText === "string" ? config.filterText : "");
-      setSortBy(typeof config?.sortBy === "string" ? config.sortBy : "title");
-      setSortDirection(config?.sortDirection === "desc" ? "desc" : "asc");
+      const requestedViewId = new URLSearchParams(window.location.search).get("view");
+      const initialView = loadedDatabase.views.find((view) => view.id === requestedViewId)
+        ?? loadedDatabase.views.find((view) => view.type === "table")
+        ?? loadedDatabase.views[0];
+      setActiveViewId(initialView?.id ?? "");
+      const controls = viewControlsFromConfig(initialView?.config);
+      setFilterText(controls.filterText);
+      setFilters(controls.filters);
+      setSorts(controls.sorts);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load database.");
     } finally {
@@ -108,14 +129,14 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => {
-    const view = database?.views.find((candidate) => candidate.id === activeViewId && candidate.type === "table");
+    const view = database?.views.find((candidate) => candidate.id === activeViewId);
     if (!view) return;
     const timer = window.setTimeout(() => {
       void fetch(`/api/databases/${id}/views/${view.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          config: { filterText, sortBy, sortDirection },
+          config: { ...view.config, filterText, filters, sorts },
         }),
       }).then((response) => {
         if (!response.ok) setViewSaveError("View settings could not be saved.");
@@ -123,7 +144,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       }).catch(() => setViewSaveError("View settings could not be saved."));
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [activeViewId, database?.views, filterText, id, sortBy, sortDirection]);
+  }, [activeViewId, database?.views, filterText, filters, id, sorts]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadDatabase(), 0);
@@ -305,7 +326,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       if (!response.ok) throw new Error("Could not create board view.");
       const view: DatabaseView = await response.json();
       setDatabase((current) => current ? { ...current, views: [...current.views, view] } : current);
-      setActiveViewId(view.id);
+      selectView(view);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create board view.");
     } finally {
@@ -325,7 +346,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       if (!response.ok) throw new Error("Could not create gallery view.");
       const view: DatabaseView = await response.json();
       setDatabase((current) => current ? { ...current, views: [...current.views, view] } : current);
-      setActiveViewId(view.id);
+      selectView(view);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create gallery view.");
     } finally {
@@ -333,8 +354,42 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
-  async function changeBoardGroup(view: DatabaseView, propertyId: string) {
-    const config = { ...view.config, groupBy: propertyId };
+  async function addCalendarView() {
+    const dateProperty = database?.properties.find((property) => property.type === "date");
+    if (!dateProperty) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/databases/${id}/views`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Calendar",
+          type: "calendar",
+          config: { datePropertyId: dateProperty.id },
+        }),
+      });
+      if (!response.ok) throw new Error("Could not create calendar view.");
+      const view: DatabaseView = await response.json();
+      setDatabase((current) => current ? { ...current, views: [...current.views, view] } : current);
+      selectView(view);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create calendar view.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function selectView(view: DatabaseView) {
+    setActiveViewId(view.id);
+    const controls = viewControlsFromConfig(view.config);
+    setFilterText(controls.filterText);
+    setFilters(controls.filters);
+    setSorts(controls.sorts);
+  }
+
+  async function changeViewConfig(view: DatabaseView, patch: Record<string, unknown>) {
+    const config = { ...view.config, ...patch };
     setDatabase((current) => current ? {
       ...current,
       views: current.views.map((candidate) => candidate.id === view.id ? { ...candidate, config } : candidate),
@@ -344,7 +399,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ config }),
     });
-    if (!response.ok) setViewSaveError("Board settings could not be saved.");
+    if (!response.ok) setViewSaveError("View settings could not be saved.");
     else setViewSaveError("");
   }
 
@@ -444,6 +499,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const normalizedFilter = filterText.trim().toLocaleLowerCase();
   const activeView = database.views.find((view) => view.id === activeViewId) ?? database.views[0];
   const boardProperties = database.properties.filter((property) => property.type === "select");
+  const dateProperties = database.properties.filter((property) => property.type === "date");
   const relationProperties = database.properties.filter((property) => property.type === "relation");
   const getRollupValue = (record: RecordRow, property: Property): number | string => {
     const relationPropertyId = property.options.relationPropertyId;
@@ -466,20 +522,20 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const boardProperty = activeView?.type === "board"
     ? boardProperties.find((property) => property.id === activeView.config.groupBy) ?? boardProperties[0]
     : undefined;
-  const visibleRecords = database.records
-    .filter((record) => {
-      if (!normalizedFilter) return true;
-      return [record.title, ...Object.values(record.values).map((value) => Array.isArray(value) ? value.join(" ") : String(value ?? "")),
-        ...database.properties.filter((property) => property.type === "rollup").map((property) => String(getRollupValue(record, property)))]
-        .some((value) => value.toLocaleLowerCase().includes(normalizedFilter));
-    })
-    .sort((left, right) => {
-      const sortProperty = database.properties.find((property) => property.id === sortBy);
-      const leftValue = sortBy === "title" ? left.title : sortProperty?.type === "rollup" ? getRollupValue(left, sortProperty) : left.values[sortBy];
-      const rightValue = sortBy === "title" ? right.title : sortProperty?.type === "rollup" ? getRollupValue(right, sortProperty) : right.values[sortBy];
-      const comparison = String(leftValue ?? "").localeCompare(String(rightValue ?? ""), undefined, { numeric: true, sensitivity: "base" });
-      return sortDirection === "asc" ? comparison : -comparison;
-    });
+  const dateViewPropertyId = typeof activeView?.config.datePropertyId === "string" ? activeView.config.datePropertyId : "";
+  const valueFor = (record: RecordRow, property: ViewProperty) => {
+    const rollupProperty = database.properties.find((candidate) => candidate.id === property.id);
+    return property.type === "rollup" && rollupProperty
+      ? getRollupValue(record, rollupProperty)
+      : record.values[property.id];
+  };
+  const matchingRecords = database.records.filter((record) => {
+    if (!normalizedFilter) return true;
+    return [record.title, ...Object.values(record.values).map((value) => Array.isArray(value) ? value.join(" ") : String(value ?? "")),
+      ...database.properties.filter((property) => property.type === "rollup").map((property) => String(getRollupValue(record, property)))]
+      .some((value) => value.toLocaleLowerCase().includes(normalizedFilter));
+  });
+  const visibleRecords = applyView(matchingRecords, database.properties, filters, sorts, { valueFor });
 
   function exportJson() {
     if (!database) return;
@@ -514,7 +570,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       <div className="space-y-7">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground">DATABASE / TABLE</p>
+            <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground">DATABASE / {(activeView?.type ?? "table").toLocaleUpperCase()}</p>
             <input
               aria-label="Database name"
               defaultValue={database.name}
@@ -540,7 +596,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               type="button"
               size="sm"
               variant={activeViewId === view.id ? "secondary" : "ghost"}
-              onClick={() => setActiveViewId(view.id)}
+              onClick={() => selectView(view)}
             >
               {view.name}
             </Button>
@@ -551,7 +607,11 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           <Button type="button" size="sm" variant="outline" onClick={() => void addGalleryView()} disabled={busy}>
             <Plus size={15} /> Gallery view
           </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void addCalendarView()} disabled={busy || dateProperties.length === 0}>
+            <Plus size={15} /> Calendar view
+          </Button>
           {boardProperties.length === 0 && <span className="text-xs text-muted-foreground">Add a Select property to create a board.</span>}
+          {dateProperties.length === 0 && <span className="text-xs text-muted-foreground">Add a Date property to create a calendar.</span>}
         </div>
 
         {database.templates.length > 0 && (
@@ -643,27 +703,25 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         {viewSaveError && <p role="status" aria-live="polite" className={`text-xs ${viewSaveError.includes("could not") ? "text-destructive" : "text-muted-foreground"}`}>{viewSaveError}</p>}
 
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-3 py-3 sm:px-4">
-          <label className="flex items-center gap-2 text-sm">
-            Filter
-            <input type="search" value={filterText} onChange={(event) => setFilterText(event.target.value)} placeholder="Search rows…" className="w-56 rounded-md border bg-background px-3 py-2" />
-          </label>
-          {activeView?.type === "table" && <>
-            <label className="flex items-center gap-2 text-sm">
-              Sort by
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="max-w-52 rounded-md border bg-background px-3 py-2">
-                <option value="title">Name</option>
-                {database.properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-              </select>
-            </label>
-            <Button type="button" variant="outline" size="sm" onClick={() => setSortDirection((direction) => direction === "asc" ? "desc" : "asc")} aria-label={`Sort ${sortDirection === "asc" ? "descending" : "ascending"}`}>
-              {sortDirection === "asc" ? "Ascending ↑" : "Descending ↓"}
-            </Button>
-          </>}
-          <span className="text-xs text-muted-foreground">{visibleRecords.length} {visibleRecords.length === 1 ? "record" : "records"}</span>
-        </div>
+        <DatabaseViewControls
+          properties={database.properties}
+          filterText={filterText}
+          filters={filters}
+          sorts={sorts}
+          recordCount={visibleRecords.length}
+          onFilterTextChange={setFilterText}
+          onFiltersChange={setFilters}
+          onSortsChange={setSorts}
+        />
 
-        {activeView?.type === "gallery" ? (
+        {activeView?.type === "calendar" ? (
+          <DatabaseCalendar
+            properties={database.properties}
+            records={visibleRecords}
+            datePropertyId={dateViewPropertyId}
+            onDatePropertyChange={(propertyId) => void changeViewConfig(activeView, { datePropertyId: propertyId })}
+          />
+        ) : activeView?.type === "gallery" ? (
           <section aria-label="Gallery view" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visibleRecords.map((record) => {
               const filledProperties = database.properties.filter((property) => {
@@ -712,7 +770,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             <section className="space-y-4" aria-label={`${boardProperty.name} board`}>
               <label className="flex items-center gap-2 text-sm">
                 Group by
-                <select value={boardProperty.id} onChange={(event) => void changeBoardGroup(activeView, event.target.value)} className="rounded-md border bg-background px-3 py-2">
+                <select value={boardProperty.id} onChange={(event) => void changeViewConfig(activeView, { groupBy: event.target.value })} className="rounded-md border bg-background px-3 py-2">
                   {boardProperties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
                 </select>
               </label>

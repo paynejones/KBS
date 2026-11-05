@@ -12,12 +12,15 @@ This roadmap describes KBS as a self-hosted personal information system: a place
 
 ## Current foundation
 
-The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, trash with restore and permanent delete, a full workspace JSON export with a restore script, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, and gallery views. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, and rollup. Databases can be embedded in pages, use record templates, and export as CSV or JSON. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs.
+The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, trash with restore and permanent delete, a full workspace JSON export with a restore script, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, gallery, and calendar views. Views store their own structured filters and multiple sort rules, and any saved view can be pinned as a home dashboard widget. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, and rollup. Databases can be embedded in pages, use record templates, and export as CSV or JSON. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs.
 
 This is a code-level inventory, not a claim that every feature has the same polish or breadth as its Notion equivalent.
 
 ## Recently completed
 
+- Added home dashboard widgets: any saved database view can be pinned to the home page, and each widget applies that view's filters and sorts to a short record preview.
+- Added a calendar view for date properties, with month navigation, today highlighting, a date-property switcher, and a list of undated records.
+- Added structured, per-view filters and multiple sort rules. Filters use type-aware operators (contains, is before/after, greater/less than, is empty, is checked) and apply to every view type, with the old quick search kept alongside them.
 - Backlinks now show a count plus a quoted snippet of the sentence around each inline link, so a mention can be judged without opening every source page.
 - Added a trash: deleting a page moves it and its subpages there, with restore and permanent delete. Trashing preserves tags, links, and revisions; permanent delete removes attachments that nothing else references.
 - Added unused-file detection and cleanup, plus a full workspace JSON export and a `npm run restore:export` restore path documented in [backup and restore](backup-and-restore.md).
@@ -111,8 +114,8 @@ Create a useful landing page from existing KBS data, with simple configurable se
 
 - Recent pages already appear on the home page (“Jump back in”); continue with favorites, the capture inbox, and selected databases or views as configurable sections.
 - Add tasks due soon and current projects after task and date workflows are established.
-- Support dashboard sections for saved database views, including active media queues and release dates, plus quick actions for capturing a note or creating a common record.
-- Keep widgets as saved views over existing information rather than creating a second copy of the data.
+- [x] Support dashboard sections for saved database views, so any view (including active media queues and release dates) can be pinned from the home page with its own filters and sorts applied.
+- [x] Keep widgets as saved views over existing information rather than creating a second copy of the data.
 - Add a personal timeline for dated notes, milestones, and tasks once date properties and calendar views are reliable.
 
 ### 7. Protect and organize personal data
@@ -134,9 +137,10 @@ Create a useful landing page from existing KBS data, with simple configurable se
 
 ### 9. Complete everyday database workflows
 
-- Add calendar and list views first, followed by timeline and chart views where they solve real use cases.
-- Use calendar views for both task due dates and media release dates; make it possible to surface the same views on the personal home dashboard.
-- Support structured, per-view filters and multiple sort/group rules, rather than relying on a single text filter and sort configuration.
+- [x] Add a calendar view for date properties, with month navigation, today highlighting, and undated records.
+- Add list, timeline, and chart views where they solve real use cases.
+- [x] Use calendar views for both task due dates and media release dates; the same view can be pinned to the personal home dashboard.
+- [x] Support structured, per-view filters and multiple sort rules instead of a single text filter and one sort. Board grouping stays configured per board view.
 - Add per-view property visibility and view duplication/reordering.
 - [x] Add a file/media property and show it on gallery cards as a cover.
 - Add formula properties; consider person and status properties when identity or team workflows arrive.
@@ -168,7 +172,7 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 1. Add page templates and finish the remaining editor polish (block reordering, mobile editing, save-state feedback).
 2. Add an inline link control for external URLs and pages, and store richer metadata for captured URLs.
 3. Add related-item discovery, orphan views, and useful personal dashboard sections.
-4. Expand database views (calendar/list first), structured filters, formulas, and import.
+4. Add list views and database formulas, then CSV/Markdown import.
 5. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.
 6. Add inbox file/PDF capture and personal workflows such as a decision journal, reading list, and focus view.
 7. Add multi-user identity, permissions, and collaboration when needed.

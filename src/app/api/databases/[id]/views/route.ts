@@ -7,7 +7,7 @@ import { databases, databaseViews } from "@/db/schema";
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["table", "board", "gallery"]),
+  type: z.enum(["table", "board", "gallery", "calendar"]),
   config: z.record(z.string(), z.unknown()).optional(),
 });
 

@@ -74,7 +74,7 @@ async function main() {
     process.env.DATABASE_URL = testUrl.toString();
     const [
       { db, pool },
-      { pages, pageLinks, databases, databaseRecords, databaseRecordRelations },
+      { pages, pageLinks, databases, databaseRecords, databaseRecordRelations, databaseViews },
       { POST: createDatabase },
       { GET: getDatabase, DELETE: deleteDatabase },
       { POST: createProperty },
@@ -113,6 +113,7 @@ async function main() {
     const { DELETE: purgeTrashPage } = await import("../src/app/api/trash/[id]/route");
     const { GET: exportWorkspace } = await import("../src/app/api/export/route");
     const { GET: getPageLinks } = await import("../src/app/api/pages/[id]/links/route");
+    const { GET: getDashboard } = await import("../src/app/api/dashboard/route");
 
     assert.equal((await listPages(makeRequest("/api/pages?tagId=invalid", "GET"))).status, 400,
       "page listing should reject malformed tag filters");
@@ -276,6 +277,65 @@ async function main() {
     const rootLinksAfterTrashBody = await rootLinksAfterTrash.json() as { backlinks: { id: string }[] };
     assert.equal(rootLinksAfterTrashBody.backlinks.some((entry) => entry.id === backlinkSource.id), false,
       "trashed pages should not appear in backlinks");
+
+    const dashboardDatabase = await createTestDatabase("dashboard widgets");
+    const dashboardContext = routeContext({ id: dashboardDatabase.id });
+    const dashboardDatePropertyResponse = await createProperty(
+      makeRequest(`/api/databases/${dashboardDatabase.id}/properties`, "POST", { name: "Due", type: "date" }),
+      dashboardContext,
+    );
+    assert.equal(dashboardDatePropertyResponse.status, 201);
+    const dashboardDateProperty = await dashboardDatePropertyResponse.json() as { id: string };
+
+    const dashboardViewResponse = await createView(
+      makeRequest(`/api/databases/${dashboardDatabase.id}/views`, "POST", {
+        name: "Due soon",
+        type: "calendar",
+        config: { datePropertyId: dashboardDateProperty.id },
+      }),
+      dashboardContext,
+    );
+    assert.equal(dashboardViewResponse.status, 201, "calendar views should be accepted");
+    const dashboardView = await dashboardViewResponse.json() as { id: string; type: string };
+    assert.equal(dashboardView.type, "calendar");
+
+    const dashboardRecordResponse = await createRecord(
+      makeRequest(`/api/databases/${dashboardDatabase.id}/records`, "POST", { title: "Dated item" }),
+      dashboardContext,
+    );
+    assert.equal(dashboardRecordResponse.status, 201);
+    const dashboardRecord = await dashboardRecordResponse.json() as { id: string };
+    const dashboardRecordPatch = await updateRecord(
+      makeRequest(`/api/databases/${dashboardDatabase.id}/records/${dashboardRecord.id}`, "PATCH", {
+        values: { [dashboardDateProperty.id]: "2026-11-05" },
+      }),
+      routeContext({ id: dashboardDatabase.id, recordId: dashboardRecord.id }),
+    );
+    assert.equal(dashboardRecordPatch.status, 200);
+
+    await db.update(databaseViews).set({
+      config: {
+        datePropertyId: dashboardDateProperty.id,
+        filters: [{ id: "f1", propertyId: dashboardDateProperty.id, operator: "after", value: "2026-01-01" }],
+        sorts: [{ propertyId: dashboardDateProperty.id, direction: "desc" }],
+      },
+    }).where(eq(databaseViews.id, dashboardView.id));
+
+    const dashboardResponse = await getDashboard(makeRequest(`/api/dashboard?viewIds=${dashboardView.id}`, "GET"));
+    assert.equal(dashboardResponse.status, 200);
+    const dashboardBody = await dashboardResponse.json() as {
+      widgets: { view: { id: string }; total: number; records: { id: string }[] }[];
+    };
+    const dashboardWidget = dashboardBody.widgets.find((entry) => entry.view.id === dashboardView.id);
+    assert.ok(dashboardWidget, "requested views should come back as dashboard widgets");
+    assert.equal(dashboardWidget?.total, 1, "dashboard widgets should apply the saved view filters");
+    assert.equal(dashboardWidget?.records[0]?.id, dashboardRecord.id,
+      "dashboard widgets should preview the filtered records");
+
+    const unknownDashboardResponse = await getDashboard(makeRequest("/api/dashboard?viewIds=not-a-view", "GET"));
+    assert.equal(unknownDashboardResponse.status, 200);
+    const unknownDashboardBody = await unknownDashboardResponse.json() as { widgets: unknown[] };
+    assert.equal(unknownDashboardBody.widgets.length, 0, "unknown widget ids should be ignored");
 
     const viewRollbackPool = new Pool({ connectionString: testUrl.toString() });
     try {
@@ -509,7 +569,7 @@ async function main() {
 
     await pool.end();
     applicationPool = undefined;
-    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, trash and restore, backlink context, workspace export, database CRUD, relations, rollups, views, and templates.");
+    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, trash and restore, backlink context, dashboard widgets, workspace export, database CRUD, relations, rollups, views, and templates.");
   } finally {
     if (applicationPool) await applicationPool.end();
     try {

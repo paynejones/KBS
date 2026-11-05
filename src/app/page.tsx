@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Database, FileText, Plus } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { DashboardWidgets } from "@/components/dashboard-widgets";
 import { RecentPages } from "@/components/recent-pages";
 import { Button } from "@/components/ui/button";
 
@@ -131,6 +132,8 @@ export default function Home() {
         )}
 
         <RecentPages />
+
+        <DashboardWidgets />
 
         <section className="space-y-4" aria-labelledby="recent-pages-heading">
           <div className="flex items-center justify-between gap-3">
