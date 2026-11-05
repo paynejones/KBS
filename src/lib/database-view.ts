@@ -157,6 +157,23 @@ function dateValue(value: unknown): string | null {
   return match ? match[0] : null;
 }
 
+/**
+ * A filter only applies once it can actually be evaluated: no value yet, or a
+ * value that does not parse as the property's type, leaves the view unchanged.
+ */
+function isFilterActive(filter: ViewFilter, property: ViewProperty): boolean {
+  if (!filterNeedsValue(filter.operator)) return true;
+  if (filter.value.trim() === "") return false;
+
+  if (property.type === "number" && ["is", "is_not", "greater_than", "less_than"].includes(filter.operator)) {
+    return numberValue(filter.value) !== null;
+  }
+  if (property.type === "date" && ["is", "is_not", "before", "after"].includes(filter.operator)) {
+    return dateValue(filter.value) !== null;
+  }
+  return true;
+}
+
 function matchesFilter(
   property: ViewProperty,
   filter: ViewFilter,
@@ -182,13 +199,31 @@ function matchesFilter(
         ? !selectedValues(value).includes(needle)
         : !stringValue(value).toLocaleLowerCase().includes(needle);
     case "is":
-      return property.type === "multi_select"
-        ? selectedValues(value).includes(needle)
-        : stringValue(value).toLocaleLowerCase() === needle;
+      if (property.type === "multi_select") return selectedValues(value).includes(needle);
+      if (property.type === "number") {
+        const current = numberValue(value);
+        const target = numberValue(filter.value);
+        return current !== null && target !== null && current === target;
+      }
+      if (property.type === "date") {
+        const current = dateValue(value);
+        const target = dateValue(filter.value);
+        return current !== null && target !== null && current === target;
+      }
+      return stringValue(value).toLocaleLowerCase() === needle;
     case "is_not":
-      return property.type === "multi_select"
-        ? !selectedValues(value).includes(needle)
-        : stringValue(value).toLocaleLowerCase() !== needle;
+      if (property.type === "multi_select") return !selectedValues(value).includes(needle);
+      if (property.type === "number") {
+        const current = numberValue(value);
+        const target = numberValue(filter.value);
+        return !(current !== null && target !== null && current === target);
+      }
+      if (property.type === "date") {
+        const current = dateValue(value);
+        const target = dateValue(filter.value);
+        return !(current !== null && target !== null && current === target);
+      }
+      return stringValue(value).toLocaleLowerCase() !== needle;
     case "greater_than": {
       const current = numberValue(value);
       const target = numberValue(filter.value);
@@ -231,8 +266,7 @@ export function filterRecords<T extends ViewRecord>(
   const valueFor = options?.valueFor ?? ((record: T, property: ViewProperty) => record.values[property.id]);
   const active = filters.filter((filter) => {
     const property = propertiesById.get(filter.propertyId);
-    if (!property) return false;
-    return !filterNeedsValue(filter.operator) || filter.value.trim() !== "";
+    return property ? isFilterActive(filter, property) : false;
   });
 
   if (active.length === 0) return records;

@@ -86,3 +86,55 @@ test("database values must match property types and configured choices", () => {
   assert.match(validateDatabaseRecordValues({ select: "Unknown" }, properties) ?? "", /configured choices/);
   assert.match(validateDatabaseRecordValues({ rollup: 10 }, properties) ?? "", /managed/);
 });
+
+test("database values validate file properties and null values", () => {
+  const properties = [
+    { id: "file", name: "Cover", type: "file", options: {} },
+    { id: "date", name: "Due", type: "date", options: {} },
+  ];
+  const attachment = "11111111-1111-4111-8111-111111111111";
+
+  assert.equal(validateDatabaseRecordValues({ date: null, file: null }, properties), null);
+  assert.equal(validateDatabaseRecordValues({
+    file: {
+      url: `/api/attachments/${attachment}`,
+      attachmentId: attachment,
+      alt: "",
+      filename: "a.png",
+      mimeType: "image/png",
+    },
+  }, properties), null);
+  assert.match(validateDatabaseRecordValues({ file: "a.png" }, properties) ?? "", /uploaded file/);
+  assert.match(validateDatabaseRecordValues({ file: { url: "javascript:alert(1)" } }, properties) ?? "", /uploaded file/);
+  assert.match(validateDatabaseRecordValues({ date: 7 }, properties) ?? "", /must be text/);
+});
+
+test("database values reject values for managed property types", () => {
+  const properties = [
+    { id: "relation", name: "Related", type: "relation", options: {} },
+    { id: "multi", name: "Labels", type: "multi_select", options: { choices: ["Home"] } },
+    { id: "checkbox", name: "Done", type: "checkbox", options: {} },
+  ];
+
+  assert.match(validateDatabaseRecordValues({ relation: [] }, properties) ?? "", /managed/);
+  assert.match(validateDatabaseRecordValues({ multi: "Home" }, properties) ?? "", /configured choices/);
+  assert.match(validateDatabaseRecordValues({ multi: ["Unknown"] }, properties) ?? "", /configured choices/);
+  assert.match(validateDatabaseRecordValues({ checkbox: "yes" }, properties) ?? "", /checked or unchecked/);
+  assert.equal(validateDatabaseRecordValues({}, properties), null);
+});
+
+test("draft recovery rejects impossible revisions and boundary timestamps", () => {
+  const base = { content: "text", contentJson: { type: "doc" }, revision: 1, savedAt: 2_000 };
+
+  assert.equal(readRecoverablePageDraft(JSON.stringify({ ...base, revision: 0 }), new Date(1_000)), null);
+  assert.equal(readRecoverablePageDraft(JSON.stringify({ ...base, revision: 1.5 }), new Date(1_000)), null);
+  assert.equal(readRecoverablePageDraft(JSON.stringify(base), new Date(2_000)), null,
+    "a draft must be newer than the server copy");
+  assert.equal(readRecoverablePageDraft(JSON.stringify({ ...base, contentJson: [] }), new Date(1_000)), null);
+  assert.equal(readRecoverablePageDraft(JSON.stringify({ ...base, contentJson: { type: "paragraph" } }), new Date(1_000)), null);
+  assert.deepEqual(
+    readRecoverablePageDraft(JSON.stringify(base), "1970-01-01T00:00:01.000Z"),
+    base,
+    "an ISO server timestamp is accepted too",
+  );
+});

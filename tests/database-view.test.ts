@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyView,
+  filterNeedsValue,
   filterRecords,
+  isFilterableProperty,
+  operatorsForProperty,
   parseViewFilters,
   parseViewSorts,
   sortRecords,
@@ -175,4 +178,107 @@ test("applyView filters before sorting", () => {
   ], [{ propertyId: SCORE, direction: "asc" }]);
 
   assert.deepEqual(visible.map((record) => record.id), ["c", "a"]);
+});
+
+test("URL values filter like text and empty values behave consistently", () => {
+  const urlProperties: ViewProperty[] = [...properties, { id: "url", name: "Link", type: "url" }];
+  const rows: ViewRecord[] = [
+    { id: "x", title: "X", values: { url: "https://example.com/harvest" } },
+    { id: "y", title: "Y", values: { url: "" } },
+    { id: "z", title: "Z", values: {} },
+  ];
+
+  assert.deepEqual(
+    filterRecords(rows, urlProperties, [filter({ propertyId: "url", operator: "contains", value: "EXAMPLE" })]).map((row) => row.id),
+    ["x"],
+  );
+  assert.deepEqual(
+    filterRecords(rows, urlProperties, [filter({ propertyId: "url", operator: "is_empty" })]).map((row) => row.id),
+    ["y", "z"],
+  );
+});
+
+test("negative operators keep rows with missing values", () => {
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: TEXT, operator: "does_not_contain", value: "harvest" })]).map((record) => record.id),
+    ["b", "c"],
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: STATUS, operator: "is_not", value: "Done" })]).map((record) => record.id),
+    ["a", "c"],
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: TAGS, operator: "does_not_contain", value: "garden" })]).map((record) => record.id),
+    ["b", "c"],
+  );
+});
+
+test("date and number comparisons are strict about equality and invalid input", () => {
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DUE, operator: "before", value: "2026-11-02" })]).map((record) => record.id),
+    ["b"],
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DUE, operator: "is", value: "2026-11-02" })]).map((record) => record.id),
+    ["a"],
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: SCORE, operator: "greater_than", value: "not a number" })]).map((record) => record.id),
+    ["a", "b", "c"],
+    "an unparseable comparison value should leave the filter inactive",
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: SCORE, operator: "less_than", value: "8" })]).map((record) => record.id),
+    ["a"],
+  );
+});
+
+test("checkbox filters separate checked, unchecked, and missing values", () => {
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DONE, operator: "is_not_checked" })]).map((record) => record.id),
+    ["a", "c"],
+  );
+});
+
+test("operator helpers match property types and value requirements", () => {
+  assert.deepEqual(operatorsForProperty("checkbox"), ["is_checked", "is_not_checked"]);
+  assert.ok(operatorsForProperty("date").includes("before"));
+  assert.ok(operatorsForProperty("number").includes("greater_than"));
+  assert.equal(filterNeedsValue("is_empty"), false);
+  assert.equal(filterNeedsValue("is_not_checked"), false);
+  assert.equal(filterNeedsValue("contains"), true);
+  assert.equal(isFilterableProperty("relation"), false);
+  assert.equal(isFilterableProperty("rollup"), false);
+  assert.equal(isFilterableProperty("file"), false);
+  assert.equal(isFilterableProperty("text"), true);
+});
+
+test("filters and sorts are capped and tolerate non-object entries", () => {
+  const manyFilters = parseViewFilters({
+    filters: [
+      null,
+      "nope",
+      ...Array.from({ length: 20 }, (_, index) => ({
+        propertyId: `property-${index}`,
+        operator: "is",
+        value: String(index),
+      })),
+    ],
+  });
+  assert.equal(manyFilters.length, 12);
+
+  const manySorts = parseViewSorts({
+    sorts: Array.from({ length: 6 }, (_, index) => ({ propertyId: `property-${index}`, direction: "asc" })),
+  });
+  assert.equal(manySorts.length, 3);
+});
+
+test("sorting is stable and leaves the source array untouched", () => {
+  const input = [...records];
+  const sorted = sortRecords(input, properties, [{ propertyId: STATUS, direction: "asc" }]);
+
+  assert.deepEqual(input.map((record) => record.id), ["a", "b", "c"], "sorting must not mutate the records passed in");
+  assert.deepEqual(sortRecords(records, properties, []).map((record) => record.id), ["a", "b", "c"],
+    "no sort rules keeps the incoming order");
+  assert.notEqual(sorted, input);
 });

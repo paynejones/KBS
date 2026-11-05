@@ -58,3 +58,22 @@ test("todayKey uses the local calendar date", () => {
   assert.equal(todayKey(new Date(2026, 10, 5, 23, 30)), "2026-11-05");
   assert.equal(todayKey(new Date(2026, 0, 1, 0, 1)), "2026-01-01");
 });
+
+test("month grids handle leap years and months that start on Monday", () => {
+  const leap = monthGrid(2028, 1);
+  assert.equal(leap[0].key, "2028-01-31", "1 February 2028 is a Tuesday");
+  assert.equal(leap.filter((day) => day.inMonth).length, 29);
+  assert.ok(leap.some((day) => day.key === "2028-02-29"));
+
+  const mondayStart = monthGrid(2026, 5);
+  assert.equal(mondayStart[0].key, "2026-06-01");
+  assert.equal(mondayStart[0].inMonth, true);
+  assert.equal(mondayStart[41].key, "2026-07-12");
+});
+
+test("impossible calendar dates are rejected", () => {
+  assert.equal(dateKey("2026-02-31"), null);
+  assert.equal(dateKey("2027-02-29"), null);
+  assert.equal(dateKey("2028-02-29"), "2028-02-29");
+  assert.equal(dateKey("2026-00-10"), null);
+});

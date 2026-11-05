@@ -133,3 +133,35 @@ test("backlink context tolerates missing or malformed content", () => {
   assert.deepEqual(backlinkContexts({}, TARGET), []);
   assert.deepEqual(backlinkContexts("not content", TARGET), []);
 });
+
+test("backlink context tolerates links without usable href attributes", () => {
+  const content = doc(paragraph({
+    type: "text",
+    text: "broken link",
+    marks: [{ type: "link" }, { type: "link", attrs: { href: 42 } }],
+  }));
+
+  assert.deepEqual(backlinkContexts(content, TARGET), []);
+});
+
+test("backlink context joins hard breaks and keeps one snippet per block", () => {
+  const content = doc(
+    paragraph("before", { type: "hardBreak" }, text("target", TARGET), { type: "hardBreak" }, "after"),
+    paragraph(text("target", TARGET), " again ", text("target", TARGET)),
+  );
+
+  const contexts = backlinkContexts(content, TARGET);
+  assert.equal(contexts.length, 2);
+  assert.match(contexts[0], /^before target after$/);
+  assert.match(contexts[1], /^target again target$/);
+});
+
+test("backlink context respects custom limits", () => {
+  const content = doc(
+    paragraph(text("target", TARGET)),
+    paragraph(text("target", TARGET)),
+  );
+
+  assert.deepEqual(backlinkContexts(content, TARGET, 0), []);
+  assert.equal(backlinkContexts(content, TARGET, 1).length, 1);
+});

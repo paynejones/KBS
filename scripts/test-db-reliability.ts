@@ -112,7 +112,8 @@ async function main() {
     const { POST: restoreTrashPage } = await import("../src/app/api/trash/[id]/restore/route");
     const { DELETE: purgeTrashPage } = await import("../src/app/api/trash/[id]/route");
     const { GET: exportWorkspace } = await import("../src/app/api/export/route");
-    const { GET: getPageLinks } = await import("../src/app/api/pages/[id]/links/route");
+    const { GET: getPageLinks, POST: linkPages, DELETE: unlinkPages } = await import("../src/app/api/pages/[id]/links/route");
+    const { GET: getOrphanedAttachments } = await import("../src/app/api/attachments/orphans/route");
     const { GET: getDashboard } = await import("../src/app/api/dashboard/route");
 
     assert.equal((await listPages(makeRequest("/api/pages?tagId=invalid", "GET"))).status, 400,
@@ -336,6 +337,64 @@ async function main() {
     assert.equal(unknownDashboardResponse.status, 200);
     const unknownDashboardBody = await unknownDashboardResponse.json() as { widgets: unknown[] };
     assert.equal(unknownDashboardBody.widgets.length, 0, "unknown widget ids should be ignored");
+
+    assert.equal((await getPage(makeRequest("/api/pages/not-a-uuid", "GET"), routeContext({ id: "not-a-uuid" }))).status, 400,
+      "page routes should reject malformed ids");
+    assert.equal((await updatePage(makeRequest(`/api/pages/${root.id}`, "PATCH", {}), routeContext({ id: root.id }))).status, 400,
+      "an empty page update should be rejected");
+    assert.equal((await createPage(makeRequest("/api/pages", "POST", {
+      parentId: "99999999-9999-4999-8999-999999999999",
+    }))).status, 404, "a page cannot be created under a missing parent");
+
+    const linkSourceResponse = await createPage(makeRequest("/api/pages", "POST", { title: "link source" }));
+    const linkTargetResponse = await createPage(makeRequest("/api/pages", "POST", { title: "link target" }));
+    const linkSource = await linkSourceResponse.json() as { id: string };
+    const linkTarget = await linkTargetResponse.json() as { id: string };
+    const linkContext = routeContext({ id: linkSource.id });
+    assert.equal((await linkPages(makeRequest(`/api/pages/${linkSource.id}/links`, "POST", { targetPageId: linkSource.id }), linkContext)).status, 400,
+      "a page cannot link to itself");
+    assert.equal((await linkPages(makeRequest(`/api/pages/${linkSource.id}/links`, "POST", { targetPageId: "not-a-uuid" }), linkContext)).status, 400,
+      "link targets must be valid ids");
+    assert.equal((await linkPages(makeRequest(`/api/pages/${linkSource.id}/links`, "POST", {
+      targetPageId: "99999999-9999-4999-8999-999999999999",
+    }), linkContext)).status, 404, "missing link targets should 404");
+    assert.equal((await linkPages(makeRequest(`/api/pages/${linkSource.id}/links`, "POST", { targetPageId: linkTarget.id }), linkContext)).status, 201);
+    assert.equal((await linkPages(makeRequest(`/api/pages/${linkSource.id}/links`, "POST", { targetPageId: linkTarget.id }), linkContext)).status, 201,
+      "linking the same pair twice is idempotent");
+    const linkListing = await (await getPageLinks(makeRequest(`/api/pages/${linkSource.id}/links`, "GET"), linkContext)).json() as { links: { id: string }[] };
+    assert.equal(linkListing.links.filter((entry) => entry.id === linkTarget.id).length, 1,
+      "duplicate link attempts should not create duplicate rows");
+    assert.equal((await unlinkPages(makeRequest(`/api/pages/${linkSource.id}/links`, "DELETE", { targetPageId: linkTarget.id }), linkContext)).status, 200);
+    assert.equal((await getPageLinks(makeRequest("/api/pages/not-a-uuid/links", "GET"), routeContext({ id: "not-a-uuid" }))).status, 400);
+
+    assert.equal((await restoreTrashPage(makeRequest(`/api/trash/${root.id}/restore`, "POST"), routeContext({ id: root.id }))).status, 404,
+      "restoring a page that is not trashed should 404");
+    assert.equal((await restoreTrashPage(makeRequest("/api/trash/not-a-uuid/restore", "POST"), routeContext({ id: "not-a-uuid" }))).status, 400);
+    assert.equal((await purgeTrashPage(makeRequest(`/api/trash/${root.id}`, "DELETE"), routeContext({ id: root.id }))).status, 404,
+      "permanent delete should refuse a page that is not in the trash");
+
+    const orphanScanResponse = await getOrphanedAttachments();
+    assert.equal(orphanScanResponse.status, 200);
+    const orphanScan = await orphanScanResponse.json() as { count: number; bytes: number; items: unknown[] };
+    assert.equal(orphanScan.items.length, orphanScan.count);
+    assert.ok(orphanScan.bytes >= 0);
+
+    const invalidViewTypeResponse = await createView(makeRequest(`/api/databases/${dashboardDatabase.id}/views`, "POST", {
+      name: "Nope",
+      type: "timeline",
+    }), dashboardContext);
+    assert.equal(invalidViewTypeResponse.status, 400, "unsupported view types should be rejected");
+    assert.equal((await updateView(makeRequest(`/api/databases/${dashboardDatabase.id}/views/${dashboardView.id}`, "PATCH", {}), routeContext({ id: dashboardDatabase.id, viewId: dashboardView.id }))).status, 400,
+      "an empty view update should be rejected");
+
+    assert.equal((await updateRecord(makeRequest(`/api/databases/${dashboardDatabase.id}/records/${dashboardRecord.id}`, "PATCH", {
+      values: { "99999999-9999-4999-8999-999999999999": "x" },
+    }), routeContext({ id: dashboardDatabase.id, recordId: dashboardRecord.id }))).status, 400,
+      "record values must reference properties in their own database");
+    assert.equal((await updateRecord(makeRequest(`/api/databases/${dashboardDatabase.id}/records/99999999-9999-4999-8999-999999999999`, "PATCH", {
+      title: "Missing",
+    }), routeContext({ id: dashboardDatabase.id, recordId: "99999999-9999-4999-8999-999999999999" }))).status, 404,
+      "unknown records should 404");
 
     const viewRollbackPool = new Pool({ connectionString: testUrl.toString() });
     try {

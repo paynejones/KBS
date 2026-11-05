@@ -57,3 +57,27 @@ test("removing a widget leaves the rest in order", () => {
   assert.deepEqual(remaining.map((widget) => widget.viewId), [VIEW_C]);
   assert.deepEqual(removeWidget([], VIEW_A), []);
 });
+
+test("invalid widgets are ignored by addWidget", () => {
+  const existing = [{ viewId: VIEW_A, databaseId: DATABASE }];
+
+  assert.deepEqual(addWidget(existing, { viewId: "", databaseId: DATABASE }), existing);
+  assert.deepEqual(addWidget(existing, { viewId: VIEW_B, databaseId: "" }), existing);
+});
+
+test("addWidget honors an explicit limit", () => {
+  const widgets = [
+    { viewId: VIEW_A, databaseId: DATABASE },
+    { viewId: VIEW_B, databaseId: DATABASE },
+  ];
+
+  assert.deepEqual(
+    addWidget(widgets, { viewId: VIEW_C, databaseId: DATABASE }, 1).map((widget) => widget.viewId),
+    [VIEW_C],
+  );
+});
+
+test("removing an unknown widget is a no-op", () => {
+  const widgets = [{ viewId: VIEW_A, databaseId: DATABASE }];
+  assert.deepEqual(removeWidget(widgets, VIEW_B), widgets);
+});

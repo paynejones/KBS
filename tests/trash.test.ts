@@ -75,3 +75,24 @@ test("attachment scanning ignores unrelated URLs and empty input", () => {
     "123e4567-e89b-12d3-a456-426614174000",
   ]);
 });
+
+test("trash listing reports nested counts and ignores missing pages", () => {
+  assert.equal(descendantCount(hierarchy, "missing"), 0);
+
+  const fullyTrashed = hierarchy.map((page) => ({
+    ...page,
+    deletedAt: new Date("2026-11-02T12:00:00Z"),
+  }));
+  assert.deepEqual(trashedRoots(fullyTrashed).map((page) => page.id), [ROOT, SIBLING],
+    "an entirely trashed chain is listed once under its top-level page");
+});
+
+test("collectSubtreeIds keeps document order and handles deep chains", () => {
+  const deep = Array.from({ length: 6 }, (_, index) => ({
+    id: `page-${index}`,
+    parentId: index === 0 ? null : `page-${index - 1}`,
+  }));
+
+  assert.deepEqual(collectSubtreeIds(deep, "page-3"), ["page-3", "page-4", "page-5"]);
+  assert.equal(descendantCount(deep, "page-0"), 5);
+});
