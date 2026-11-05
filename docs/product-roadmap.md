@@ -12,12 +12,14 @@ This roadmap describes KBS as a self-hosted personal information system: a place
 
 ## Current foundation
 
-The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, global search, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, and gallery views. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, and rollup. Databases can be embedded in pages, use record templates, and export as CSV or JSON. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs.
+The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, and gallery views. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, and rollup. Databases can be embedded in pages, use record templates, and export as CSV or JSON. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs.
 
 This is a code-level inventory, not a claim that every feature has the same polish or breadth as its Notion equivalent.
 
 ## Recently completed
 
+- Added a command palette (Ctrl/Cmd+K) that searches pages and database records, jumps to favorites and recent pages, opens common destinations, and creates pages or databases without leaving the keyboard.
+- Added recent pages: visits are recorded per browser, shown on the home page as “Jump back in”, and offered at the top of the command palette.
 - Added a workspace graph view for navigating page connections, including a local graph with neighborhood depth, zoom, pan, drag, and node search.
 - Added an inbox for quick notes and URLs, with page/database organization, saved-link previews, and capture timestamps.
 - Added quick capture from the workspace header and mobile navigation, with a keyboard shortcut.
@@ -76,8 +78,9 @@ This is the current top product priority after media: jump, create, and connect 
 - [x] Add a quick capture action that creates an inbox page without requiring the user to choose a destination first.
 - Make backlinks easier to scan, including a count and context/snippet for where the link appears.
 - Add an inline link control for external URLs and pages, with page-name autocomplete; keep the existing page-connections panel for managing relationships and backlinks.
-- Add a command palette for creating pages/databases, jumping to favorites and recent pages, and common navigation actions. Search already uses Ctrl/Cmd+K; extend that interaction or reserve a consistent shortcut scheme.
-- Add recent pages and recently edited pages for quick return paths. Home currently shows a short recently-updated list only.
+- [x] Add a command palette for creating pages/databases, jumping to favorites and recent pages, and common navigation actions. It owns Ctrl/Cmd+K, replacing the previous search-only overlay.
+- [x] Add recent pages for quick return paths. Visits are stored per browser, surfaced on the home page as “Jump back in” and at the top of the command palette, and kept separate from the server-driven recently-updated list.
+- Extend the palette with more actions, such as saved views or inbox capture, and make recents follow the user across devices if that becomes useful.
 - Add page templates for repeatable note structures.
 
 ### 4. Add a universal capture inbox
@@ -103,7 +106,7 @@ Make it easy to save something now and organize it later.
 
 Create a useful landing page from existing KBS data, with simple configurable sections or widgets.
 
-- Start with recent pages, favorites, the capture inbox, and selected databases or views.
+- Recent pages already appear on the home page (“Jump back in”); continue with favorites, the capture inbox, and selected databases or views as configurable sections.
 - Add tasks due soon and current projects after task and date workflows are established.
 - Support dashboard sections for saved database views, including active media queues and release dates, plus quick actions for capturing a note or creating a common record.
 - Keep widgets as saved views over existing information rather than creating a second copy of the data.
@@ -158,7 +161,7 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 
 ## Suggested sequence
 
-1. Add a command palette, page templates, and a dedicated recents path.
+1. Add page templates and finish the remaining editor polish (block reordering, mobile editing, save-state feedback).
 2. Improve page connections with backlink context and inline page/external link controls; store richer metadata for captured URLs.
 3. Add related-item discovery, orphan views, and useful personal dashboard sections.
 4. Expand database views (calendar/list first), structured filters, formulas, and import.

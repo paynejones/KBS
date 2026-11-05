@@ -19,6 +19,7 @@ import { PageTags } from "@/components/page-tags";
 import { PageLinks } from "@/components/page-links";
 import { tiptapToMarkdown } from "@/lib/markdown";
 import { readRecoverablePageDraft, type PageDraft } from "@/lib/page-draft";
+import { recordRecentPage } from "@/lib/recents";
 
 type PageData = {
   id: string;
@@ -464,6 +465,7 @@ export function PageEditor({ id }: { id: string }) {
           contentToLoad,
         );
         setLoaded(true);
+        recordRecentPage({ id, title: page.title });
         setStatus("saved");
       } catch (e) {
         if (!cancelled) {
@@ -821,7 +823,10 @@ while (foundDescendant) {
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => void savePage({ title: title.trim() || "Untitled" })}
+          onBlur={() => {
+            recordRecentPage({ id, title: title.trim() || "Untitled" });
+            void savePage({ title: title.trim() || "Untitled" });
+          }}
           aria-label="Page title"
           className="w-full min-w-0 bg-transparent text-3xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/50 sm:text-4xl"
         />

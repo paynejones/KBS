@@ -4,7 +4,7 @@ import Link from "next/link";
 import { BookOpenText, UserRound } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { PageTree } from "@/components/page-tree";
-import { GlobalSearch } from "@/components/global-search";
+import { CommandPalette } from "@/components/command-palette";
 import { MobileSearchButton } from "@/components/mobile-search-button";
 import { MobileQuickCaptureButton, QuickCapture } from "@/components/quick-capture";
 import { ThemePicker } from "@/components/theme-picker";
@@ -69,7 +69,7 @@ export function AppShell({
             <div className="ml-auto flex items-center gap-2 md:ml-0">
               <QuickCapture />
               <div className="hidden md:block">
-                <GlobalSearch />
+                <CommandPalette />
               </div>
               <ThemePicker />
             </div>
