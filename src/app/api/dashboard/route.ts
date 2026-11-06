@@ -17,13 +17,17 @@ const MAX_REQUESTED_VIEWS = 6;
  * `widgets` contains filtered, sorted previews for the requested view ids.
  */
 export async function GET(request: Request) {
-  try {
-    const viewIds = (new URL(request.url).searchParams.get("viewIds") ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .slice(0, MAX_REQUESTED_VIEWS);
+  // Read the URL before the try block: with Cache Components, touching
+  // `request.url` is what makes Next.js skip prerendering this GET handler, and
+  // it signals that by throwing an internal bailout. Catching it here would log
+  // a spurious "Failed to load dashboard widgets" error during every build.
+  const viewIds = (new URL(request.url).searchParams.get("viewIds") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, MAX_REQUESTED_VIEWS);
 
+  try {
     const [databaseRows, propertyRows, recordRows, viewRows] = await Promise.all([
       db.select({ id: databases.id, name: databases.name }).from(databases).orderBy(asc(databases.name)),
       db.select().from(databaseProperties).orderBy(asc(databaseProperties.sortOrder)),

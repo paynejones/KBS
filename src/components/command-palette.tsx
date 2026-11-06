@@ -17,6 +17,7 @@ import {
   GitFork,
   House,
   Inbox,
+  LayoutTemplate,
   Plus,
   Search,
   Star,
@@ -27,6 +28,7 @@ import { formatRecentTime, loadRecentPages, type RecentPage } from "@/lib/recent
 
 type PageOption = { id: string; title: string; isFavorite: boolean };
 type DatabaseOption = { id: string; name: string };
+type PageTemplateOption = { id: string; name: string; title: string; icon: string | null };
 type SearchRecord = { id: string; title: string; databaseId: string; databaseName: string };
 type SearchResults = {
   pages: { id: string; title: string; updatedAt: string }[];
@@ -51,6 +53,7 @@ export function CommandPalette() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [pages, setPages] = useState<PageOption[]>([]);
   const [databases, setDatabases] = useState<DatabaseOption[]>([]);
+  const [templates, setTemplates] = useState<PageTemplateOption[]>([]);
   const [recents, setRecents] = useState<RecentPage[]>([]);
   const [results, setResults] = useState<SearchResults>(emptyResults);
   const [resultsQuery, setResultsQuery] = useState("");
@@ -58,6 +61,8 @@ export function CommandPalette() {
   const [shortcutsLoaded, setShortcutsLoaded] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const close = useCallback(() => {
@@ -65,6 +70,7 @@ export function CommandPalette() {
     setQuery("");
     setActiveIndex(0);
     setError("");
+    setNotice("");
     setSearching(false);
   }, []);
 
@@ -73,8 +79,13 @@ export function CommandPalette() {
     setQuery("");
     setActiveIndex(0);
     setError("");
+    setNotice("");
     setSearching(false);
     setRecents(loadRecentPages());
+    // Read the URL when the palette opens rather than with usePathname(),
+    // which would block prerendering of every page that renders the shell.
+    const match = /^\/pages\/([0-9a-fA-F-]{36})$/.exec(window.location.pathname);
+    setCurrentPageId(match?.[1] ?? null);
   }, []);
 
   useEffect(() => {
@@ -100,18 +111,24 @@ export function CommandPalette() {
 
     async function loadShortcuts() {
       try {
-        const [graphResponse, databasesResponse] = await Promise.all([
+        // Templates are a convenience here: a failed request must not take
+        // page and database navigation down with it.
+        const [graphResponse, databasesResponse, templatesResponse] = await Promise.all([
           fetch("/api/graph"),
           fetch("/api/databases"),
+          fetch("/api/page-templates").catch(() => null),
         ]);
         if (!graphResponse.ok || !databasesResponse.ok) {
           throw new Error("Could not load workspace shortcuts.");
         }
         const graphData: { nodes: PageOption[] } = await graphResponse.json();
         const databaseData: DatabaseOption[] = await databasesResponse.json();
+        const templateData: PageTemplateOption[] =
+          templatesResponse?.ok ? await templatesResponse.json() : [];
         if (cancelled) return;
         setPages(graphData.nodes);
         setDatabases(databaseData);
+        setTemplates(templateData);
         setError("");
       } catch (loadError) {
         if (!cancelled) {
@@ -193,6 +210,59 @@ export function CommandPalette() {
     }
   }
 
+  async function createPageFromTemplate(templateId: string) {
+    if (creating) return;
+    setCreating(true);
+    setError("");
+    try {
+      const response = await fetch("/api/pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId }),
+      });
+      if (!response.ok) throw new Error("Could not create a page from that template.");
+      const page: { id: string } = await response.json();
+      go(`/pages/${page.id}`);
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Could not create a page from that template.",
+      );
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function saveCurrentPageAsTemplate(pageId: string, suggestedName: string) {
+    if (creating) return;
+    const name = window.prompt("Name this template", suggestedName || "Template");
+    if (!name?.trim()) return;
+
+    setCreating(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch("/api/page-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), pageId }),
+      });
+      if (!response.ok) throw new Error("Could not save the template.");
+      const template: PageTemplateOption = await response.json();
+      // Show the new template in this palette session without reloading it.
+      setTemplates((previous) =>
+        [...previous, template].sort((left, right) => left.name.localeCompare(right.name)),
+      );
+      setNotice(`Saved “${template.name}” as a template.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the template.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   async function createDatabase() {
     if (creating) return;
     setCreating(true);
@@ -225,6 +295,7 @@ export function CommandPalette() {
   }
 
   const pageById = new Map(pages.map((page) => [page.id, page]));
+  const currentPage = currentPageId ? pageById.get(currentPageId) : undefined;
   const recentIds = new Set(recents.map((entry) => entry.id));
   const favoritePages = pages.filter(
     (page) => page.isFavorite && !recentIds.has(page.id),
@@ -299,6 +370,17 @@ export function CommandPalette() {
     },
   ];
 
+  if (currentPageId) {
+    actions.splice(2, 0, {
+      key: "action-save-page-template",
+      label: "Save current page as template",
+      detail: currentPage?.title || "Current page",
+      group: "Actions",
+      icon: <LayoutTemplate size={16} />,
+      run: () => void saveCurrentPageAsTemplate(currentPageId, currentPage?.title ?? ""),
+    });
+  }
+
   if (typedTitle) {
     actions.unshift({
       key: "action-create-query",
@@ -309,6 +391,15 @@ export function CommandPalette() {
       run: () => void createPage(typedTitle),
     });
   }
+
+  const templateItems: PaletteItem[] = templates.map((template) => ({
+    key: `template-${template.id}`,
+    label: `New page from “${template.name}”`,
+    detail: template.icon ? `${template.icon} Template` : "Template",
+    group: "Templates",
+    icon: <LayoutTemplate size={16} />,
+    run: () => void createPageFromTemplate(template.id),
+  }));
 
   const recentItems: PaletteItem[] = recents.map((entry) => ({
     key: `recent-${entry.id}`,
@@ -386,6 +477,7 @@ export function CommandPalette() {
 
   const visibleItems = [
     ...actions,
+    ...templateItems,
     ...recentItems,
     ...favoriteItems,
     ...pageItems,
@@ -476,6 +568,7 @@ export function CommandPalette() {
                   setQuery(event.target.value);
                   setActiveIndex(0);
                   setError("");
+                  setNotice("");
                 }}
                 onKeyDown={handleInputKeyDown}
                 placeholder="Search, jump to a page, or run a command…"
@@ -500,6 +593,11 @@ export function CommandPalette() {
               {error && (
                 <p role="alert" className="px-3 py-2 text-sm text-destructive">
                   {error}
+                </p>
+              )}
+              {notice && (
+                <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
+                  {notice}
                 </p>
               )}
               {isSearching && (
