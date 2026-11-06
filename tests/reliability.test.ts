@@ -3,7 +3,7 @@ import test from "node:test";
 import { markdownFileToPage } from "../src/lib/markdown-import";
 import { tiptapToMarkdown } from "../src/lib/markdown";
 import { readRecoverablePageDraft } from "../src/lib/page-draft";
-import { validateDatabaseRecordValues } from "../src/lib/database-values";
+import { referencedAttachmentIds, validateDatabaseRecordValues } from "../src/lib/database-values";
 
 test("Markdown import derives a readable title and preserves common formatting", () => {
   const page = markdownFileToPage(
@@ -121,6 +121,26 @@ test("database values reject values for managed property types", () => {
   assert.match(validateDatabaseRecordValues({ multi: ["Unknown"] }, properties) ?? "", /configured choices/);
   assert.match(validateDatabaseRecordValues({ checkbox: "yes" }, properties) ?? "", /checked or unchecked/);
   assert.equal(validateDatabaseRecordValues({}, properties), null);
+});
+
+test("database file values report the attachment they reference", () => {
+  const attachment = "11111111-1111-4111-8111-111111111111";
+  const properties = [
+    { id: "file", name: "Cover", type: "file", options: {} },
+    { id: "text", name: "Notes", type: "text", options: {} },
+  ];
+
+  assert.deepEqual(referencedAttachmentIds({
+    file: { url: `/api/attachments/${attachment}`, attachmentId: attachment },
+  }, properties), [attachment]);
+  assert.deepEqual(referencedAttachmentIds({
+    file: { url: "https://example.com/cover.png", attachmentId: null },
+  }, properties), [], "remote media has no stored attachment to clean up");
+  assert.deepEqual(referencedAttachmentIds({
+    text: `/api/attachments/${attachment}`,
+    file: null,
+  }, properties), [], "only file properties own attachments");
+  assert.deepEqual(referencedAttachmentIds({}, properties), []);
 });
 
 test("draft recovery rejects impossible revisions and boundary timestamps", () => {
