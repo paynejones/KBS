@@ -22,6 +22,7 @@ const RESTORE_ORDER: { key: string; table: string }[] = [
   { key: "databaseViews", table: "database_views" },
   { key: "databaseRecords", table: "database_records" },
   { key: "databaseTemplates", table: "database_templates" },
+  { key: "pageTemplates", table: "page_templates" },
   { key: "databaseRecordRelations", table: "database_record_relations" },
   { key: "attachments", table: "attachments" },
 ];

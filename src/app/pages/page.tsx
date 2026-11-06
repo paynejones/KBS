@@ -8,6 +8,7 @@ import { Star, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { markdownFileToPage } from "@/lib/markdown-import";
+import { starterPageTemplates } from "@/lib/page-templates";
 
 type PageSummary = {
   id: string;
@@ -19,6 +20,13 @@ type PageSummary = {
     id: string;
     name: string;
   }[];
+};
+
+type PageTemplate = {
+  id: string;
+  name: string;
+  title: string;
+  icon: string | null;
 };
 
 export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolean }) {
@@ -43,6 +51,9 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
+  const [templates, setTemplates] = useState<PageTemplate[]>([]);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [templateMessage, setTemplateMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +77,30 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
     }
 
     void fetchTags();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchTemplates() {
+      try {
+        const response = await fetch("/api/page-templates");
+        if (!response.ok) throw new Error("Failed to load page templates");
+        const data = await response.json();
+        if (!cancelled) setTemplates(data);
+      } catch (templateError) {
+        if (!cancelled) {
+          console.error("Failed to load page templates:", templateError);
+          setTemplateMessage("Could not load page templates.");
+        }
+      }
+    }
+
+    void fetchTemplates();
 
     return () => {
       cancelled = true;
@@ -169,6 +204,75 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
       router.push(`/pages/${page.id}`);
     } catch {
       setError("Could not create a page. Please try again.");
+    }
+  }
+
+  async function createPageFromTemplate(templateId: string) {
+    if (!templateId) return;
+    setError("");
+    setTemplateBusy(true);
+
+    try {
+      const response = await fetch("/api/pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId }),
+      });
+
+      if (!response.ok) throw new Error("Unable to create page from template.");
+
+      const page = await response.json();
+      router.push(`/pages/${page.id}`);
+    } catch {
+      setError("Could not create a page from that template. Please try again.");
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
+  async function addStarterTemplates() {
+    setTemplateBusy(true);
+    setError("");
+    const created: PageTemplate[] = [];
+
+    try {
+      for (const starter of starterPageTemplates()) {
+        const response = await fetch("/api/page-templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(starter),
+        });
+        if (!response.ok) throw new Error("Unable to add starter templates.");
+        created.push(await response.json());
+      }
+
+      setTemplates((previous) => [...previous, ...created].sort((left, right) => left.name.localeCompare(right.name)));
+      setTemplateMessage("Added starter templates.");
+    } catch {
+      setError("Could not add the starter templates. Please try again.");
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
+  async function deleteTemplate(template: PageTemplate) {
+    const confirmed = window.confirm(
+      `Delete the “${template.name}” template? Pages already created from it are not affected.`,
+    );
+    if (!confirmed) return;
+
+    setTemplateBusy(true);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/page-templates/${template.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Unable to delete template.");
+      setTemplates((previous) => previous.filter((item) => item.id !== template.id));
+      setTemplateMessage(`Deleted the “${template.name}” template.`);
+    } catch {
+      setError("Could not delete the template. Please try again.");
+    } finally {
+      setTemplateBusy(false);
     }
   }
 
@@ -309,10 +413,104 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
               <Button type="button" variant="outline" onClick={() => importInput.current?.click()} disabled={importing}>
                 {importing ? "Importing…" : "Import Markdown"}
               </Button>
+              <select
+                aria-label="Create a page from a template"
+                value=""
+                disabled={templateBusy || templates.length === 0}
+                onChange={(event) => void createPageFromTemplate(event.target.value)}
+                className="rounded-md border bg-background px-3 py-1.5 text-sm disabled:opacity-50"
+              >
+                <option value="">
+                  {templates.length === 0 ? "No templates yet" : "New from template…"}
+                </option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.icon ? `${template.icon} ${template.name}` : template.name}
+                  </option>
+                ))}
+              </select>
               <Button onClick={() => void createPage()}>New page</Button>
             </div>
           )}
         </div>
+
+        {!favoritesOnly && (
+          <details className="group rounded-xl border bg-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block font-medium">Page templates</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Reusable structures for recurring notes
+                </span>
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {templates.length} {templates.length === 1 ? "template" : "templates"}
+              </span>
+            </summary>
+            <div className="space-y-3 border-t p-4">
+              {templates.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-center">
+                  <p className="text-sm font-medium">No templates yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Add a decision journal and a project kickoff to start, or open any page and choose “Save as template”.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-3"
+                    disabled={templateBusy}
+                    onClick={() => void addStarterTemplates()}
+                  >
+                    {templateBusy ? "Adding…" : "Add starter templates"}
+                  </Button>
+                </div>
+              ) : (
+                templates.map((template) => (
+                  <div
+                    key={template.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {template.icon ? `${template.icon} ` : ""}
+                        {template.name}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        Creates a page titled “{template.title}”
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={templateBusy}
+                        onClick={() => void createPageFromTemplate(template.id)}
+                      >
+                        New page
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={templateBusy}
+                        aria-label={`Delete the ${template.name} template`}
+                        onClick={() => void deleteTemplate(template)}
+                      >
+                        <Trash2 size={16} className="text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+              {templateMessage && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  {templateMessage}
+                </p>
+              )}
+            </div>
+          </details>
+        )}
 
         <div className="relative">
           <input

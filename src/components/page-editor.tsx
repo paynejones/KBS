@@ -179,6 +179,8 @@ export function PageEditor({ id }: { id: string }) {
   const [loadingRevisions, setLoadingRevisions] = useState(false);
   const [revisionError, setRevisionError] = useState("");
   const [restoringRevision, setRestoringRevision] = useState("");
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateMessage, setTemplateMessage] = useState("");
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashMenuRef = useRef<SlashMenuState>(null);
@@ -765,6 +767,29 @@ async function toggleFavorite() {
   }
 }
 
+async function saveAsTemplate() {
+  const suggested = title.trim() || "Untitled";
+  const name = window.prompt("Name this template", suggested);
+  if (!name?.trim()) return;
+
+  setTemplateSaving(true);
+  setTemplateMessage("");
+
+  try {
+    const response = await fetch("/api/page-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), pageId: id }),
+    });
+    if (!response.ok) throw new Error("Could not save the template.");
+    setTemplateMessage(`Saved “${name.trim()}” as a template.`);
+  } catch (templateError) {
+    setTemplateMessage(templateError instanceof Error ? templateError.message : "Could not save the template.");
+  } finally {
+    setTemplateSaving(false);
+  }
+}
+
 function exportMarkdown() {
   if (!editor) return;
   const safeTitle = (title.trim() || "Untitled").replace(/[\\/:*?"<>|]/g, "-");
@@ -961,6 +986,25 @@ while (foundDescendant) {
             </select>
             {moving && (
               <span className="text-xs text-muted-foreground">Moving…</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={templateSaving}
+              onClick={() => void saveAsTemplate()}
+            >
+              {templateSaving ? "Saving template…" : "Save as template"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Reuse this page’s title, icon, and content as a starting point for new pages.
+            </span>
+            {templateMessage && (
+              <span role="status" className="text-xs text-muted-foreground">
+                {templateMessage}
+              </span>
             )}
           </div>
           <PageTags pageId={id} />

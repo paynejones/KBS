@@ -38,6 +38,7 @@ The file contains `format: "kbs-export"`, `version: 1`, an `exportedAt` timestam
 | `tags`, `pageTags`, `pageLinks` | Tags and explicit page links |
 | `databases`, `databaseProperties`, `databaseViews` | Database structure and saved views |
 | `databaseRecords`, `databaseTemplates`, `databaseRecordRelations` | Records, templates, and relation rows |
+| `pageTemplates` | Saved page templates (name, title, content, and icon) |
 | `attachments` | Attachment metadata (`id`, `filename`, `mimeType`, `size`, `createdAt`, `url`) |
 
 Attachment **bytes** are not embedded in the JSON. Back up the attachments directory alongside the export.

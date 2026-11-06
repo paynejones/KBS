@@ -12,13 +12,16 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { pages, pageTags, tags } from "@/db/schema";
+import { pages, pageTags, pageTemplates, tags } from "@/db/schema";
 
 const createPageSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   parentId: z.string().uuid().nullable().optional(),
   content: z.string().max(2_000_000).optional(),
   contentJson: z.record(z.string(), z.unknown()).optional(),
+  /** Seed the new page from a saved page template. */
+  templateId: z.string().uuid().optional(),
+  icon: z.string().max(32).nullable().optional(),
 });
 
 export async function GET(request: Request) {
@@ -131,6 +134,25 @@ export async function POST(request: Request) {
     }
   }
 
+  // Copying a template happens once, at creation: the page keeps its own
+  // rows afterwards, so editing either side never changes the other.
+  const template = parsed.data.templateId
+    ? (await db
+        .select({
+          title: pageTemplates.title,
+          content: pageTemplates.content,
+          contentJson: pageTemplates.contentJson,
+          icon: pageTemplates.icon,
+        })
+        .from(pageTemplates)
+        .where(eq(pageTemplates.id, parsed.data.templateId))
+        .limit(1))[0] ?? null
+    : null;
+
+  if (parsed.data.templateId && !template) {
+    return NextResponse.json({ error: "Template not found." }, { status: 404 });
+  }
+
   // Find the highest sort position among pages with the same parent.
   const [result] = await db
     .select({
@@ -148,11 +170,12 @@ export async function POST(request: Request) {
   const [page] = await db
     .insert(pages)
     .values({
-      title: parsed.data.title ?? "Untitled",
+      title: parsed.data.title ?? template?.title ?? "Untitled",
       parentId,
       sortOrder: nextSortOrder,
-      content: parsed.data.content ?? "",
-      contentJson: parsed.data.contentJson ?? {},
+      content: parsed.data.content ?? template?.content ?? "",
+      contentJson: parsed.data.contentJson ?? template?.contentJson ?? {},
+      icon: parsed.data.icon ?? template?.icon ?? null,
     })
     .returning();
 

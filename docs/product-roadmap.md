@@ -18,6 +18,8 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Added page templates: save any page as a reusable structure, or start with the built-in decision journal and project kickoff. Creating a page from a template copies its title, icon, and content in one step, and the page and template stay independent afterwards.
+- Added an inline link control to the editor for external URLs, with selection-aware apply/update/remove.
 - Added home dashboard widgets: any saved database view can be pinned to the home page, and each widget applies that view's filters and sorts to a short record preview.
 - Added a calendar view for date properties, with month navigation, today highlighting, a date-property switcher, and a list of undated records.
 - Added structured, per-view filters and multiple sort rules. Filters use type-aware operators (contains, is before/after, greater/less than, is empty, is checked) and apply to every view type, with the old quick search kept alongside them.
@@ -87,7 +89,7 @@ This is the current top product priority after media: jump, create, and connect 
 - [x] Add a command palette for creating pages/databases, jumping to favorites and recent pages, and common navigation actions. It owns Ctrl/Cmd+K, replacing the previous search-only overlay.
 - [x] Add recent pages for quick return paths. Visits are stored per browser, surfaced on the home page as “Jump back in” and at the top of the command palette, and kept separate from the server-driven recently-updated list.
 - Extend the palette with more actions, such as saved views or inbox capture, and make recents follow the user across devices if that becomes useful.
-- Add page templates for repeatable note structures.
+- [x] Add page templates for repeatable note structures, including starters for a decision journal and project kickoff.
 
 ### 4. Add a universal capture inbox
 

@@ -11,6 +11,7 @@ import {
   pageLinks,
   pageRevisions,
   pageTags,
+  pageTemplates,
   pages,
   tags,
 } from "@/db/schema";
@@ -29,6 +30,7 @@ export async function GET() {
       viewRows,
       recordRows,
       templateRows,
+      pageTemplateRows,
       relationRows,
       attachmentRows,
     ] = await Promise.all([
@@ -42,6 +44,7 @@ export async function GET() {
       db.select().from(databaseViews),
       db.select().from(databaseRecords),
       db.select().from(databaseTemplates),
+      db.select().from(pageTemplates),
       db.select().from(databaseRecordRelations),
       db.select().from(attachments),
     ]);
@@ -63,6 +66,7 @@ export async function GET() {
         databaseViews: viewRows.length,
         databaseRecords: recordRows.length,
         databaseTemplates: templateRows.length,
+        pageTemplates: pageTemplateRows.length,
         databaseRecordRelations: relationRows.length,
         attachments: attachmentRows.length,
       },
@@ -76,6 +80,7 @@ export async function GET() {
       databaseViews: viewRows,
       databaseRecords: recordRows,
       databaseTemplates: templateRows,
+      pageTemplates: pageTemplateRows,
       databaseRecordRelations: relationRows,
       attachments: attachmentRows.map((row) => ({
         id: row.id,

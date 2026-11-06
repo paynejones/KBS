@@ -114,6 +114,31 @@ export const pageTags = pgTable(
   ]
 );
 
+// Reusable page structures. A template is a snapshot of a page's title, icon,
+// and content; using one creates an ordinary page, so later edits to either
+// side never affect the other.
+export const pageTemplates = pgTable(
+  "page_templates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    title: text("title").notNull().default("Untitled"),
+    content: text("content").notNull().default(""),
+    contentJson: jsonb("content_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    icon: text("icon"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("page_templates_name_idx").on(table.name)],
+);
+
 export const attachments = pgTable(
   "attachments",
   {

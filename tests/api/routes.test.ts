@@ -27,6 +27,8 @@ type ApiModules = {
   properties: typeof import("../../src/app/api/databases/[id]/properties/route");
   templates: typeof import("../../src/app/api/databases/[id]/templates/route");
   template: typeof import("../../src/app/api/databases/[id]/templates/[templateId]/route");
+  pageTemplatesList: typeof import("../../src/app/api/page-templates/route");
+  pageTemplate: typeof import("../../src/app/api/page-templates/[id]/route");
 };
 
 type Json = Record<string, unknown>;
@@ -117,6 +119,8 @@ before(async () => {
     properties,
     templates,
     template,
+    pageTemplatesList,
+    pageTemplate,
   ] = await Promise.all([
     import("../../src/app/api/pages/route"),
     import("../../src/app/api/pages/[id]/route"),
@@ -137,9 +141,11 @@ before(async () => {
     import("../../src/app/api/databases/[id]/properties/route"),
     import("../../src/app/api/databases/[id]/templates/route"),
     import("../../src/app/api/databases/[id]/templates/[templateId]/route"),
+    import("../../src/app/api/page-templates/route"),
+    import("../../src/app/api/page-templates/[id]/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, templates, template };
+  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, templates, template, pageTemplatesList, pageTemplate };
 });
 
 after(async () => {
@@ -811,5 +817,107 @@ describe("database metadata API", () => {
       routeContext({ id: "nope", templateId: "nope" }),
     );
     assert.equal(invalid.status, 400);
+  });
+});
+
+describe("page templates API", () => {
+  it("creates, lists, and deletes page templates", async () => {
+    const created = await api.pageTemplatesList.POST(jsonRequest("/api/page-templates", "POST", {
+      name: "Meeting notes",
+      title: "Meeting notes",
+      content: "Agenda and actions",
+      contentJson: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Agenda and actions" }] }],
+      },
+      icon: "🗒️",
+    }));
+    assert.equal(created.status, 201);
+    const template = await body<{ id: string; name: string; title: string; icon: string }>(created);
+    assert.equal(template.name, "Meeting notes");
+    assert.equal(template.icon, "🗒️");
+
+    const listed = await body<{ id: string; name: string }[]>(await api.pageTemplatesList.GET());
+    assert.ok(listed.some((row) => row.id === template.id));
+    const names = listed.map((row) => row.name);
+    assert.deepEqual(names, [...names].sort((left, right) => left.localeCompare(right)), "templates come back sorted by name");
+
+    assert.equal(
+      (await api.pageTemplatesList.POST(jsonRequest("/api/page-templates", "POST", { name: "   " }))).status,
+      400,
+      "a template needs a name",
+    );
+
+    const deleted = await api.pageTemplate.DELETE(
+      jsonRequest(`/api/page-templates/${template.id}`, "DELETE"),
+      routeContext({ id: template.id }),
+    );
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await body(deleted), { success: true });
+
+    assert.equal(
+      (await api.pageTemplate.DELETE(
+        jsonRequest(`/api/page-templates/${template.id}`, "DELETE"),
+        routeContext({ id: template.id }),
+      )).status,
+      404,
+    );
+    assert.equal(
+      (await api.pageTemplate.DELETE(jsonRequest("/api/page-templates/nope", "DELETE"), routeContext({ id: "nope" }))).status,
+      400,
+    );
+  });
+
+  it("snapshots a page and creates an independent page from the template", async () => {
+    const source = await createPage({
+      title: "Kickoff source",
+      content: "Goal: ship",
+      contentJson: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Goal: ship" }] }],
+      },
+      icon: "🚀",
+    });
+
+    const createdTemplate = await api.pageTemplatesList.POST(jsonRequest("/api/page-templates", "POST", {
+      name: "Kickoff",
+      pageId: source.id,
+    }));
+    assert.equal(createdTemplate.status, 201);
+    const template = await body<{ id: string; title: string; content: string; icon: string }>(createdTemplate);
+    assert.equal(template.title, "Kickoff source");
+    assert.equal(template.content, "Goal: ship");
+    assert.equal(template.icon, "🚀");
+
+    const fromTemplate = await api.pages.POST(jsonRequest("/api/pages", "POST", { templateId: template.id }));
+    assert.equal(fromTemplate.status, 201);
+    const page = await body<PageRow & { icon: string | null }>(fromTemplate);
+    assert.notEqual(page.id, source.id);
+    assert.equal(page.title, "Kickoff source");
+    assert.equal(page.content, "Goal: ship");
+    assert.equal(page.icon, "🚀");
+
+    const createdPage = await body<{ contentJson: { type?: string } }>(
+      await api.page.GET(jsonRequest(`/api/pages/${page.id}`, "GET"), routeContext({ id: page.id })),
+    );
+    assert.equal(createdPage.contentJson.type, "doc", "the template document is copied, not referenced");
+
+    // Editing the page must not rewrite the snapshot it came from.
+    await api.page.PATCH(
+      jsonRequest(`/api/pages/${page.id}`, "PATCH", { content: "Changed after creation" }),
+      routeContext({ id: page.id }),
+    );
+    const listed = await body<{ id: string; content: string }[]>(await api.pageTemplatesList.GET());
+    assert.equal(listed.find((row) => row.id === template.id)?.content, "Goal: ship");
+
+    assert.equal(
+      (await api.pages.POST(jsonRequest("/api/pages", "POST", { templateId: MISSING_ID }))).status,
+      404,
+      "an unknown template cannot seed a page",
+    );
+    assert.equal(
+      (await api.pageTemplatesList.POST(jsonRequest("/api/page-templates", "POST", { name: "Gone", pageId: MISSING_ID }))).status,
+      404,
+    );
   });
 });

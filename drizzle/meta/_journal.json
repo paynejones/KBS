@@ -99,6 +99,13 @@
       "when": 1793839280651,
       "tag": "0013_page_trash",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793932934528,
+      "tag": "0014_page_templates",
+      "breakpoints": true
     }
   ]
 }
