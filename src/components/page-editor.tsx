@@ -2,8 +2,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Download, Plus, Star } from "lucide-react";
+import { ChevronDown, Download, GripVertical, Plus, Star } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { DragHandle } from "@tiptap/extension-drag-handle-react";
 import { Extension, type Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
@@ -1065,7 +1066,19 @@ while (foundDescendant) {
 
       <div className="rounded-xl border bg-card px-4 py-4 sm:px-8 sm:py-7">
         <EditorToolbar editor={editor} />
-        <p className="pb-2 pt-1 text-xs text-muted-foreground">Reorder a block: Alt+Shift+↑ / ↓</p>
+        <p className="pb-2 pt-1 text-xs text-muted-foreground">
+          Reorder a block: drag the grip beside it, or press Alt+Shift+↑ / ↓
+        </p>
+        {editor?.isEditable && (
+          <DragHandle editor={editor} className="text-muted-foreground">
+            <div
+              title="Drag to reorder block"
+              className="flex h-6 w-5 cursor-grab items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground active:cursor-grabbing"
+            >
+              <GripVertical size={16} aria-hidden="true" />
+            </div>
+          </DragHandle>
+        )}
         <div className="border-b py-3">
           <DatabaseEmbedPicker editor={editor} />
         </div>

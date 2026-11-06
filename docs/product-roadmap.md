@@ -18,6 +18,7 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Added drag-and-drop block reordering: hovering a block reveals a grip that moves it to a new position, alongside the existing Alt+Shift+↑/↓ keyboard moves.
 - Added page templates: save any page as a reusable structure, or start with the built-in decision journal and project kickoff. Creating a page from a template copies its title, icon, and content in one step, and the page and template stay independent afterwards.
 - Added an inline link control to the editor for external URLs, with selection-aware apply/update/remove.
 - Added home dashboard widgets: any saved database view can be pinned to the home page, and each widget applies that view's filters and sorts to a short record preview.
@@ -62,7 +63,7 @@ Writing and shaping a page should feel natural. Media handling is no longer the 
 - [x] Add page icon and cover support, with clear loading and failure states for media.
 - [x] Add image and file support that works in page content and database gallery cards; allow remote images as well as uploaded media, with alt text and visible error states.
 - [x] Preserve reliable draft recovery and add an explicit way to recover or discard a recovered draft.
-- Support drag-and-drop or other direct block reordering, with predictable selection and undo behavior. Keyboard block move already exists.
+- [x] Support drag-and-drop or other direct block reordering, with predictable selection and undo behavior. Keyboard block move already exists.
 - Improve editor focus, selection, mobile editing, and save-state feedback.
 
 ### 2. Build a connected knowledge graph
