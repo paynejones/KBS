@@ -775,6 +775,71 @@ describe("database metadata API", () => {
     assert.equal(badAggregation.status, 400);
   });
 
+  it("validates formula property definitions", async () => {
+    const database = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
+      name: "Formula validation",
+    })));
+    const context = routeContext({ id: database.id });
+
+    assert.equal((await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", { name: "Watched", type: "number" }),
+      context,
+    )).status, 201);
+    assert.equal((await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", { name: "Notes", type: "text" }),
+      context,
+    )).status, 201);
+
+    const missingExpression = await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", { name: "Progress", type: "formula" }),
+      context,
+    );
+    assert.equal(missingExpression.status, 400, "a formula needs an expression");
+
+    const broken = await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
+        name: "Progress",
+        type: "formula",
+        options: { expression: "{Watched} /" },
+      }),
+      context,
+    );
+    assert.equal(broken.status, 400, "an unparseable expression is refused");
+
+    const unknownReference = await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
+        name: "Progress",
+        type: "formula",
+        options: { expression: "{Missing} * 2" },
+      }),
+      context,
+    );
+    assert.equal(unknownReference.status, 400, "formulas cannot reference missing properties");
+
+    const nonNumericReference = await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
+        name: "Progress",
+        type: "formula",
+        options: { expression: "{Notes} * 2" },
+      }),
+      context,
+    );
+    assert.equal(nonNumericReference.status, 400, "formulas only read number and rollup properties");
+
+    const created = await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
+        name: "Progress",
+        type: "formula",
+        options: { expression: "round({Watched} / 24 * 100, 1)" },
+      }),
+      context,
+    );
+    assert.equal(created.status, 201);
+    const formula = await body<{ type: string; options: { expression: string } }>(created);
+    assert.equal(formula.type, "formula");
+    assert.equal(formula.options.expression, "round({Watched} / 24 * 100, 1)");
+  });
+
   it("deletes templates only from their own database", async () => {
     const owner = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
       name: "Template owner",

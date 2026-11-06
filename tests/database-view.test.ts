@@ -249,6 +249,7 @@ test("operator helpers match property types and value requirements", () => {
   assert.equal(filterNeedsValue("contains"), true);
   assert.equal(isFilterableProperty("relation"), false);
   assert.equal(isFilterableProperty("rollup"), false);
+  assert.equal(isFilterableProperty("formula"), true);
   assert.equal(isFilterableProperty("file"), false);
   assert.equal(isFilterableProperty("text"), true);
 });

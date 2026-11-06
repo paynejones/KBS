@@ -102,6 +102,7 @@ export function parseViewSorts(config: Record<string, unknown> | undefined): Vie
 export function operatorsForProperty(type: string): ViewFilterOperator[] {
   switch (type) {
     case "number":
+    case "formula":
       return ["is", "is_not", "greater_than", "less_than", "is_empty", "is_not_empty"];
     case "date":
       return ["is", "is_not", "before", "after", "is_empty", "is_not_empty"];
@@ -165,7 +166,7 @@ function isFilterActive(filter: ViewFilter, property: ViewProperty): boolean {
   if (!filterNeedsValue(filter.operator)) return true;
   if (filter.value.trim() === "") return false;
 
-  if (property.type === "number" && ["is", "is_not", "greater_than", "less_than"].includes(filter.operator)) {
+  if ((property.type === "number" || property.type === "formula") && ["is", "is_not", "greater_than", "less_than"].includes(filter.operator)) {
     return numberValue(filter.value) !== null;
   }
   if (property.type === "date" && ["is", "is_not", "before", "after"].includes(filter.operator)) {
@@ -200,7 +201,7 @@ function matchesFilter(
         : !stringValue(value).toLocaleLowerCase().includes(needle);
     case "is":
       if (property.type === "multi_select") return selectedValues(value).includes(needle);
-      if (property.type === "number") {
+      if (property.type === "number" || property.type === "formula") {
         const current = numberValue(value);
         const target = numberValue(filter.value);
         return current !== null && target !== null && current === target;
@@ -213,7 +214,7 @@ function matchesFilter(
       return stringValue(value).toLocaleLowerCase() === needle;
     case "is_not":
       if (property.type === "multi_select") return !selectedValues(value).includes(needle);
-      if (property.type === "number") {
+      if (property.type === "number" || property.type === "formula") {
         const current = numberValue(value);
         const target = numberValue(filter.value);
         return !(current !== null && target !== null && current === target);

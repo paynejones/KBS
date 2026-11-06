@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseProperties } from "@/db/schema";
+import { parseFormula } from "@/lib/database-formula";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["text", "number", "checkbox", "select", "multi_select", "date", "url", "file", "relation", "rollup"]).default("text"),
+  type: z.enum(["text", "number", "checkbox", "select", "multi_select", "date", "url", "file", "relation", "rollup", "formula"]).default("text"),
   options: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -51,6 +52,25 @@ export async function POST(request: Request, context: Context) {
         const [targetProperty] = await db.select().from(databaseProperties).where(eq(databaseProperties.id, targetPropertyId)).limit(1);
         if (!targetProperty || targetProperty.databaseId !== relatedDatabaseId || targetProperty.type !== "number") {
           return NextResponse.json({ error: "Rollup calculations require a number property from the related database" }, { status: 400 });
+        }
+      }
+    }
+    if (parsed.data.type === "formula") {
+      const expression = parsed.data.options?.expression;
+      if (typeof expression !== "string" || !expression.trim()) {
+        return NextResponse.json({ error: "Enter a formula" }, { status: 400 });
+      }
+      const parsedFormula = parseFormula(expression);
+      if (!parsedFormula.ok) return NextResponse.json({ error: parsedFormula.error }, { status: 400 });
+      const existingProperties = await db.select().from(databaseProperties).where(eq(databaseProperties.databaseId, id));
+      const propertiesByName = new Map(existingProperties.map((property) => [property.name, property]));
+      for (const reference of parsedFormula.references) {
+        const referenced = propertiesByName.get(reference);
+        if (!referenced) {
+          return NextResponse.json({ error: `No property named “${reference}” in this database` }, { status: 400 });
+        }
+        if (referenced.type !== "number" && referenced.type !== "rollup") {
+          return NextResponse.json({ error: "Formulas can reference number and rollup properties" }, { status: 400 });
         }
       }
     }

@@ -200,7 +200,7 @@ export function DashboardWidgets() {
 
             const datePropertyId = typeof item.view.config.datePropertyId === "string" ? item.view.config.datePropertyId : "";
             const summaryProperties = item.properties
-              .filter((property) => property.type !== "relation" && property.type !== "rollup")
+              .filter((property) => property.type !== "relation" && property.type !== "rollup" && property.type !== "formula")
               .slice(0, 3);
 
             return (

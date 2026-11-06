@@ -16,9 +16,10 @@ import {
   type ViewProperty,
   type ViewSort,
 } from "@/lib/database-view";
+import { evaluateFormula, formatFormulaValue, parseFormula } from "@/lib/database-formula";
 
-type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup";
-type Property = { id: string; name: string; type: PropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string } };
+type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup" | "formula";
+type Property = { id: string; name: string; type: PropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string } };
 type RecordRow = { id: string; title: string; values: Record<string, unknown>; pageId: string | null; relations: Record<string, string[]> };
 type PageOption = { id: string; title: string };
 type RelatedRecordOption = { id: string; title: string; values: Record<string, unknown> };
@@ -69,6 +70,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [rollupRelationPropertyId, setRollupRelationPropertyId] = useState("");
   const [rollupTargetPropertyId, setRollupTargetPropertyId] = useState("");
   const [rollupAggregation, setRollupAggregation] = useState("count");
+  const [formulaExpression, setFormulaExpression] = useState("");
   const [filterText, setFilterText] = useState("");
   const [filters, setFilters] = useState<ViewFilter[]>([]);
   const [sorts, setSorts] = useState<ViewSort[]>(parseViewSorts(undefined));
@@ -261,6 +263,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       setError("Choose a numeric property to summarize.");
       return;
     }
+    if (propertyType === "formula" && !formulaExpression.trim()) {
+      setError("Enter a formula.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -275,6 +281,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             ...(rollupAggregation !== "count" ? { targetPropertyId: rollupTargetPropertyId } : {}),
             aggregation: rollupAggregation,
           } : {}),
+          ...(propertyType === "formula" ? { expression: formulaExpression.trim() } : {}),
         } }),
       });
       if (!response.ok) throw new Error("Could not add property.");
@@ -300,6 +307,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       setRollupRelationPropertyId("");
       setRollupTargetPropertyId("");
       setRollupAggregation("count");
+      setFormulaExpression("");
       setShowPropertyForm(false);
     } catch (addError) {
       setError(addError instanceof Error ? addError.message : "Could not add property.");
@@ -519,20 +527,43 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       default: return "—";
     }
   };
+  const propertiesByName = new Map(database.properties.map((property) => [property.name, property]));
+  const getFormulaValue = (record: RecordRow, property: Property): number | null => {
+    const expression = typeof property.options.expression === "string" ? property.options.expression : "";
+    const parsed = parseFormula(expression);
+    if (!parsed.ok) return null;
+    return evaluateFormula(parsed.ast, (name) => {
+      const referenced = propertiesByName.get(name);
+      if (!referenced) return null;
+      if (referenced.type === "number") {
+        const value = record.values[referenced.id];
+        if (typeof value === "number") return Number.isFinite(value) ? value : null;
+        const text = String(value ?? "").trim();
+        const numeric = Number(text);
+        return text !== "" && Number.isFinite(numeric) ? numeric : null;
+      }
+      if (referenced.type === "rollup") {
+        const value = getRollupValue(record, referenced);
+        return typeof value === "number" ? value : null;
+      }
+      return null;
+    });
+  };
   const boardProperty = activeView?.type === "board"
     ? boardProperties.find((property) => property.id === activeView.config.groupBy) ?? boardProperties[0]
     : undefined;
   const dateViewPropertyId = typeof activeView?.config.datePropertyId === "string" ? activeView.config.datePropertyId : "";
   const valueFor = (record: RecordRow, property: ViewProperty) => {
-    const rollupProperty = database.properties.find((candidate) => candidate.id === property.id);
-    return property.type === "rollup" && rollupProperty
-      ? getRollupValue(record, rollupProperty)
-      : record.values[property.id];
+    const matchedProperty = database.properties.find((candidate) => candidate.id === property.id);
+    if (property.type === "rollup" && matchedProperty) return getRollupValue(record, matchedProperty);
+    if (property.type === "formula" && matchedProperty) return getFormulaValue(record, matchedProperty);
+    return record.values[property.id];
   };
   const matchingRecords = database.records.filter((record) => {
     if (!normalizedFilter) return true;
     return [record.title, ...Object.values(record.values).map((value) => Array.isArray(value) ? value.join(" ") : String(value ?? "")),
-      ...database.properties.filter((property) => property.type === "rollup").map((property) => String(getRollupValue(record, property)))]
+      ...database.properties.filter((property) => property.type === "rollup").map((property) => String(getRollupValue(record, property))),
+      ...database.properties.filter((property) => property.type === "formula").map((property) => formatFormulaValue(getFormulaValue(record, property)))]
       .some((value) => value.toLocaleLowerCase().includes(normalizedFilter));
   });
   const visibleRecords = applyView(matchingRecords, database.properties, filters, sorts, { valueFor });
@@ -556,6 +587,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           return targetNames.join(" | ");
         }
         if (property.type === "rollup") return getRollupValue(record, property);
+        if (property.type === "formula") return formatFormulaValue(getFormulaValue(record, property));
         return record.values[property.id];
       }),
       pages.find((page) => page.id === record.pageId)?.title ?? "",
@@ -649,6 +681,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 <option value="multi_select">Multi-select</option>
                 <option value="relation">Relation</option>
                 <option value="rollup">Rollup</option>
+                <option value="formula">Formula</option>
               </select>
             </label>
             {["select", "multi_select"].includes(propertyType) && (
@@ -696,6 +729,21 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 )}
               </>
             )}
+            {propertyType === "formula" && (
+              <label className="grid min-w-72 flex-1 gap-1 text-sm">
+                Formula
+                <input
+                  required
+                  value={formulaExpression}
+                  onChange={(event) => setFormulaExpression(event.target.value)}
+                  placeholder="{Watched} / {Total} * 100"
+                  className="rounded-md border bg-background px-3 py-2 font-mono text-xs"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Reference number and rollup properties as {"{Property}"}; arithmetic, parentheses, and round(value, digits) are supported.
+                </span>
+              </label>
+            )}
             <Button type="submit" disabled={busy || !propertyName.trim()}>{busy ? "Adding…" : "Create property"}</Button>
           </form>
         )}
@@ -725,6 +773,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           <section aria-label="Gallery view" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visibleRecords.map((record) => {
               const filledProperties = database.properties.filter((property) => {
+                if (property.type === "formula") return getFormulaValue(record, property) !== null;
                 const value = record.values[property.id];
                 return value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0);
               });
@@ -739,11 +788,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                     <dl className="mt-3 space-y-2 text-sm">
                       {filledProperties.map((property) => {
                         const rawValue = record.values[property.id];
-                        const displayValue = Array.isArray(rawValue)
-                          ? rawValue.join(", ")
-                          : typeof rawValue === "boolean"
-                            ? rawValue ? "Yes" : "No"
-                            : String(rawValue);
+                        const displayValue = property.type === "formula"
+                          ? formatFormulaValue(getFormulaValue(record, property))
+                          : Array.isArray(rawValue)
+                            ? rawValue.join(", ")
+                            : typeof rawValue === "boolean"
+                              ? rawValue ? "Yes" : "No"
+                              : String(rawValue);
                         return (
                           <div key={property.id} className="flex items-start gap-3">
                             <dt className="w-24 shrink-0 text-muted-foreground">{property.name}</dt>
@@ -855,8 +906,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         >
                           {(relationTargets[property.id]?.records ?? []).map((option) => <option key={option.id} value={option.id}>{option.title || "Untitled"}</option>)}
                         </select>
-                      ) : property.type === "rollup" ? (
-                        <span className="block px-2 py-1.5 text-sm" aria-label={`${property.name} calculated value`}>{getRollupValue(record, property)}</span>
+                      ) : property.type === "rollup" || property.type === "formula" ? (
+                        <span className="block px-2 py-1.5 text-sm" aria-label={`${property.name} calculated value`}>
+                          {property.type === "rollup" ? getRollupValue(record, property) : formatFormulaValue(getFormulaValue(record, property))}
+                        </span>
                       ) : property.type === "checkbox" ? (
                         <input
                           type="checkbox"

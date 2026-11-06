@@ -72,6 +72,7 @@ test("database values must match property types and configured choices", () => {
     { id: "select", name: "Status", type: "select", options: { choices: ["Todo", "Done"] } },
     { id: "multi", name: "Labels", type: "multi_select", options: { choices: ["Home", "Work"] } },
     { id: "rollup", name: "Total", type: "rollup", options: {} },
+    { id: "formula", name: "Progress", type: "formula", options: {} },
   ];
 
   assert.equal(validateDatabaseRecordValues({
@@ -85,6 +86,7 @@ test("database values must match property types and configured choices", () => {
   assert.match(validateDatabaseRecordValues({ number: "4" }, properties) ?? "", /finite number/);
   assert.match(validateDatabaseRecordValues({ select: "Unknown" }, properties) ?? "", /configured choices/);
   assert.match(validateDatabaseRecordValues({ rollup: 10 }, properties) ?? "", /managed/);
+  assert.match(validateDatabaseRecordValues({ formula: 10 }, properties) ?? "", /calculated/);
 });
 
 test("database values validate file properties and null values", () => {
