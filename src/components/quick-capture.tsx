@@ -9,6 +9,7 @@ export function QuickCapture() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [selectedText, setSelectedText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -45,13 +46,19 @@ export function QuickCapture() {
       const response = await fetch("/api/inbox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, content, sourceUrl }),
+        body: JSON.stringify({
+          title,
+          content,
+          sourceUrl,
+          selectedText: sourceUrl.trim() ? selectedText : undefined,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not save this capture.");
       setTitle("");
       setContent("");
       setSourceUrl("");
+      setSelectedText("");
       setSuccess(true);
       window.dispatchEvent(new Event("inbox-updated"));
     } catch (captureError) {
@@ -100,6 +107,12 @@ export function QuickCapture() {
                   <span className="sr-only">Source URL</span>
                   <input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="Paste a link (optional)" className="min-w-0 flex-1 bg-transparent py-2 text-foreground outline-none placeholder:text-muted-foreground" />
                 </label>
+                {sourceUrl.trim() && (
+                  <>
+                    <label className="sr-only" htmlFor="quick-capture-selected">Selected text</label>
+                    <textarea id="quick-capture-selected" value={selectedText} onChange={(event) => setSelectedText(event.target.value)} rows={2} maxLength={2000} placeholder="Paste the passage you want to keep (optional)" className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                  </>
+                )}
                 {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
                 <div className="flex items-center justify-between gap-3 border-t pt-3">
                   <span className="text-xs text-muted-foreground">Saved to your inbox</span>

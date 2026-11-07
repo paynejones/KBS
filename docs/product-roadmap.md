@@ -12,12 +12,13 @@ This roadmap describes KBS as a self-hosted personal information system: a place
 
 ## Current foundation
 
-The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, trash with restore and permanent delete, a full workspace JSON export with a restore script, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, gallery, and calendar views, where every record owns a full page that shows its properties and page content together. Views store their own structured filters and multiple sort rules, and any saved view can be pinned as a home dashboard widget. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, rollup, and formula. Databases can be embedded in pages, use record templates, and export as CSV or JSON. Pages and records can be connected in both directions, and an Unconnected view surfaces pages and records with no links, tags, hierarchy, or relations. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs, reading each captured page's title, description, site name, preview image, and favicon so saved links arrive recognizable.
+The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, trash with restore and permanent delete, a full workspace JSON export with a restore script, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, gallery, and calendar views, where every record owns a full page that shows its properties and page content together. Views store their own structured filters and multiple sort rules, and any saved view can be pinned as a home dashboard widget. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, rollup, and formula. Databases can be embedded in pages, use record templates, and export as CSV or JSON. Pages and records can be connected in both directions, and an Unconnected view surfaces pages and records with no links, tags, hierarchy, or relations. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs, reading each captured page's title, description, site name, preview image, and favicon so saved links arrive recognizable, and lets a saved link keep the passage you quoted from it.
 
 This is a code-level inventory, not a claim that every feature has the same polish or breadth as its Notion equivalent.
 
 ## Recently completed
 
+- Let a saved link keep the passage you meant to remember. Capturing a URL now accepts optional selected text, stored on the page beside its source and shown as a quote above the link's preview in the inbox. The quote stays with the item when it is moved into Pages and is shown again above the body when that page is opened, where it can be corrected or removed in place.
 - Connected pages and database records in both directions. A page's connections panel lists the records it is linked to, a record shows the pages linked to it, and either side can add or remove the same connection, which is stored once and disappears when either end is deleted. The new Unconnected view lists active pages with no parent, children, tags, page links, or record links, and records with no relations or page links, so unconnected material can be found and either connected or removed.
 - Let the inline link control target pages, not just web addresses. Typing a title in the Link panel lists matching pages, arrow keys and Enter choose one, picking a page writes a `/pages/<id>` link and records the connection so backlinks see it, and reopening a page link shows the page's title instead of its path.
 - Applied the home, navigation, and mobile screens from the UI redesign deck in `docs/mockups/ui-redesign.html`. The home page now leads with a dated greeting and a “Pick up where you left off” card row, then shows a two-column canvas of recent pages and pinned views with colour-coded status pills. The sidebar is tighter with a brand-tinted active destination, the phone layout uses four 48px bottom-bar destinations with a search field in the header and a floating capture button, and the navigation editor opens as a bottom sheet on phones. An indigo `--brand` token per theme keeps interaction colour separate from status colour.
@@ -111,7 +112,7 @@ Make it easy to save something now and organize it later.
 - [x] Let captured items become regular pages or database records without losing their source or capture date.
 - [x] Render saved links as compact previews that show the title and source and open the original URL directly.
 - [x] Store a saved link's title, address, description, site name, preview image, and favicon.
-- Store optional selected text alongside a saved link.
+- [x] Store optional selected text alongside a saved link, so a quote stays attached to its source and shows above that link's preview in the inbox.
 - Add file, image, and PDF capture now that attachment storage and previews are in place.
 - Consider a browser extension as a later companion to the core inbox, not a prerequisite.
 
@@ -186,11 +187,10 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 ## Suggested sequence
 
 1. Finish the remaining editor polish (focus and selection).
-2. Store optional selected text with captured URLs; their title, description, site name, preview image, and favicon are already captured.
-3. Add related-item discovery and useful personal dashboard sections.
-4. Add list views and database formulas, then CSV/Markdown import.
-5. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.
-6. Add inbox file/PDF capture and personal workflows such as a decision journal, reading list, and focus view.
-7. Add multi-user identity, permissions, and collaboration when needed.
+2. Add related-item discovery and useful personal dashboard sections.
+3. Add list views and database formulas, then CSV/Markdown import.
+4. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.
+5. Add inbox file/PDF capture and personal workflows such as a decision journal, reading list, and focus view.
+6. Add multi-user identity, permissions, and collaboration when needed.
 
 Revisit the sequence using actual usage: prioritize the improvements that remove friction in capture, finding, connecting, and safely changing knowledge.

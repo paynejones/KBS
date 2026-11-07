@@ -139,6 +139,10 @@ test("captures a note in the inbox", async ({ page, request }) => {
     await page.goto("/inbox");
     await page.getByPlaceholder("Title (optional)").fill(`${token} title`);
     await page.getByPlaceholder("Write a quick note…").fill(`${token} body`);
+    await page.getByPlaceholder("Paste a link (optional)").fill("https://example.com/essay");
+    await page
+      .getByPlaceholder("Paste the passage you want to keep (optional)")
+      .fill(`${token} quote`);
 
     const captured = page.waitForResponse((response) =>
       response.url().endsWith("/api/inbox")
@@ -152,6 +156,9 @@ test("captures a note in the inbox", async ({ page, request }) => {
 
     await expect(page.getByRole("heading", { name: `${token} title` })).toBeVisible();
     await expect(page.getByText(`${token} body`, { exact: true })).toBeVisible();
+    await expect(
+      page.locator("blockquote").filter({ hasText: `${token} quote` }),
+    ).toBeVisible();
   } finally {
     if (capturedId) await purgePage(request, capturedId);
   }

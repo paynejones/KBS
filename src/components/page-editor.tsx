@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Download, GripVertical, Plus, SlidersHorizontal, Star } from "lucide-react";
+import { ChevronDown, Download, GripVertical, Pencil, Plus, SlidersHorizontal, Star, Trash2 } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DragHandle } from "@tiptap/extension-drag-handle-react";
 import { Extension, type Editor } from "@tiptap/core";
@@ -35,6 +35,7 @@ type PageData = {
   isFavorite: boolean;
   icon: string | null;
   coverImageUrl: string | null;
+  selectedText: string | null;
   updatedAt: string;
   createdAt?: string;
 };
@@ -235,6 +236,10 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
   const [favoriteSaving, setFavoriteSaving] = useState(false);
   const [icon, setIcon] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [selectedText, setSelectedText] = useState("");
+  const [quoteEditing, setQuoteEditing] = useState(false);
+  const [quoteDraft, setQuoteDraft] = useState("");
+  const [quoteSaving, setQuoteSaving] = useState(false);
   const [coverImageError, setCoverImageError] = useState<"invalid" | "load" | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [revisions, setRevisions] = useState<PageRevision[]>([]);
@@ -518,6 +523,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
         setIsFavorite(page.isFavorite ?? false);
         setIcon(page.icon ?? "");
         setCoverImageUrl(page.coverImageUrl ?? "");
+        setSelectedText(page.selectedText ?? "");
         setCoverImageError(null);
         setCreatedAt(page.createdAt ?? "");
         const serverContentJson = page.contentJson?.type
@@ -594,6 +600,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
     contentJson?: Record<string, unknown>;
     icon?: string | null;
     coverImageUrl?: string | null;
+    selectedText?: string | null;
   }, options: { silent?: boolean } = {}) => {
     if (!options.silent) {
       setStatus("saving");
@@ -630,6 +637,19 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
 const markSaved = useCallback(() => {
   setLastSavedAt(Date.now());
 }, []);
+
+  /** Corrects or clears the captured quote through the same page save path. */
+  const saveQuote = useCallback(
+    async (next: string | null) => {
+      setQuoteSaving(true);
+      const saved = await savePage({ selectedText: next });
+      setQuoteSaving(false);
+      if (!saved) return;
+      setSelectedText(next ?? "");
+      setQuoteEditing(false);
+    },
+    [savePage],
+  );
 
 useEffect(() => {
   if (!editor || !loaded) return;
@@ -1265,6 +1285,59 @@ while (foundDescendant) {
         <div className="border-b py-3">
           <DatabaseEmbedPicker editor={editor} />
         </div>
+        {selectedText && !quoteEditing && (
+          <figure className="my-3 rounded-r-md border-l-2 border-primary/40 pl-3">
+            <blockquote
+              aria-label="Quoted passage from the saved link"
+              className="text-sm italic text-muted-foreground"
+            >
+              <p className="whitespace-pre-wrap break-words">{selectedText}</p>
+            </blockquote>
+            <div className="mt-1 flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => { setQuoteDraft(selectedText); setQuoteEditing(true); }}
+                aria-label="Edit quote"
+                title="Edit quote"
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Pencil size={13} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveQuote(null)}
+                disabled={quoteSaving}
+                aria-label="Remove quote"
+                title="Remove quote"
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              >
+                <Trash2 size={13} aria-hidden="true" />
+              </button>
+            </div>
+          </figure>
+        )}
+        {selectedText && quoteEditing && (
+          <div className="my-3 space-y-2 rounded-r-md border-l-2 border-primary/40 pl-3">
+            <label className="sr-only" htmlFor="page-quote">Quoted passage</label>
+            <textarea
+              id="page-quote"
+              autoFocus
+              rows={3}
+              maxLength={2000}
+              value={quoteDraft}
+              onChange={(event) => setQuoteDraft(event.target.value)}
+              className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" onClick={() => void saveQuote(quoteDraft.trim() || null)} disabled={quoteSaving}>
+                {quoteSaving ? "Saving…" : "Save quote"}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteEditing(false)} disabled={quoteSaving}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <EditorContent editor={editor} />
         </div>

@@ -21,6 +21,7 @@ const updatePageSchema = z.object({
   isFavorite: z.boolean().optional(),
   icon: z.string().max(32).nullable().optional(),
   coverImageUrl: z.string().trim().max(2048).nullable().optional(),
+  selectedText: z.string().max(2_000).nullable().optional(),
 }).refine(
   (data) => Object.keys(data).length > 0,
   { message: "Provide at least one field to update" },
@@ -89,6 +90,15 @@ export async function PATCH(request: Request, context: Context) {
       { status: 404 }
     );
   }
+
+  // An emptied quote is stored as no quote at all, so clearing the field on a
+  // page means the same thing as never capturing a passage.
+  const updates = {
+    ...parsed.data,
+    ...(parsed.data.selectedText !== undefined
+      ? { selectedText: parsed.data.selectedText?.trim() || null }
+      : {}),
+  };
 
   // Validate a requested parent change.
   if (parsed.data.parentId !== undefined && parsed.data.parentId !== null) {
@@ -213,7 +223,7 @@ export async function PATCH(request: Request, context: Context) {
     const [updatedPage] = await tx
       .update(pages)
       .set({
-        ...parsed.data,
+        ...updates,
         ...(nextSortOrder !== undefined ? { sortOrder: nextSortOrder } : {}),
         updatedAt: new Date(),
       })

@@ -337,6 +337,50 @@ describe("attachments API", () => {
   });
 });
 
+describe("page quote API", () => {
+  it("corrects and clears the passage captured with a page", async () => {
+    const page = await createPage({ title: "Captured article", content: "Notes" });
+
+    const corrected = await api.page.PATCH(
+      jsonRequest(`/api/pages/${page.id}`, "PATCH", { selectedText: "  A corrected passage.  " }),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(corrected.status, 200);
+    assert.equal(
+      (await body<{ selectedText: string | null }>(corrected)).selectedText,
+      "A corrected passage.",
+      "a correction is stored with its surrounding whitespace trimmed",
+    );
+
+    const cleared = await api.page.PATCH(
+      jsonRequest(`/api/pages/${page.id}`, "PATCH", { selectedText: "   " }),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(cleared.status, 200);
+    assert.equal(
+      (await body<{ selectedText: string | null }>(cleared)).selectedText,
+      null,
+      "an emptied quote is stored as no quote at all",
+    );
+
+    const reloaded = await body<{ selectedText: string | null }>(
+      await api.page.GET(jsonRequest(`/api/pages/${page.id}`, "GET"), routeContext({ id: page.id })),
+    );
+    assert.equal(reloaded.selectedText, null, "the cleared quote stays cleared on reload");
+  });
+
+  it("rejects a passage longer than 2000 characters", async () => {
+    const page = await createPage({ title: "Long quote" });
+
+    const response = await api.page.PATCH(
+      jsonRequest(`/api/pages/${page.id}`, "PATCH", { selectedText: "x".repeat(2_001) }),
+      routeContext({ id: page.id }),
+    );
+
+    assert.equal(response.status, 400);
+  });
+});
+
 describe("inbox API", () => {
   it("requires a title, note, or URL", async () => {
     const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {}));
@@ -367,6 +411,50 @@ describe("inbox API", () => {
     assert.equal(item.contentJson.type, "doc");
     assert.equal(item.contentJson.content[0]?.type, "paragraph");
     assert.equal(item.contentJson.content[0]?.content[0]?.text, "Captured thought");
+  });
+
+  it("stores optional selected text with a saved link", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    try {
+      const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+        sourceUrl: "https://example.com/essay",
+        selectedText: "  A passage worth keeping.  ",
+      }));
+
+      assert.equal(response.status, 201);
+      const item = await body<PageRow & { selectedText: string | null }>(response);
+      assert.equal(item.selectedText, "A passage worth keeping.", "surrounding whitespace is trimmed");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("leaves selected text null when the capture has none", async () => {
+    const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+      content: "No quote here",
+    }));
+
+    assert.equal(response.status, 201);
+    assert.equal((await body<{ selectedText: string | null }>(response)).selectedText, null);
+  });
+
+  it("rejects selected text longer than 2000 characters", async () => {
+    const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+      sourceUrl: "https://example.com/essay",
+      selectedText: "x".repeat(2_001),
+    }));
+
+    assert.equal(response.status, 400);
+  });
+
+  it("does not treat a quote alone as a capture", async () => {
+    const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+      selectedText: "Just a quote",
+    }));
+
+    assert.equal(response.status, 400);
+    assert.equal((await body(response)).error, "Add a title, note, or URL to capture.");
   });
 
   it("derives a title from the source URL host when the page cannot be read", async () => {

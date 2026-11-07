@@ -9,6 +9,7 @@ const captureSchema = z.object({
   title: z.string().trim().max(200).optional(),
   content: z.string().trim().max(2_000_000).optional(),
   sourceUrl: z.string().trim().url().max(2048).optional().or(z.literal("")),
+  selectedText: z.string().trim().max(2_000).optional(),
 }).refine((item) => Boolean(item.title || item.content || item.sourceUrl), {
   message: "Add a title, note, or URL to capture.",
 }).refine((item) => !item.sourceUrl || /^https?:\/\//i.test(item.sourceUrl), {
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
       contentJson,
       isInbox: true,
       sourceUrl,
+      selectedText: parsed.data.selectedText || null,
       linkPreview: preview,
       capturedAt: new Date(),
     }).returning();

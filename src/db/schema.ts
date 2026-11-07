@@ -37,6 +37,9 @@ export const pages = pgTable(
     coverImageUrl: text("cover_image_url"),
     isInbox: boolean("is_inbox").notNull().default(false),
     sourceUrl: text("source_url"),
+    // Optional passage the user highlighted on the captured page. Kept apart
+    // from `content` so a quote stays attached to the URL it came from.
+    selectedText: text("selected_text"),
     capturedAt: timestamp("captured_at", { withTimezone: true }),
 
     // Null when the captured URL could not be read: offline, non-HTML, or a

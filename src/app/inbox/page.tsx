@@ -19,6 +19,7 @@ type InboxItem = {
   title: string;
   content: string;
   sourceUrl: string | null;
+  selectedText: string | null;
   linkPreview: LinkPreview | null;
   capturedAt: string | null;
   createdAt: string;
@@ -42,6 +43,7 @@ export default function InboxPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [selectedText, setSelectedText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -99,7 +101,12 @@ export default function InboxPage() {
       const response = await fetch("/api/inbox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, content, sourceUrl }),
+        body: JSON.stringify({
+          title,
+          content,
+          sourceUrl,
+          selectedText: sourceUrl.trim() ? selectedText : undefined,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not save this capture.");
@@ -107,6 +114,7 @@ export default function InboxPage() {
       setTitle("");
       setContent("");
       setSourceUrl("");
+      setSelectedText("");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save this capture.");
     } finally {
@@ -173,6 +181,12 @@ export default function InboxPage() {
               <Plus size={16} /> {saving ? "Saving…" : "Capture"}
             </Button>
           </div>
+          {sourceUrl.trim() && (
+            <>
+              <label className="sr-only" htmlFor="capture-selected-text">Selected text</label>
+              <textarea id="capture-selected-text" value={selectedText} onChange={(event) => setSelectedText(event.target.value)} rows={2} maxLength={2000} placeholder="Paste the passage you want to keep (optional)" className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            </>
+          )}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </form>
 
@@ -193,6 +207,11 @@ export default function InboxPage() {
                 <div className="min-w-0 flex-1">
                   <h3 className="break-words font-medium">{item.title || "Quick note"}</h3>
                   {item.content && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.content}</p>}
+                  {item.sourceUrl && item.selectedText && (
+                    <blockquote className="mt-3 border-l-2 border-primary/40 pl-3 text-sm italic text-muted-foreground">
+                      <p className="whitespace-pre-wrap break-words">{item.selectedText}</p>
+                    </blockquote>
+                  )}
                   {item.sourceUrl && (() => {
                     const source = linkSource(item.sourceUrl);
                     const preview = item.linkPreview;
