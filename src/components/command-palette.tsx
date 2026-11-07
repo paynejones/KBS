@@ -46,7 +46,7 @@ type PaletteItem = {
 
 const emptyResults: SearchResults = { pages: [], records: [] };
 
-export function CommandPalette() {
+export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -523,17 +523,19 @@ export function CommandPalette() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={openPalette}
-        aria-keyshortcuts="Control+K Meta+K"
-        aria-label="Open command palette to search, jump, or create"
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Search size={16} />
-        <span className="hidden sm:inline">Search or jump to…</span>
-        <kbd className="ml-2 hidden rounded border px-1.5 py-0.5 text-[10px] sm:inline">Ctrl K</kbd>
-      </button>
+      {showTrigger && (
+        <button
+          type="button"
+          onClick={openPalette}
+          aria-keyshortcuts="Control+K Meta+K"
+          aria-label="Open command palette to search, jump, or create"
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Search size={16} />
+          <span className="hidden sm:inline">Search or jump to…</span>
+          <kbd className="ml-2 hidden rounded border px-1.5 py-0.5 text-[10px] sm:inline">Ctrl K</kbd>
+        </button>
+      )}
 
       {open && (
         <div

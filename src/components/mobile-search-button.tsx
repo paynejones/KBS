@@ -7,10 +7,11 @@ export function MobileSearchButton() {
     <button
       type="button"
       onClick={() => window.dispatchEvent(new Event("open-global-search"))}
-      className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-md text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+      aria-label="Search"
+      aria-keyshortcuts="Control+K Meta+K"
+      className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
     >
       <Search size={18} aria-hidden="true" />
-      Search
     </button>
   );
 }

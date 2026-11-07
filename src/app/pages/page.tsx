@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Star, Trash2 } from "lucide-react";
+import { ChevronDown, SlidersHorizontal, Star, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { markdownFileToPage } from "@/lib/markdown-import";
@@ -375,7 +375,12 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
         default: return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
       }
     });
-  const hasFilters = Boolean(search.trim() || selectedTagId || updatedFrom || updatedThrough);
+  const hasFilters = Boolean(
+    search.trim() || selectedTagId || updatedFrom || updatedThrough,
+  );
+  const activeFilterCount = [selectedTagId, updatedFrom, updatedThrough].filter(
+    Boolean,
+  ).length;
 
   return (
     <AppShell>
@@ -396,7 +401,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
           </div>
 
           {!favoritesOnly && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 ref={importInput}
                 type="file"
@@ -410,25 +415,17 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                   void importMarkdown(files);
                 }}
               />
-              <Button type="button" variant="outline" onClick={() => importInput.current?.click()} disabled={importing}>
-                {importing ? "Importing…" : "Import Markdown"}
-              </Button>
-              <select
-                aria-label="Create a page from a template"
-                value=""
-                disabled={templateBusy || templates.length === 0}
-                onChange={(event) => void createPageFromTemplate(event.target.value)}
-                className="rounded-md border bg-background px-3 py-1.5 text-sm disabled:opacity-50"
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => importInput.current?.click()}
+                disabled={importing}
+                aria-label={importing ? "Importing Markdown" : "Import Markdown"}
+                title="Import Markdown"
               >
-                <option value="">
-                  {templates.length === 0 ? "No templates yet" : "New from template…"}
-                </option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.icon ? `${template.icon} ${template.name}` : template.name}
-                  </option>
-                ))}
-              </select>
+                <Upload size={16} />
+              </Button>
               <Button onClick={() => void createPage()}>New page</Button>
             </div>
           )}
@@ -512,7 +509,8 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
           </details>
         )}
 
-        <div className="relative">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
           <input
             type="search"
             placeholder="Search pages..."
@@ -539,42 +537,73 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
           </span>
         </div>
 
-        <div className="grid grid-cols-1 items-end gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2 lg:flex lg:flex-wrap">
-          <select
-            aria-label="Filter pages by tag"
-            value={selectedTagId}
-            onChange={(event) => setSelectedTagId(event.target.value)}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm sm:col-span-2 lg:w-auto lg:min-w-40"
-          >
-            <option value="">All tags</option>
-
-            {allTags.map((tag) => (
-              <option key={tag.id} value={tag.id}>
-                {tag.name}
-              </option>
-            ))}
-          </select>
-
-          <label className="grid gap-1 text-xs text-muted-foreground">
-            Updated from
-            <input type="date" value={updatedFrom} max={updatedThrough || undefined} onChange={(event) => setUpdatedFrom(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
-          </label>
-          <label className="grid gap-1 text-xs text-muted-foreground">
-            Updated through
-            <input type="date" value={updatedThrough} min={updatedFrom || undefined} onChange={(event) => setUpdatedThrough(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
-          </label>
-          <label className="grid gap-1 text-xs text-muted-foreground">
-            Sort
-            <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground lg:w-auto">
-              <option value="updated-desc">Recently updated</option>
-              <option value="updated-asc">Least recently updated</option>
-              <option value="created-desc">Recently created</option>
-              <option value="created-asc">Oldest created</option>
-              <option value="title-asc">Title A–Z</option>
-              <option value="title-desc">Title Z–A</option>
-            </select>
-          </label>
-          {hasFilters && <Button type="button" variant="ghost" size="sm" onClick={() => { setSearch(""); setSelectedTagId(""); setUpdatedFrom(""); setUpdatedThrough(""); setSortOrder("updated-desc"); }}>Clear filters</Button>}
+          <details className="group relative shrink-0">
+            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                  {activeFilterCount}
+                </span>
+              )}
+              <ChevronDown size={14} aria-hidden="true" className="transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="mt-2 grid gap-3 rounded-lg border bg-card p-3 sm:absolute sm:right-0 sm:z-20 sm:mt-1 sm:w-80 sm:shadow-lg">
+              <label className="grid gap-1 text-xs text-muted-foreground">
+                Tag
+                <select
+                  aria-label="Filter pages by tag"
+                  value={selectedTagId}
+                  onChange={(event) => setSelectedTagId(event.target.value)}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground"
+                >
+                  <option value="">All tags</option>
+                  {allTags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  Updated from
+                  <input type="date" value={updatedFrom} max={updatedThrough || undefined} onChange={(event) => setUpdatedFrom(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
+                </label>
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  Updated through
+                  <input type="date" value={updatedThrough} min={updatedFrom || undefined} onChange={(event) => setUpdatedThrough(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
+                </label>
+              </div>
+              <label className="grid gap-1 text-xs text-muted-foreground">
+                Sort
+                <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground">
+                  <option value="updated-desc">Recently updated</option>
+                  <option value="updated-asc">Least recently updated</option>
+                  <option value="created-desc">Recently created</option>
+                  <option value="created-asc">Oldest created</option>
+                  <option value="title-asc">Title A–Z</option>
+                  <option value="title-desc">Title Z–A</option>
+                </select>
+              </label>
+              {hasFilters && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSearch("");
+                    setSelectedTagId("");
+                    setUpdatedFrom("");
+                    setUpdatedThrough("");
+                    setSortOrder("updated-desc");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          </details>
         </div>
 
         {error && (

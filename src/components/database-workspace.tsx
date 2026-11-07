@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CopyPlus, Download, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, CopyPlus, Download, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { DatabaseCalendar } from "@/components/database-calendar";
 import { DatabaseViewControls } from "@/components/database-view-controls";
@@ -612,10 +612,46 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               className="mt-2 w-full bg-transparent text-3xl font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-4xl"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="destructive" onClick={() => void deleteDatabase()} disabled={busy}><Trash2 size={15} /> Delete database</Button>
-            <Button type="button" variant="outline" onClick={exportCsv}><Download size={15} /> Export CSV</Button>
-            <Button type="button" variant="outline" onClick={exportJson}><Download size={15} /> Export JSON</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <details className="relative">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border bg-background px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
+                More
+                <ChevronDown size={14} aria-hidden="true" />
+              </summary>
+              <div className="absolute right-0 z-20 mt-1 w-52 rounded-lg border bg-popover p-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    exportCsv();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                >
+                  <Download size={15} aria-hidden="true" /> Export CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    exportJson();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                >
+                  <Download size={15} aria-hidden="true" /> Export JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    void deleteDatabase();
+                  }}
+                  disabled={busy}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  <Trash2 size={15} aria-hidden="true" /> Delete database
+                </button>
+              </div>
+            </details>
             <Button type="button" variant="outline" onClick={() => setShowPropertyForm((shown) => !shown)} disabled={busy}><Plus size={16} /> Add property</Button>
             <Button type="button" onClick={() => void addRecord()} disabled={busy}><Plus size={16} /> New record</Button>
           </div>
@@ -633,17 +669,54 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               {view.name}
             </Button>
           ))}
-          <Button type="button" size="sm" variant="outline" onClick={() => void addBoardView()} disabled={busy || boardProperties.length === 0}>
-            <Plus size={15} /> Board view
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => void addGalleryView()} disabled={busy}>
-            <Plus size={15} /> Gallery view
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => void addCalendarView()} disabled={busy || dateProperties.length === 0}>
-            <Plus size={15} /> Calendar view
-          </Button>
-          {boardProperties.length === 0 && <span className="text-xs text-muted-foreground">Add a Select property to create a board.</span>}
-          {dateProperties.length === 0 && <span className="text-xs text-muted-foreground">Add a Date property to create a calendar.</span>}
+          <details className="relative">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <Plus size={14} aria-hidden="true" />
+              New view
+              <ChevronDown size={13} aria-hidden="true" />
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border bg-popover p-1 shadow-lg">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  void addBoardView();
+                }}
+                disabled={busy || boardProperties.length === 0}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-40"
+              >
+                Board view
+                {boardProperties.length === 0 && (
+                  <span className="ml-auto text-[11px] text-muted-foreground">needs a Select property</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  void addGalleryView();
+                }}
+                disabled={busy}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-40"
+              >
+                Gallery view
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  void addCalendarView();
+                }}
+                disabled={busy || dateProperties.length === 0}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-40"
+              >
+                Calendar view
+                {dateProperties.length === 0 && (
+                  <span className="ml-auto text-[11px] text-muted-foreground">needs a Date property</span>
+                )}
+              </button>
+            </div>
+          </details>
         </div>
 
         {database.templates.length > 0 && (

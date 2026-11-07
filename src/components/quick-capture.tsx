@@ -120,10 +120,9 @@ export function MobileQuickCaptureButton() {
       type="button"
       onClick={() => window.dispatchEvent(new Event("open-quick-capture"))}
       aria-label="Quick capture"
-      className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-md text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+      className="inline-flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-95"
     >
-      <Plus size={18} aria-hidden="true" />
-      Capture
+      <Plus size={20} aria-hidden="true" />
     </button>
   );
 }
