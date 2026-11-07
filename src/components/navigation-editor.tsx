@@ -50,7 +50,7 @@ export function NavigationEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[8vh]"
+      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 sm:items-start sm:p-4 sm:pt-[8vh]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -61,8 +61,12 @@ export function NavigationEditor({
         role="dialog"
         aria-modal="true"
         aria-labelledby="navigation-editor-heading"
-        className="w-full max-w-md rounded-xl border bg-background shadow-2xl outline-none"
+        className="max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border bg-background shadow-2xl outline-none sm:max-h-[85vh] sm:rounded-xl"
       >
+        <span
+          aria-hidden="true"
+          className="mx-auto mt-2 block h-1 w-10 rounded-full bg-border sm:hidden"
+        />
         <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
           <div>
             <h2

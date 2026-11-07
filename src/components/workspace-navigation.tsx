@@ -40,6 +40,11 @@ const iconByKey: Record<NavigationKey, LucideIcon> = {
   trash: Trash2,
 };
 
+/** The bottom bar keeps four short labels; the sidebar can spell them out. */
+const mobileLabelByKey: Partial<Record<NavigationKey, string>> = {
+  databases: "Data",
+};
+
 const itemByKey = new Map(
   NAVIGATION_ITEMS.map((item) => [item.key, item] as const),
 );
@@ -61,10 +66,7 @@ export function WorkspaceNavigation({ mobile = false }: { mobile?: boolean }) {
     const keys = mobileNavigationWithActive(preferences.mobile, activeKey);
 
     return (
-      <div
-        className="flex w-full items-stretch"
-        data-testid="mobile-navigation"
-      >
+      <div className="flex w-full items-stretch" data-testid="mobile-navigation">
         {keys.map((key) => {
           const item = itemByKey.get(key);
           if (!item) return null;
@@ -83,7 +85,7 @@ export function WorkspaceNavigation({ mobile = false }: { mobile?: boolean }) {
   }
 
   return (
-    <nav className="space-y-1" aria-label="Workspace">
+    <nav className="space-y-0.5" aria-label="Workspace">
       {preferences.sidebar.map((key) => {
         const item = itemByKey.get(key);
         if (!item) return null;
@@ -131,13 +133,13 @@ export function WorkspaceNavigation({ mobile = false }: { mobile?: boolean }) {
             }}
             className={`group relative rounded-md ${
               draggingKey === key ? "opacity-40" : ""
-            } ${dragOverKey === key ? "ring-2 ring-primary" : ""}`}
+            } ${dragOverKey === key ? "ring-2 ring-brand" : ""}`}
           >
             <NavigationLink item={item} active={active} />
             <GripVertical
               size={13}
               aria-hidden="true"
-              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
             />
           </div>
         );
@@ -167,7 +169,7 @@ export function WorkspaceNavigationFallback({
   }
 
   return (
-    <nav className="space-y-1" aria-label="Workspace">
+    <nav className="space-y-0.5" aria-label="Workspace">
       {keys.map((key) => {
         const item = itemByKey.get(key);
         if (!item) return null;
@@ -195,20 +197,26 @@ function NavigationLink({
       aria-current={active ? "page" : undefined}
       className={
         mobile
-          ? `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-md px-1 text-[10px] font-medium transition-colors ${
+          ? `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1 text-[11px] font-medium transition-colors ${
               active
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                ? "text-brand"
+                : "text-muted-foreground hover:text-foreground"
             }`
-          : `flex min-w-0 flex-1 items-center gap-3 rounded-md py-2 pl-3 pr-8 text-sm transition-colors ${
+          : `flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-1.5 pl-2.5 pr-7 text-[13px] transition-colors ${
               active
-                ? "bg-accent font-medium text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                ? "bg-brand-soft font-medium text-brand-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
             }`
       }
     >
-      <Icon size={mobile ? 18 : 16} aria-hidden="true" className="shrink-0" />
-      <span className="truncate">{item.label}</span>
+      <Icon
+        size={mobile ? 19 : 15}
+        aria-hidden="true"
+        className={`shrink-0 ${active ? "text-brand" : ""}`}
+      />
+      <span className="truncate">
+        {mobile ? (mobileLabelByKey[item.key] ?? item.label) : item.label}
+      </span>
     </Link>
   );
 }

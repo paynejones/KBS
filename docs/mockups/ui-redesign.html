@@ -1,0 +1,1450 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KBS — UI redesign mockups</title>
+<style>
+  /* ============ tokens ============ */
+  :root{
+    --bg:#ffffff;
+    --surface:#fafafa;
+    --surface-2:#f4f4f5;
+    --chip:#f1f1f4;
+    --fg:#17171c;
+    --fg-soft:#3f3f46;
+    --muted:#71717a;
+    --faint:#a1a1aa;
+    --border:#e8e8ec;
+    --border-strong:#d6d6dd;
+    --brand:#4f46e5;
+    --brand-soft:#eef2ff;
+    --brand-fg:#4338ca;
+    --primary-solid:#18181b;
+    --primary-solid-fg:#fafafa;
+    --ok-bg:#dcfce7; --ok:#166534;
+    --warn-bg:#fef3c7; --warn:#92400e;
+    --info-bg:#dbeafe; --info:#1e40af;
+    --danger-bg:#fee2e2; --danger:#b91c1c;
+    --shadow:0 1px 2px rgba(16,16,24,.05), 0 18px 44px -26px rgba(16,16,24,.45);
+    --deck:#f4f4f7;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"Cascadia Code",ui-monospace,SFMono-Regular,Consolas,monospace;
+  }
+  [data-theme="dark"]{
+    --bg:#0e0e11;
+    --surface:#15151a;
+    --surface-2:#1c1c22;
+    --chip:#232329;
+    --fg:#ececf1;
+    --fg-soft:#c9c9d3;
+    --muted:#9c9ca8;
+    --faint:#6f6f7c;
+    --border:#26262e;
+    --border-strong:#34343d;
+    --brand:#8b8cf9;
+    --brand-soft:#1d1b3a;
+    --brand-fg:#b6b6ff;
+    --primary-solid:#f4f4f5;
+    --primary-solid-fg:#18181b;
+    --ok-bg:#10281a; --ok:#86efac;
+    --warn-bg:#2b2210; --warn:#fcd34d;
+    --info-bg:#122137; --info:#93c5fd;
+    --danger-bg:#2a1414; --danger:#fca5a5;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 24px 60px -30px rgba(0,0,0,.95);
+    --deck:#08080a;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--deck);
+    color:var(--fg);
+    font-family:var(--font);
+    -webkit-font-smoothing:antialiased;
+    font-size:15px;
+    line-height:1.5;
+  }
+  a{color:inherit;text-decoration:none}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  h1,h2,h3,h4,p{margin:0}
+  .sheet{max-width:1420px;margin:0 auto;padding:0 28px 96px}
+
+  /* ============ icons ============ */
+  .i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .i.sm{width:14px;height:14px}
+  .i.lg{width:18px;height:18px}
+  .sprite{position:absolute;width:0;height:0;overflow:hidden}
+
+  /* ============ deck header ============ */
+  .deck-head{
+    position:sticky;top:0;z-index:50;
+    backdrop-filter:blur(14px) saturate(150%);
+    background:color-mix(in srgb,var(--deck) 82%,transparent);
+    border-bottom:1px solid var(--border);
+    margin-bottom:40px;
+  }
+  .deck-head-in{max-width:1420px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+  .deck-brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.02em;font-size:15px}
+  .deck-mark{width:26px;height:26px;border-radius:7px;background:linear-gradient(145deg,#4f46e5,#7c6cf5);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
+  .deck-brand small{display:block;font-weight:450;font-size:11.5px;color:var(--muted);letter-spacing:0}
+  .deck-nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+  .deck-nav a{padding:6px 11px;border-radius:8px;font-size:12.5px;color:var(--muted);font-weight:500}
+  .deck-nav a:hover{background:color-mix(in srgb,var(--fg) 7%,transparent);color:var(--fg)}
+  .theme-btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border);background:var(--bg);border-radius:9px;padding:6px 11px;font-size:12.5px;font-weight:500;color:var(--fg-soft)}
+  .theme-btn:hover{border-color:var(--border-strong)}
+  [data-theme="light"] .moon-only{display:none}
+  [data-theme="dark"] .sun-only{display:none}
+
+  /* ============ hero ============ */
+  .hero{padding:8px 0 44px;max-width:830px}
+  .hero-kicker{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:650;letter-spacing:.14em;text-transform:uppercase;color:var(--brand-fg);background:var(--brand-soft);border:1px solid color-mix(in srgb,var(--brand) 20%,transparent);padding:5px 10px;border-radius:999px}
+  .hero h1{font-size:clamp(30px,4vw,46px);line-height:1.06;letter-spacing:-.035em;font-weight:680;margin:18px 0 0}
+  .hero h1 em{font-style:normal;color:var(--brand-fg)}
+  .hero p{color:var(--muted);font-size:15.5px;margin-top:14px;max-width:640px;line-height:1.6}
+  .principles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:34px}
+  .principle{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:16px}
+  .principle .pn{font-family:var(--mono);font-size:10.5px;color:var(--brand-fg);letter-spacing:.08em}
+  .principle h3{font-size:13.5px;margin-top:7px;letter-spacing:-.01em}
+  .principle p{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.5}
+
+  /* ============ screen sections ============ */
+  .screen{padding-top:26px;margin-top:34px;border-top:1px solid var(--border);scroll-margin-top:80px}
+  .screen-head{display:flex;gap:14px;align-items:flex-start;margin-bottom:20px}
+  .screen-num{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--brand-fg);border:1px solid color-mix(in srgb,var(--brand) 26%,transparent);background:var(--brand-soft);border-radius:8px;padding:4px 7px;margin-top:2px}
+  .screen-head h2{font-size:20px;letter-spacing:-.022em;font-weight:640}
+  .screen-head p{font-size:13.5px;color:var(--muted);margin-top:4px;max-width:760px;line-height:1.55}
+  .screen-badges{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+  .badge{font-size:10.5px;font-weight:550;letter-spacing:.02em;color:var(--muted);border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:3px 9px;white-space:nowrap}
+  .screen-grid{display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:26px;align-items:start}
+
+  /* ============ browser frame ============ */
+  .frame{background:var(--bg);border:1px solid var(--border-strong);border-radius:15px;overflow:hidden;box-shadow:var(--shadow);min-width:0}
+  .frame-bar{height:36px;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--border)}
+  .dots{display:flex;gap:5px;margin-right:6px}
+  .dots span{width:8px;height:8px;border-radius:50%;background:var(--border-strong)}
+  .urlbar{flex:1;max-width:330px;margin:0 auto;display:flex;align-items:center;gap:6px;justify-content:center;height:22px;border-radius:6px;background:color-mix(in srgb,var(--fg) 5%,transparent);color:var(--faint);font-size:10.5px;font-family:var(--mono)}
+  .frame-body{display:flex;min-height:0;font-size:12.5px}
+
+  /* ============ app shell: sidebar ============ */
+  .side{width:206px;flex:none;border-right:1px solid var(--border);background:color-mix(in srgb,var(--surface) 75%,var(--bg));display:flex;flex-direction:column;padding:10px 9px 8px;min-height:100%}
+  .ws{display:flex;align-items:center;gap:8px;padding:5px 6px 10px}
+  .ws-logo{width:23px;height:23px;border-radius:6px;background:linear-gradient(145deg,#4f46e5,#7c6cf5);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700}
+  .ws-name{min-width:0;flex:1;line-height:1.25}
+  .ws-name b{display:block;font-size:12px;font-weight:620;letter-spacing:-.01em}
+  .ws-name small{display:block;font-size:10px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ws .i{color:var(--faint)}
+  .side-search{display:flex;align-items:center;gap:7px;height:29px;padding:0 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--muted);font-size:11.5px;margin-bottom:12px;width:100%}
+  .side-search span{flex:1;text-align:left}
+  .kbd{font-family:var(--mono);font-size:9.5px;color:var(--muted);border:1px solid var(--border);background:var(--surface);border-radius:4px;padding:1px 4px;line-height:1.35;white-space:nowrap}
+  .side-nav{display:flex;flex-direction:column;gap:1px}
+  .side-label{display:flex;align-items:center;justify-content:space-between;font-size:9.5px;font-weight:650;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:14px 8px 5px}
+  .side-label button{color:var(--faint);display:grid;place-items:center;border-radius:4px;padding:1px}
+  .side-label button:hover{background:var(--chip);color:var(--fg)}
+  .nv{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:6px;font-size:11.8px;color:var(--fg-soft);min-width:0;position:relative}
+  .nv:hover{background:color-mix(in srgb,var(--fg) 6%,transparent)}
+  .nv .i{color:var(--faint)}
+  .nv.on{background:color-mix(in srgb,var(--brand) 9%,transparent);color:var(--fg);font-weight:550}
+  .nv.on .i{color:var(--brand-fg)}
+  .nv .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nv .count{font-size:9.5px;font-weight:600;background:var(--brand);color:#fff;border-radius:999px;padding:0 5px;height:15px;display:grid;place-items:center;min-width:15px}
+  .nv.lvl2{padding-left:25px}
+  .nv.lvl3{padding-left:38px}
+  .nv .chev{color:var(--faint)}
+  .nv.active-page{background:var(--brand-soft);color:var(--brand-fg);font-weight:550}
+  .nv.active-page .i{color:var(--brand-fg)}
+  .nv .hm{opacity:0;color:var(--faint);display:grid;place-items:center;border-radius:4px;padding:1px}
+  .nv:hover .hm{opacity:1}
+  .side-foot{margin-top:auto;display:flex;align-items:center;gap:7px;padding:9px 6px 2px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+  .avatar{width:21px;height:21px;border-radius:50%;background:linear-gradient(140deg,#6366f1,#a78bfa);color:#fff;display:grid;place-items:center;font-size:9.5px;font-weight:650;flex:none}
+  .avatar.muted{background:var(--surface-2);color:var(--muted);border:1px solid var(--border)}
+  .side-foot .kbd{margin-left:auto}
+
+  /* ============ app main ============ */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+  .topbar{height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--border);flex:none}
+  .crumb{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);min-width:0}
+  .crumb b{color:var(--fg);font-weight:550;font-size:12px}
+  .crumb .i{color:var(--faint)}
+  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .save-state{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted)}
+  .save-state .dot{width:5px;height:5px;border-radius:50%;background:#22c55e}
+  .icon-btn{display:grid;place-items:center;width:26px;height:26px;border-radius:6px;color:var(--muted)}
+  .icon-btn:hover{background:var(--surface-2);color:var(--fg)}
+  .page{padding:18px 22px 26px;flex:1}
+  .greet{display:flex;align-items:flex-end;gap:16px;justify-content:space-between;flex-wrap:wrap;margin-bottom:22px}
+  .eyebrow{font-size:9.5px;font-weight:650;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .greet h1{font-size:24px;letter-spacing:-.03em;font-weight:660;margin-top:6px}
+  .greet .lede{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .greet-actions{display:flex;gap:7px;flex-wrap:wrap}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:29px;padding:0 10px;border-radius:7px;font-size:11.5px;font-weight:520;border:1px solid transparent;white-space:nowrap}
+  .btn .i{width:13px;height:13px}
+  .btn-primary{background:var(--primary-solid);color:var(--primary-solid-fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .btn-primary:hover{opacity:.9}
+  .btn-quiet{color:var(--soft,var(--muted))}
+  .btn-quiet:hover{background:var(--surface-2);color:var(--fg)}
+  .btn-outline{border-color:var(--border);background:var(--bg);color:var(--fg-soft)}
+  .btn-outline:hover{border-color:var(--border-strong)}
+  .btn-sm{height:25px;font-size:11px;padding:0 8px}
+
+  .section-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 10px}
+  .section-head h2{font-size:12px;font-weight:620;letter-spacing:-.005em}
+  .section-head a{font-size:10.5px;color:var(--muted);display:inline-flex;align-items:center;gap:3px}
+  .section-head a:hover{color:var(--brand-fg)}
+  .section-head .i{width:12px;height:12px}
+
+  /* resume cards */
+  .resume{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:24px}
+  .resume-card{border:1px solid var(--border);border-radius:10px;padding:11px;background:var(--bg);display:flex;flex-direction:column;gap:7px;transition:border-color .15s,box-shadow .15s;min-width:0}
+  .resume-card:hover{border-color:color-mix(in srgb,var(--brand) 42%,var(--border));box-shadow:0 6px 18px -14px rgba(24,24,27,.55)}
+  .resume-top{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:580;min-width:0}
+  .resume-top .grow{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .doc-icon{width:19px;height:19px;border-radius:5px;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand-fg);flex:none}
+  .doc-icon .i{width:11px;height:11px}
+  .resume-card p{font-size:10.5px;color:var(--muted);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .resume-meta{display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--faint);margin-top:auto;padding-top:2px}
+  .resume-meta .sep{width:2px;height:2px;border-radius:50%;background:var(--faint)}
+
+  .cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:20px;align-items:start}
+  .list{border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .list-row{display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);background:var(--bg);min-width:0}
+  .list-row:last-child{border-bottom:0}
+  .list-row:hover{background:var(--surface)}
+  .list-body{min-width:0;flex:1}
+  .list-body b{display:block;font-size:11.8px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .list-body span{display:block;font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .tag{font-size:9.5px;padding:2px 6px;border-radius:4px;background:var(--chip);color:var(--muted);white-space:nowrap}
+  .row-time{font-size:9.5px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .list-row > .i{color:var(--faint);opacity:0}
+  .list-row:hover > .i{opacity:1}
+
+  /* widget */
+  .widget{border:1px solid var(--border);border-radius:10px;padding:11px;background:var(--bg);margin-bottom:10px}
+  .widget-head{display:flex;align-items:flex-start;gap:6px;margin-bottom:9px}
+  .widget-head h3{font-size:11.8px;font-weight:600;letter-spacing:-.005em}
+  .widget-head small{display:block;font-size:9.5px;color:var(--faint);margin-top:1px}
+  .widget-head .icon-btn{width:20px;height:20px;margin-left:auto}
+  .widget-record{display:flex;align-items:center;gap:7px;padding:5px 0;min-width:0}
+  .widget-record .t{flex:1;min-width:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .widget-record .when{font-size:9.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .pill{font-size:9.5px;font-weight:550;border-radius:999px;padding:1.5px 7px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+  .pill .dot{width:4px;height:4px;border-radius:50%;background:currentColor}
+  .pill.done{background:var(--ok-bg);color:var(--ok)}
+  .pill.progress{background:var(--info-bg);color:var(--info)}
+  .pill.planned{background:var(--chip);color:var(--muted)}
+  .pill.blocked{background:var(--warn-bg);color:var(--warn)}
+  .pill.review{background:var(--danger-bg);color:var(--danger)}
+  .widget-foot{display:flex;align-items:center;gap:3px;border-top:1px solid var(--border);margin-top:7px;padding-top:7px;font-size:10px;color:var(--brand-fg);font-weight:540}
+
+  /* ============ notes column ============ */
+  .notes{padding-top:2px}
+  .notes h4{font-size:10px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:12px}
+  .note{display:flex;gap:9px;padding:0 0 13px}
+  .note-n{width:17px;height:17px;border-radius:50%;border:1px solid color-mix(in srgb,var(--brand) 32%,transparent);color:var(--brand-fg);font-size:9.5px;font-weight:650;display:grid;place-items:center;flex:none;margin-top:1px;background:var(--brand-soft);font-family:var(--mono)}
+  .note b{display:block;font-size:12px;font-weight:600;letter-spacing:-.005em;color:var(--fg)}
+  .note p{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:2px}
+  .note code{font-family:var(--mono);font-size:10.5px;background:var(--surface-2);border-radius:4px;padding:1px 4px;color:var(--fg-soft)}
+
+  /* ============ page editor screen ============ */
+  .cover{height:92px;background:
+      radial-gradient(120% 140% at 15% 0%, #c7d2fe 0%, transparent 55%),
+      radial-gradient(100% 120% at 80% 10%, #fbcfe8 0%, transparent 60%),
+      linear-gradient(120deg,#eef2ff,#faf5ff 60%,#ecfeff);
+    position:relative;border-bottom:1px solid var(--border)}
+  [data-theme="dark"] .cover{background:
+      radial-gradient(120% 140% at 15% 0%, #312e81 0%, transparent 55%),
+      radial-gradient(100% 120% at 80% 10%, #4c1d95 0%, transparent 60%),
+      linear-gradient(120deg,#1e1b4b,#131318 60%,#0b2b2b)}
+  .cover-tools{position:absolute;right:10px;bottom:8px;display:flex;gap:5px;opacity:0}
+  .frame:hover .cover-tools{opacity:1}
+  .cover-tools .btn{background:color-mix(in srgb,#fff 84%,transparent);color:#3f3f46;border-color:color-mix(in srgb,#000 12%,transparent);backdrop-filter:blur(4px);height:23px;font-size:10px}
+  .page-icon{position:absolute;left:22px;bottom:-17px;width:36px;height:36px;border-radius:9px;background:var(--bg);border:1px solid var(--border);display:grid;place-items:center;font-size:19px;box-shadow:0 2px 8px rgba(16,16,24,.08)}
+  .doc{padding:28px 22px 26px;display:flex;gap:22px;align-items:flex-start;min-width:0}
+  .doc-main{flex:1;min-width:0;max-width:560px}
+  .doc-title{font-size:23px;font-weight:670;letter-spacing:-.03em;line-height:1.15}
+  .doc-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:9px 0 14px;font-size:10px;color:var(--muted)}
+  .doc-meta .who{display:inline-flex;align-items:center;gap:4px}
+  .doc-meta .who .avatar{width:15px;height:15px;font-size:8px}
+  .toolbar{display:flex;align-items:center;gap:1px;border:1px solid var(--border);border-radius:7px;padding:2px;background:var(--bg);margin-bottom:14px;width:fit-content;box-shadow:0 1px 2px rgba(16,16,24,.04)}
+  .toolbar button{display:grid;place-items:center;width:22px;height:22px;border-radius:4px;color:var(--muted)}
+  .toolbar button:hover{background:var(--surface-2);color:var(--fg)}
+  .toolbar .div{width:1px;height:13px;background:var(--border);margin:0 3px}
+  .prose{font-size:12px;line-height:1.72;color:var(--fg-soft)}
+  .prose h2{font-size:14px;font-weight:640;letter-spacing:-.015em;color:var(--fg);margin:18px 0 6px}
+  .prose p{margin:0 0 8px}
+  .prose strong{color:var(--fg);font-weight:620}
+  .prose .mark{background:linear-gradient(transparent 55%, color-mix(in srgb,var(--brand) 18%,transparent) 55%)}
+  .callout{display:flex;gap:8px;border:1px solid color-mix(in srgb,var(--brand) 22%,transparent);background:var(--brand-soft);border-radius:8px;padding:9px 10px;margin:10px 0;font-size:11.5px;color:var(--fg-soft)}
+  .callout .i{color:var(--brand-fg);margin-top:1px}
+  .task{display:flex;gap:8px;align-items:flex-start;padding:3px 0;font-size:11.8px}
+  .check{width:13px;height:13px;border:1.4px solid var(--border-strong);border-radius:3.5px;flex:none;margin-top:3px;display:grid;place-items:center;background:var(--bg)}
+  .check.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  .check.on .i{width:9px;height:9px;stroke-width:3}
+  .task.on{color:var(--faint);text-decoration:line-through}
+  .mini-table{width:100%;border-collapse:collapse;margin:9px 0;font-size:10.5px}
+  .mini-table th,.mini-table td{border:1px solid var(--border);text-align:left;padding:5px 7px}
+  .mini-table th{background:var(--surface);font-weight:600;color:var(--fg-soft);font-size:10px}
+  .mini-table td{color:var(--muted)}
+  .selection{display:inline-flex;align-items:center;gap:1px;background:var(--primary-solid);color:var(--primary-solid-fg);border-radius:7px;padding:3px;box-shadow:0 8px 20px -8px rgba(16,16,24,.6);margin:2px 0 0 4px;position:relative}
+  .selection button{width:22px;height:21px;border-radius:4px;display:grid;place-items:center}
+  .selection button:hover{background:color-mix(in srgb,var(--primary-solid-fg) 16%,transparent)}
+  .selection .div{width:1px;height:12px;background:color-mix(in srgb,var(--primary-solid-fg) 22%,transparent);margin:0 3px}
+  .rail{width:186px;flex:none;display:flex;flex-direction:column;gap:14px;padding-top:4px}
+  .rail-block .rail-label{font-size:9px;font-weight:650;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .toc a{display:block;font-size:10.5px;color:var(--muted);padding:2.5px 0;border-left:1.5px solid var(--border);padding-left:8px}
+  .toc a.on{color:var(--brand-fg);border-color:var(--brand);font-weight:550}
+  .prop{display:flex;align-items:center;gap:6px;font-size:10.5px;padding:3.5px 0;min-width:0}
+  .prop dt{color:var(--faint);width:52px;flex:none}
+  .prop dd{margin:0;color:var(--fg-soft);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mention{display:block;font-size:10.5px;color:var(--muted);padding:5px 0;border-bottom:1px solid var(--border)}
+  .mention:last-child{border-bottom:0}
+  .mention b{display:block;font-size:10.5px;font-weight:550;color:var(--fg-soft)}
+  .mention span{font-size:9.5px;color:var(--faint)}
+
+  /* ============ database screen ============ */
+  .db-head{padding:16px 20px 0}
+  .db-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .db-title{font-size:21px;font-weight:660;letter-spacing:-.028em;display:inline-flex;align-items:center;gap:7px}
+  .db-title .emoji{font-size:17px}
+  .db-sub{font-size:10px;color:var(--faint);margin-top:3px;display:flex;align-items:center;gap:5px}
+  .db-actions{margin-left:auto;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .search-inline{display:flex;align-items:center;gap:5px;height:26px;border:1px solid var(--border);border-radius:6px;padding:0 7px;color:var(--faint);font-size:10.5px;width:128px}
+  .view-tabs{display:flex;align-items:center;gap:2px;margin-top:14px;border-bottom:1px solid var(--border);padding-bottom:0}
+  .view-tab{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);padding:5px 8px 7px;border-bottom:1.8px solid transparent;margin-bottom:-1px;border-radius:5px 5px 0 0}
+  .view-tab .i{width:12.5px;height:12.5px}
+  .view-tab:hover{background:var(--surface);color:var(--fg)}
+  .view-tab.on{color:var(--fg);font-weight:580;border-bottom-color:var(--brand)}
+  .view-tab.on .i{color:var(--brand-fg)}
+  .view-tab.add{color:var(--faint)}
+  .table-tools{display:flex;align-items:center;gap:4px;padding:7px 20px;border-bottom:1px solid var(--border)}
+  .tool-btn{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--muted);padding:3px 6px;border-radius:5px}
+  .tool-btn:hover{background:var(--surface-2);color:var(--fg)}
+  .tool-btn .i{width:12px;height:12px}
+  .tool-btn .kbd{font-size:9px}
+  .tools-right{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--faint)}
+  .dt-wrap{overflow:hidden;padding:0 0 0}
+  .dt{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
+  .dt th{font-weight:540;color:var(--faint);font-size:9.5px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surface);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dt th .th-in{display:flex;align-items:center;gap:4px}
+  .dt th .i{width:11px;height:11px;color:var(--faint)}
+  .dt td{padding:0 8px;border-bottom:1px solid var(--border);height:33px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-soft)}
+  .dt tr:hover td{background:var(--surface)}
+  .dt tr:hover .row-actions{opacity:1}
+  .dt .name-cell{font-weight:550;color:var(--fg);display:flex;align-items:center;gap:6px;min-width:0}
+  .dt .name-cell .i{color:var(--faint);width:12px;height:12px}
+  .dt .num{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+  .dt .date{color:var(--muted);font-variant-numeric:tabular-nums;font-size:10.5px}
+  .dt .center{text-align:center}
+  .row-actions{opacity:0;transition:opacity .12s;display:inline-flex;gap:2px;color:var(--faint)}
+  .row-actions button{width:19px;height:19px;display:grid;place-items:center;border-radius:4px}
+  .row-actions button:hover{background:var(--chip);color:var(--fg)}
+  .add-row td{color:var(--faint);font-size:10.5px;height:30px}
+  .add-row .i{width:11px;height:11px;display:inline-block;vertical-align:-2px;margin-right:4px}
+  .tb-foot{display:flex;align-items:center;gap:8px;padding:7px 20px;font-size:9.5px;color:var(--faint);border-top:1px solid var(--border);background:var(--surface)}
+  .tb-foot .right{margin-left:auto;display:flex;align-items:center;gap:6px}
+
+  /* ============ palette screen ============ */
+  .pal-stage{position:relative;height:430px;overflow:hidden;background:var(--bg)}
+  .pal-bg{filter:blur(1.6px);opacity:.5;pointer-events:none;user-select:none}
+  .pal-dim{position:absolute;inset:0;background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:blur(1px)}
+  .palette{position:absolute;left:50%;top:44px;transform:translateX(-50%);width:min(470px,88%);border-radius:12px;border:1px solid var(--border-strong);background:var(--bg);box-shadow:0 30px 70px -20px rgba(16,16,24,.45),0 0 0 1px rgba(16,16,24,.03);overflow:hidden}
+  [data-theme="dark"] .palette{box-shadow:0 30px 70px -10px rgba(0,0,0,.9)}
+  .pal-input{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--border)}
+  .pal-input .i{color:var(--faint)}
+  .pal-input .ph{flex:1;font-size:12.5px;color:var(--faint)}
+  .pal-input .caret{width:1.5px;height:14px;background:var(--brand);margin-left:-5px;animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .pal-body{padding:6px;max-height:300px;overflow:hidden}
+  .pal-group{font-size:9px;font-weight:650;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:7px 7px 4px}
+  .pal-item{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:7px;font-size:11.5px;color:var(--fg-soft);min-width:0}
+  .pal-item .i{color:var(--muted)}
+  .pal-item .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pal-item small{color:var(--faint);font-size:10px;white-space:nowrap}
+  .pal-item.sel{background:var(--brand-soft);color:var(--brand-fg)}
+  .pal-item.sel .i{color:var(--brand-fg)}
+  .pal-item.sel .grow{font-weight:560}
+  .pal-item.sel .enter{font-size:9.5px;color:var(--brand-fg);border:1px solid color-mix(in srgb,var(--brand) 32%,transparent);border-radius:4px;padding:0 4px;font-family:var(--mono)}
+  .pal-item .badge-dot{font-size:9px;font-weight:650;background:var(--brand);color:#fff;border-radius:999px;padding:0 5px;height:14px;display:grid;place-items:center}
+  .pal-foot{display:flex;align-items:center;gap:10px;padding:7px 12px;border-top:1px solid var(--border);font-size:9.5px;color:var(--faint);background:var(--surface)}
+  .pal-foot .set{display:inline-flex;align-items:center;gap:3px}
+
+  /* ============ mobile screen ============ */
+  .phones{display:flex;gap:22px;flex-wrap:wrap;padding:6px 0 2px}
+  .phone{width:268px;border-radius:30px;border:1px solid var(--border-strong);background:var(--bg);box-shadow:var(--shadow);overflow:hidden;position:relative;flex:none}
+  .phone-screen{display:flex;flex-direction:column;height:520px;position:relative;background:var(--bg)}
+  .statusbar{height:24px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:9px;font-weight:600;color:var(--fg-soft);flex:none}
+  .statusbar .sig{display:flex;gap:3px;align-items:center}
+  .statusbar .bar{width:14px;height:5px;border-radius:1px;background:currentColor;opacity:.85}
+  .ph-head{display:flex;align-items:center;gap:7px;padding:4px 14px 9px;flex:none}
+  .ph-head b{font-size:12px;letter-spacing:-.01em}
+  .ph-head .avatar{margin-left:auto}
+  .ph-search{margin:0 14px 12px;height:28px;border:1px solid var(--border);border-radius:7px;display:flex;align-items:center;gap:6px;padding:0 8px;font-size:10.5px;color:var(--faint);background:var(--surface)}
+  .ph-body{padding:0 14px;flex:1;overflow:hidden}
+  .ph-h1{font-size:17px;font-weight:660;letter-spacing:-.03em}
+  .ph-sub{font-size:10px;color:var(--faint);margin-top:2px;margin-bottom:11px}
+  .ph-card{border:1px solid var(--border);border-radius:9px;padding:9px;background:var(--bg);margin-bottom:8px}
+  .ph-card b{font-size:11px;font-weight:580;display:block}
+  .ph-card p{font-size:10px;color:var(--muted);margin-top:2px;line-height:1.45}
+  .ph-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px}
+  .ph-row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ph-row .row-time{font-size:9px}
+  .ph-nav{height:52px;border-top:1px solid var(--border);display:grid;grid-template-columns:repeat(4,1fr);align-items:center;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);position:relative;flex:none;padding-bottom:4px}
+  .ph-nav a{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:8.5px;color:var(--faint);font-weight:540}
+  .ph-nav a .i{width:17px;height:17px}
+  .ph-nav a.on{color:var(--brand-fg)}
+  .fab{position:absolute;right:14px;bottom:64px;width:44px;height:44px;border-radius:50%;background:var(--primary-solid);color:var(--primary-solid-fg);display:grid;place-items:center;box-shadow:0 10px 24px -8px rgba(16,16,24,.55)}
+  .fab .i{width:19px;height:19px;stroke-width:2}
+  .ph-doc{padding:0 14px;flex:1;overflow:hidden}
+  .ph-doc h2{font-size:17px;font-weight:660;letter-spacing:-.028em;line-height:1.2;margin-top:6px}
+  .ph-doc .doc-meta{margin:7px 0 10px;font-size:9px;gap:5px}
+  .ph-doc .prose{font-size:10.8px;line-height:1.65}
+  .ph-doc .prose h3{font-size:11.5px;font-weight:640;margin:12px 0 4px;color:var(--fg)}
+  .ph-doc .task{font-size:10.8px}
+  .ph-doc .callout{font-size:10.5px;padding:7px 8px;margin:8px 0}
+  .ph-toolbar{height:34px;border-top:1px solid var(--border);display:flex;align-items:center;gap:2px;padding:0 10px;background:var(--surface);flex:none}
+  .ph-toolbar span{font-size:9.5px;color:var(--faint);margin-left:auto}
+
+  /* ============ footer ============ */
+  .nav-stage{position:relative;min-height:452px;overflow:hidden;background:var(--surface)}
+  .nav-ghost{display:flex;min-height:452px;opacity:.45;filter:saturate(.5)}
+  .ghost-side{width:150px;border-right:1px solid var(--border);padding:14px 12px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+  .ghost-logo{font-size:11px;font-weight:650;margin-bottom:4px;color:var(--fg)}
+  .ghost-line{height:7px;border-radius:4px;background:var(--border)}
+  .ghost-line.w80{width:80%}
+  .ghost-line.w60{width:60%}
+  .ghost-main{flex:1;padding:18px;display:flex;flex-direction:column;gap:10px}
+  .ghost-h{font-size:15px;margin:0 0 4px;font-weight:600;color:var(--fg)}
+  .ghost-card{height:52px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}
+  .nav-scrim{position:absolute;inset:0;background:color-mix(in srgb,var(--fg) 8%,transparent)}
+  .editor{position:absolute;left:50%;top:14px;transform:translateX(-50%);width:min(362px,94%);border:1px solid var(--border);border-radius:14px;background:var(--bg);box-shadow:0 24px 60px -20px rgba(0,0,0,.45);overflow:hidden}
+  .ed-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 13px;border-bottom:1px solid var(--border)}
+  .ed-head b{font-size:12px}
+  .ed-head small{display:block;font-size:10px;color:var(--muted);margin-top:2px}
+  .ed-close{width:20px;height:20px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);border-radius:5px;cursor:pointer}
+  .ed-body{padding:11px 13px;display:flex;flex-direction:column;gap:12px}
+  .ed-label{font-size:9px;font-weight:650;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:5px}
+  .ed-hint{font-size:10px;color:var(--muted);margin:0 0 7px}
+  .ed-row{display:flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:7px;padding:3px 5px 3px 8px;font-size:11px;margin-bottom:4px;background:var(--surface);color:var(--fg)}
+  .ed-row .grow{flex:1}
+  .ed-move{width:18px;height:18px;display:grid;place-items:center;color:var(--muted);border-radius:4px;font-size:10px;border:0;background:transparent}
+  .ed-move.dis{opacity:.25}
+  .ed-chips{display:flex;flex-wrap:wrap;gap:5px}
+  .ed-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;border:1px solid var(--border);border-radius:999px;padding:2px 9px;color:var(--muted);background:var(--surface)}
+  .ed-chip.on{background:var(--brand-soft);border-color:color-mix(in srgb,var(--brand) 30%,transparent);color:var(--brand-fg);font-weight:550}
+  .ed-chip.off{opacity:.45}
+  .ed-foot{display:flex;justify-content:space-between;align-items:center;padding:8px 13px;border-top:1px solid var(--border);background:var(--surface);font-size:10.5px;color:var(--muted)}
+  .ed-btn{border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:10.5px;background:var(--bg);color:var(--fg)}
+  .ed-btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:550}
+  .deck-foot{margin-top:56px;padding-top:22px;border-top:1px solid var(--border);display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
+  .deck-foot b{color:var(--fg);font-weight:600}
+  .swatches{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .sw{width:26px;height:26px;border-radius:7px;border:1px solid var(--border)}
+  .sw-l{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--faint);border:1px solid var(--border);border-radius:8px;padding:3px 8px;background:var(--bg)}
+
+  @media (max-width:1180px){
+    .screen-grid{grid-template-columns:minmax(0,1fr)}
+    .notes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}
+    .notes h4{grid-column:1/-1}
+    .principles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @media (max-width:860px){
+    .sheet{padding:0 14px 64px}
+    .deck-head-in{padding:12px 14px}
+    .deck-nav{width:100%;margin-left:0;overflow-x:auto}
+    .cols{grid-template-columns:minmax(0,1fr)}
+    .resume{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .side{display:none}
+    .doc{flex-direction:column}
+    .rail{width:100%;flex-direction:row;flex-wrap:wrap;gap:18px}
+    .principles{grid-template-columns:minmax(0,1fr)}
+    .notes{grid-template-columns:minmax(0,1fr)}
+  }
+  /* narrow panels: keep every mockup intact rather than cropped */
+  @media (max-width:600px){
+    .sheet{padding:0 12px 56px}
+    .deck-brand small{display:none}
+    .hero{padding:0 0 32px}
+    .hero h1{font-size:31px}
+    .hero p{font-size:14.5px}
+    .principles{gap:10px;margin-top:24px}
+    .resume{grid-template-columns:minmax(0,1fr)}
+    .screen-grid{gap:20px}
+    .screen-head{flex-wrap:wrap}
+    .screen-badges{margin-left:0;width:100%}
+    .notes{display:block}
+    .topbar{padding:6px 12px;min-height:42px;height:auto;flex-wrap:wrap;gap:6px}
+    .save-state{display:none}
+    .page{padding:14px 14px 20px}
+    .greet{gap:12px;margin-bottom:16px}
+    .greet h1{font-size:20px}
+    .greet-actions{width:100%}
+    .list-body span{-webkit-line-clamp:1}
+    .doc{padding:24px 14px 20px;gap:18px}
+    .doc-title{font-size:20px}
+    .doc-main{max-width:none}
+    .toolbar{flex-wrap:wrap;max-width:100%}
+    .cover{height:66px}
+    .page-icon{left:14px;width:32px;height:32px;font-size:17px;bottom:-15px}
+    .db-head{padding:12px 14px 0}
+    .db-title{font-size:18px}
+    .db-title-row{gap:6px}
+    .db-actions{width:100%;margin-left:0}
+    .search-inline{display:none}
+    .view-tabs{overflow-x:auto;margin-top:10px}
+    .table-tools{padding:6px 14px;flex-wrap:wrap}
+    .tools-right{display:none}
+    .dt-wrap{overflow-x:visible}
+    .dt{min-width:0;width:100%;table-layout:auto}
+    .dt colgroup{display:none}
+    .dt th:nth-child(3), .dt td:nth-child(3),
+    .dt th:nth-child(4), .dt td:nth-child(4),
+    .dt th:nth-child(7), .dt td:nth-child(7){display:none}
+    .dt th, .dt td{padding-left:6px;padding-right:6px}
+    .tb-foot{padding:6px 14px}
+    .pal-stage{height:420px}
+    .palette{top:22px;width:calc(100% - 28px)}
+    .pal-body{max-height:290px}
+    .phones{gap:14px;justify-content:center}
+    .phone{width:262px}
+    .deck-foot{font-size:11.5px}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="inbox" viewBox="0 0 24 24"><path d="M5 5h14l2 7.5V19H3v-6.5z"/><path d="M3 12.5h4l1.5 3h7l1.5-3h4"/></symbol>
+  <symbol id="pages" viewBox="0 0 24 24"><path d="M8.5 3.5H16l3.5 3.5v11a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2z"/><path d="M15.5 3.5V7H19"/></symbol>
+  <symbol id="file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></symbol>
+  <symbol id="star" viewBox="0 0 24 24"><path d="m12 3.6 2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.8l5.9-.8z"/></symbol>
+  <symbol id="graph" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="8" r="2.4"/><circle cx="11" cy="18" r="2.4"/><path d="m8.2 6.6 7.5 1.1M7 8.3l2.6 7.4M16.6 10.2l-4 5.7"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="chevron-down" viewBox="0 0 24 24"><path d="m6 9.5 6 6 6-6"/></symbol>
+  <symbol id="chevron-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+  <symbol id="chevron-left" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
+  <symbol id="chevrons" viewBox="0 0 24 24"><path d="m8 9.5 4-4 4 4M8 14.5l4 4 4-4"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13.5 6.5 20 12l-6.5 5.5"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 6.5"/></symbol>
+  <symbol id="filter" viewBox="0 0 24 24"><path d="M4 6h16l-6.2 7.2V19l-3.6 1.8v-7.6z"/></symbol>
+  <symbol id="sort" viewBox="0 0 24 24"><path d="M7 4v16M4 17l3 3 3-3M14 7h6M14 12h4.5M14 17h3"/></symbol>
+  <symbol id="table" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9.5 9.5v10"/></symbol>
+  <symbol id="board" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9 4.5v15M15 4.5v15"/></symbol>
+  <symbol id="gallery" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="7.5" height="6.5" rx="1.5"/><rect x="13" y="4.5" width="7.5" height="6.5" rx="1.5"/><rect x="3.5" y="13" width="7.5" height="6.5" rx="1.5"/><rect x="13" y="13" width="7.5" height="6.5" rx="1.5"/></symbol>
+  <symbol id="calendar" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3.5v4M16 3.5v4"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9z"/><path d="M10 18a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="link" viewBox="0 0 24 24"><path d="M10 13.5 14 9.5"/><path d="M11 7.5 12.8 5.7a4 4 0 0 1 5.6 5.6L16.6 13"/><path d="M13 16.5 11.2 18.3a4 4 0 0 1-5.6-5.6L7.4 11"/></symbol>
+  <symbol id="tag" viewBox="0 0 24 24"><path d="M4 11.5V4.5h7L20 13.5 13.5 20z"/><circle cx="8" cy="8" r="1.4"/></symbol>
+  <symbol id="hash" viewBox="0 0 24 24"><path d="M9 4 7 20M17 4l-2 16M4.5 9h15M3.5 15h15"/></symbol>
+  <symbol id="checkbox" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+  <symbol id="text" viewBox="0 0 24 24"><path d="M4 6h16M12 6v13M9 19h6"/></symbol>
+  <symbol id="pin" viewBox="0 0 24 24"><path d="M9 3.5h6l-1 5.5 3 3.5H7l3-3.5z"/><path d="M12 12.5V20"/></symbol>
+  <symbol id="bold" viewBox="0 0 24 24"><path d="M7 4.5h5.5a3.75 3.75 0 0 1 0 7.5H7zM7 12h6.2a3.5 3.5 0 0 1 0 7H7z"/></symbol>
+  <symbol id="italic" viewBox="0 0 24 24"><path d="M15 4.5H9.5M14.5 19.5H9M14 4.5 10 19.5"/></symbol>
+  <symbol id="list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="code" viewBox="0 0 24 24"><path d="m9 8-5 4 5 4M15 8l5 4-5 4"/></symbol>
+  <symbol id="image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m4 17 5-5 3.5 3.5L16 12l4.5 4.5"/></symbol>
+  <symbol id="quote" viewBox="0 0 24 24"><path d="M9 6H5v7h4c0 2-.8 3-2.5 3.6M19 6h-4v7h4c0 2-.8 3-2.5 3.6"/></symbol>
+  <symbol id="moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></symbol>
+  <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.4M12 19.6V22M4.2 4.2 5.9 5.9M18.1 18.1l1.7 1.7M2 12h2.4M19.6 12H22M4.2 19.8 5.9 18.1M18.1 5.9l1.7-1.7"/></symbol>
+  <symbol id="sparkle" viewBox="0 0 24 24"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="m18 15.5.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
+  <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.7"/><path d="M4.5 20.5c0-3.6 3.4-5.5 7.5-5.5s7.5 1.9 7.5 5.5"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.8M12 18.7v2.8M4.2 4.2l2 2M17.8 17.8l2 2M2.5 12h2.8M18.7 12h2.8M4.2 19.8l2-2M17.8 6.2l2-2"/></symbol>
+  <symbol id="share" viewBox="0 0 24 24"><circle cx="18" cy="6" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="m8.3 10.7 7.4-3.4M8.3 13.3l7.4 3.4"/></symbol>
+  <symbol id="drag" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.15" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.15" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.15" fill="currentColor" stroke="none"/></symbol>
+</svg>
+
+<header class="deck-head">
+  <div class="deck-head-in">
+    <div class="deck-brand">
+      <span class="deck-mark">K</span>
+      <span>KBS<small>UI redesign concepts · v1</small></span>
+    </div>
+    <nav class="deck-nav" aria-label="Mockup screens">
+      <a href="#home">01 Home</a>
+      <a href="#page">02 Page</a>
+      <a href="#database">03 Database</a>
+      <a href="#palette">04 Palette</a>
+      <a href="#mobile">05 Mobile</a>
+      <a href="#navigation">06 Navigation</a>
+    </nav>
+    <button class="theme-btn" id="theme-toggle" type="button" aria-live="polite">
+      <svg class="i sm moon-only"><use href="#moon"/></svg>
+      <svg class="i sm sun-only"><use href="#sun"/></svg>
+      <span id="theme-label">Dark mode</span>
+    </button>
+  </div>
+</header>
+
+<main class="sheet">
+
+  <section class="hero">
+    <span class="hero-kicker"><svg class="i sm"><use href="#sparkle"/></svg> Design exploration</span>
+    <h1>Calmer surfaces, <em>clearer next steps</em></h1>
+    <p>Five mockups for KBS: the same features, retuned for faster scanning and fewer competing controls. Status becomes colour, actions collapse into menus, and every screen has exactly one obvious primary action.</p>
+    <div class="principles">
+      <div class="principle"><div class="pn">01</div><h3>One primary action</h3><p>A single filled button per screen. Everything else is quiet until needed.</p></div>
+      <div class="principle"><div class="pn">02</div><h3>Colour means status</h3><p>Indigo is reserved for interaction. Green, amber and blue only ever label state.</p></div>
+      <div class="principle"><div class="pn">03</div><h3>Hover, don't shout</h3><p>Row actions appear on hover as one menu, so density stays readable.</p></div>
+      <div class="principle"><div class="pn">04</div><h3>Keyboard-first</h3><p>Search sits at the top of the sidebar and teaches ⌘K on sight.</p></div>
+    </div>
+  </section>
+
+  <!-- ============================================================== 01 HOME -->
+  <section class="screen" id="home">
+    <div class="screen-head">
+      <div class="screen-num">01</div>
+      <div>
+        <h2>Home — resume, don't browse</h2>
+        <p>Today the home page stacks a hero, recents, pinned widgets and a "Recently updated" grid. This version merges them into one hierarchy: resume card row → recent pages → pinned views.</p>
+      </div>
+      <div class="screen-badges"><span class="badge">Desktop</span><span class="badge">1440 × 900</span></div>
+    </div>
+
+    <div class="screen-grid">
+      <div class="frame">
+        <div class="frame-bar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <div class="urlbar"><svg class="i sm"><use href="#search"/></svg> kbs.local</div>
+        </div>
+        <div class="frame-body">
+          <!-- sidebar -->
+          <aside class="side">
+            <div class="ws">
+              <span class="ws-logo">K</span>
+              <span class="ws-name"><b>KBS</b><small>Personal workspace</small></span>
+              <svg class="i sm"><use href="#chevrons"/></svg>
+            </div>
+            <button class="side-search" type="button">
+              <svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span>
+            </button>
+            <nav class="side-nav">
+              <a class="nv on" href="#home"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
+              <a class="nv" href="#page"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
+              <a class="nv" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#star"/></svg><span class="grow">Favorites</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#graph"/></svg><span class="grow">Graph</span></a>
+            </nav>
+            <div class="side-label">Pinned <button type="button" aria-label="Pin a page"><svg class="i sm"><use href="#plus"/></svg></button></div>
+            <a class="nv" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Q4 roadmap</span></a>
+            <a class="nv active-page" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Reading list</span></a>
+            <div class="side-label">Pages <button type="button" aria-label="New page"><svg class="i sm"><use href="#plus"/></svg></button></div>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-down"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Product</span></a>
+            <a class="nv lvl2 active-page" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Launch plan</span></a>
+            <a class="nv lvl2" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Design system</span><span class="hm"><svg class="i sm"><use href="#more"/></svg></span></a>
+            <a class="nv lvl2" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Research</span></a>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-right"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Team</span></a>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-right"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Personal</span></a>
+            <div class="side-foot">
+              <span class="avatar">P</span><span>Payne</span><span class="kbd">⌘/</span>
+            </div>
+          </aside>
+
+          <!-- main -->
+          <div class="main">
+            <div class="topbar">
+              <div class="crumb"><b>Home</b></div>
+              <div class="topbar-right">
+                <span class="save-state"><span class="dot"></span>All changes saved</span>
+                <button class="icon-btn" aria-label="Notifications"><svg class="i sm"><use href="#bell"/></svg></button>
+                <span class="avatar muted">+</span>
+              </div>
+            </div>
+
+            <div class="page">
+              <div class="greet">
+                <div>
+                  <div class="eyebrow">Friday · 7 November</div>
+                  <h1>Good evening, Payne</h1>
+                  <p class="lede">4 pages edited and 2 databases updated today.</p>
+                </div>
+                <div class="greet-actions">
+                  <button class="btn btn-quiet" type="button"><svg class="i"><use href="#search"/></svg>Quick find <span class="kbd">⌘K</span></button>
+                  <button class="btn btn-primary" type="button"><svg class="i"><use href="#plus"/></svg>New page</button>
+                </div>
+              </div>
+
+              <div class="section-head"><h2>Pick up where you left off</h2><a href="#page">All pages <svg class="i"><use href="#arrow-right"/></svg></a></div>
+              <div class="resume">
+                <a class="resume-card" href="#page">
+                  <div class="resume-top"><span class="doc-icon"><svg class="i"><use href="#file"/></svg></span><span class="grow">Launch plan</span></div>
+                  <p>Positioning, checklist and the week-by-week rollout for KBS 2.0.</p>
+                  <div class="resume-meta">Edited 12 min ago <span class="sep"></span> Product</div>
+                </a>
+                <a class="resume-card" href="#page">
+                  <div class="resume-top"><span class="doc-icon"><svg class="i"><use href="#file"/></svg></span><span class="grow">Design system</span></div>
+                  <p>Tokens, type scale and component rules for the new editor surface.</p>
+                  <div class="resume-meta">Edited 2 hours ago <span class="sep"></span> Product</div>
+                </a>
+                <a class="resume-card" href="#database">
+                  <div class="resume-top"><span class="doc-icon"><svg class="i"><use href="#db"/></svg></span><span class="grow">Reading list</span></div>
+                  <p>12 saved articles, 4 unread. Next up: calmer interfaces.</p>
+                  <div class="resume-meta">Database updated yesterday</div>
+                </a>
+              </div>
+
+              <div class="cols">
+                <div>
+                  <div class="section-head"><h2>Recent pages</h2><a href="#home">View all <svg class="i"><use href="#arrow-right"/></svg></a></div>
+                  <div class="list">
+                    <a class="list-row" href="#page">
+                      <span class="doc-icon"><svg class="i"><use href="#file"/></svg></span>
+                      <span class="list-body"><b>Week 45 review</b><span>What shipped, what slipped, and the one thing to fix next.</span></span>
+                      <span class="tag">Ops</span><span class="row-time">26m</span>
+                      <svg class="i"><use href="#arrow-right"/></svg>
+                    </a>
+                    <a class="list-row" href="#page">
+                      <span class="doc-icon"><svg class="i"><use href="#file"/></svg></span>
+                      <span class="list-body"><b>Interview notes — Mina</b><span>Onboarding confusion, search expectations, sidebar feedback.</span></span>
+                      <span class="tag">Research</span><span class="row-time">1h</span>
+                      <svg class="i"><use href="#arrow-right"/></svg>
+                    </a>
+                    <a class="list-row" href="#page">
+                      <span class="doc-icon"><svg class="i"><use href="#file"/></svg></span>
+                      <span class="list-body"><b>Pricing experiments</b><span>Three tiers tested against the free plan, and what held.</span></span>
+                      <span class="tag">Growth</span><span class="row-time">3h</span>
+                      <svg class="i"><use href="#arrow-right"/></svg>
+                    </a>
+                    <a class="list-row" href="#page">
+                      <span class="doc-icon"><svg class="i"><use href="#file"/></svg></span>
+                      <span class="list-body"><b>Editor shortcuts</b><span>Reference list for the keyboard-first pass.</span></span>
+                      <span class="tag">Docs</span><span class="row-time">Yesterday</span>
+                      <svg class="i"><use href="#arrow-right"/></svg>
+                    </a>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="section-head"><h2>Pinned views</h2><a href="#database">Manage</a></div>
+                  <div class="widget">
+                    <div class="widget-head">
+                      <div><h3>This week</h3><small>Tasks · database</small></div>
+                      <button class="icon-btn" aria-label="Widget options"><svg class="i sm"><use href="#more"/></svg></button>
+                    </div>
+                    <div class="widget-record"><span class="t">Ship command palette v2</span><span class="pill progress"><span class="dot"></span>In progress</span><span class="when">Fri</span></div>
+                    <div class="widget-record"><span class="t">Fix drag-and-drop on nested pages</span><span class="pill blocked"><span class="dot"></span>Blocked</span><span class="when">Thu</span></div>
+                    <div class="widget-record"><span class="t">Write onboarding copy</span><span class="pill done"><span class="dot"></span>Done</span><span class="when">Wed</span></div>
+                    <a class="widget-foot" href="#database">View all 24 records <svg class="i" style="width:11px;height:11px"><use href="#arrow-right"/></svg></a>
+                  </div>
+                  <div class="widget">
+                    <div class="widget-head">
+                      <div><h3>Reading list</h3><small>Saved articles · database</small></div>
+                      <button class="icon-btn" aria-label="Widget options"><svg class="i sm"><use href="#more"/></svg></button>
+                    </div>
+                    <div class="widget-record"><span class="t">Designing calmer interfaces</span><span class="when">8 min</span></div>
+                    <div class="widget-record"><span class="t">The case against infinite nesting</span><span class="when">12 min</span></div>
+                    <a class="widget-foot" href="#database">View all 12 records <svg class="i" style="width:11px;height:11px"><use href="#arrow-right"/></svg></a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="notes">
+        <h4>Why it works</h4>
+        <div class="note"><span class="note-n">1</span><div><b>One filled button</b><p>"New page" is the only primary. Quick find and templates stay quiet, so the page has a single focal point.</p></div></div>
+        <div class="note"><span class="note-n">2</span><div><b>Resume, not recall</b><p>Cards carry a two-line snippet and edit time. Replaces "Jump back in" rows that all looked identical.</p></div></div>
+        <div class="note"><span class="note-n">3</span><div><b>One canvas of sections</b><p>Recents and pinned views sit side by side instead of being three full-width stacks with the same weight.</p></div></div>
+        <div class="note"><span class="note-n">4</span><div><b>Search where the eye starts</b><p>The sidebar search field doubles as a ⌘K advertisement; the header loses one floating button.</p></div></div>
+        <div class="note"><span class="note-n">5</span><div><b>Status is a pill</b><p>Widget rows use colour-coded state instead of plain text values from the select property.</p></div></div>
+        <div class="note"><span class="note-n">6</span><div><b>Fewer hover icons</b><p>Page tree rows collapse four action icons into one <code>···</code> menu; drag-to-move remains.</p></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================== 02 PAGE -->
+  <section class="screen" id="page">
+    <div class="screen-head">
+      <div class="screen-num">02</div>
+      <div>
+        <h2>Page — writing surface with context</h2>
+        <p>The editor keeps its toolbar and slash commands, but page identity moves into a cover block and properties/backlinks move to a right rail, leaving one uninterrupted reading column.</p>
+      </div>
+      <div class="screen-badges"><span class="badge">Desktop</span><span class="badge">Editor</span></div>
+    </div>
+
+    <div class="screen-grid">
+      <div class="frame">
+        <div class="frame-bar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <div class="urlbar"><svg class="i sm"><use href="#search"/></svg> kbs.local/pages/launch-plan</div>
+        </div>
+        <div class="frame-body">
+          <aside class="side">
+            <div class="ws">
+              <span class="ws-logo">K</span>
+              <span class="ws-name"><b>KBS</b><small>Personal workspace</small></span>
+              <svg class="i sm"><use href="#chevrons"/></svg>
+            </div>
+            <button class="side-search" type="button"><svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span></button>
+            <nav class="side-nav">
+              <a class="nv" href="#home"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
+              <a class="nv" href="#page"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
+              <a class="nv" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#star"/></svg><span class="grow">Favorites</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#graph"/></svg><span class="grow">Graph</span></a>
+            </nav>
+            <div class="side-label">Pinned</div>
+            <a class="nv" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Q4 roadmap</span></a>
+            <a class="nv" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Reading list</span></a>
+            <div class="side-label">Pages</div>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-down"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Product</span></a>
+            <a class="nv lvl2 active-page" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Launch plan</span></a>
+            <a class="nv lvl2" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Design system</span></a>
+            <a class="nv lvl2" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Research</span></a>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-right"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Team</span></a>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-right"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Personal</span></a>
+            <div class="side-foot"><span class="avatar">P</span><span>Payne</span><span class="kbd">⌘/</span></div>
+          </aside>
+
+          <div class="main">
+            <div class="topbar">
+              <div class="crumb">
+                <span>Pages</span><svg class="i sm"><use href="#chevron-right"/></svg>
+                <span>Product</span><svg class="i sm"><use href="#chevron-right"/></svg>
+                <b>Launch plan</b>
+              </div>
+              <div class="topbar-right">
+                <span class="save-state"><span class="dot"></span>Saved just now</span>
+                <button class="btn btn-outline btn-sm" type="button"><svg class="i"><use href="#share"/></svg>Share</button>
+                <button class="icon-btn" aria-label="Page options"><svg class="i sm"><use href="#more"/></svg></button>
+              </div>
+            </div>
+
+            <div class="cover">
+              <div class="cover-tools">
+                <button class="btn btn-sm" type="button">Change cover</button>
+                <button class="btn btn-sm" type="button"><svg class="i"><use href="#image"/></svg></button>
+              </div>
+              <div class="page-icon">🚀</div>
+            </div>
+
+            <div class="doc">
+              <div class="doc-main">
+                <div class="doc-title">Launch plan</div>
+                <div class="doc-meta">
+                  <span class="pill progress"><span class="dot"></span>In progress</span>
+                  <span class="who"><span class="avatar">P</span>Payne</span>
+                  <span>·</span>
+                  <span>Due Nov 21</span>
+                  <span class="tag">Product</span>
+                  <span class="tag">Q4</span>
+                </div>
+
+                <div class="toolbar" role="toolbar" aria-label="Formatting">
+                  <button type="button" aria-label="Bold"><svg class="i sm"><use href="#bold"/></svg></button>
+                  <button type="button" aria-label="Italic"><svg class="i sm"><use href="#italic"/></svg></button>
+                  <button type="button" aria-label="Link"><svg class="i sm"><use href="#link"/></svg></button>
+                  <span class="div"></span>
+                  <button type="button" aria-label="Heading"><svg class="i sm"><use href="#text"/></svg></button>
+                  <button type="button" aria-label="List"><svg class="i sm"><use href="#list"/></svg></button>
+                  <button type="button" aria-label="Quote"><svg class="i sm"><use href="#quote"/></svg></button>
+                  <button type="button" aria-label="Code"><svg class="i sm"><use href="#code"/></svg></button>
+                  <span class="div"></span>
+                  <button type="button" aria-label="Insert"><svg class="i sm"><use href="#plus"/></svg></button>
+                  <button type="button" aria-label="More formatting"><svg class="i sm"><use href="#more"/></svg></button>
+                </div>
+
+                <div class="prose">
+                  <h2>Positioning</h2>
+                  <p>KBS is the workspace for people whose notes outgrew their notebook. <strong>One place to capture, one place to find it again</strong> — with structure that appears only when you ask for it.</p>
+                  <div class="callout">
+                    <svg class="i sm"><use href="#sparkle"/></svg>
+                    <span>Launch target: <strong>21 November</strong>. The command palette and mobile capture flow are the two gating features.</span>
+                  </div>
+
+                  <h2>Launch checklist</h2>
+                  <div class="task on"><span class="check on"><svg class="i"><use href="#check"/></svg></span><span>Draft the announcement post</span></div>
+                  <div class="task on"><span class="check on"><svg class="i"><use href="#check"/></svg></span><span>Record the two-minute demo</span></div>
+                  <div class="task"><span class="check"></span><span>Ship <span class="mark">command palette v2</span> behind the beta flag</span></div>
+                  <div class="task"><span class="check"></span><span>Migrate the docs workspace to the new sidebar</span></div>
+
+                  <h2>Rollout</h2>
+                  <p>The first week goes to existing workspaces only, then public signups open once retention on the palette clears 60%.</p>
+                  <table class="mini-table">
+                    <thead><tr><th>Week</th><th>Audience</th><th>Success measure</th></tr></thead>
+                    <tbody>
+                      <tr><td>Nov 18</td><td>Beta workspaces</td><td>Palette opens per user</td></tr>
+                      <tr><td>Nov 21</td><td>Public launch</td><td>Day-7 retention</td></tr>
+                    </tbody>
+                  </table>
+                  <div class="selection">
+                    <button type="button" aria-label="Bold"><svg class="i sm"><use href="#bold"/></svg></button>
+                    <button type="button" aria-label="Italic"><svg class="i sm"><use href="#italic"/></svg></button>
+                    <button type="button" aria-label="Comment"><svg class="i sm"><use href="#link"/></svg></button>
+                    <span class="div"></span>
+                    <button type="button" aria-label="More"><svg class="i sm"><use href="#more"/></svg></button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rail">
+                <div class="rail-block">
+                  <div class="rail-label">Contents</div>
+                  <div class="toc">
+                    <a class="on" href="#page">Positioning</a>
+                    <a href="#page">Launch checklist</a>
+                    <a href="#page">Rollout</a>
+                  </div>
+                </div>
+                <div class="rail-block">
+                  <div class="rail-label">Properties</div>
+                  <dl style="margin:0">
+                    <div class="prop"><dt>Status</dt><dd><span class="pill progress"><span class="dot"></span>In progress</span></dd></div>
+                    <div class="prop"><dt>Owner</dt><dd>Payne</dd></div>
+                    <div class="prop"><dt>Due</dt><dd>Nov 21, 2026</dd></div>
+                    <div class="prop"><dt>Tags</dt><dd>Product, Q4</dd></div>
+                  </dl>
+                </div>
+                <div class="rail-block">
+                  <div class="rail-label">Linked mentions</div>
+                  <a class="mention" href="#page"><b>Week 45 review</b><span>…launch plan slips to Nov 21…</span></a>
+                  <a class="mention" href="#page"><b>Q4 roadmap</b><span>…depends on palette v2…</span></a>
+                </div>
+                <div class="rail-block">
+                  <div class="rail-label">Page info</div>
+                  <div class="prop"><dt style="width:auto;margin-right:8px">Words</dt><dd>412</dd></div>
+                  <div class="prop"><dt style="width:auto;margin-right:8px">Created</dt><dd>Oct 12</dd></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="notes">
+        <h4>Why it works</h4>
+        <div class="note"><span class="note-n">1</span><div><b>Cover and icon carry identity</b><p>Emoji cover and title sit above the toolbar, so the page reads as a document, not a form. The columns stay at a 68-character measure.</p></div></div>
+        <div class="note"><span class="note-n">2</span><div><b>Properties in a rail</b><p>Status, owner, due and tags become glanceable metadata rather than a block wedged under the title.</p></div></div>
+        <div class="note"><span class="note-n">3</span><div><b>Selection-only floating bar</b><p>The toolbar is a quiet sticky strip; formatting also appears at the selection, which is where the cursor already is.</p></div></div>
+        <div class="note"><span class="note-n">4</span><div><b>Backlinks promoted</b><p>"Linked mentions" moves beside the page with an excerpt, instead of being a footer after 2,000 words.</p></div></div>
+        <div class="note"><span class="note-n">5</span><div><b>Explicit save state</b><p>"Saved just now" with a green dot answers the question a blank header leaves open.</p></div></div>
+        <div class="note"><span class="note-n">6</span><div><b>Type scale with three levels</b><p>Title 23, section 14, body 12 in the mockup (24/15/16px at real size) — headings stop competing with body copy.</p></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================ 03 DATABASE -->
+  <section class="screen" id="database">
+    <div class="screen-head">
+      <div class="screen-num">03</div>
+      <div>
+        <h2>Database — a table that reads like one</h2>
+        <p>Same properties, views and rollups. What changes: native selects become colour-coded cells, numbers align, the name column sticks, and view creation moves into a single ＋.</p>
+      </div>
+      <div class="screen-badges"><span class="badge">Desktop</span><span class="badge">Table view</span></div>
+    </div>
+
+    <div class="screen-grid">
+      <div class="frame">
+        <div class="frame-bar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <div class="urlbar"><svg class="i sm"><use href="#db"/></svg> kbs.local/databases/reading-list</div>
+        </div>
+        <div class="frame-body">
+          <aside class="side">
+            <div class="ws">
+              <span class="ws-logo">K</span>
+              <span class="ws-name"><b>KBS</b><small>Personal workspace</small></span>
+              <svg class="i sm"><use href="#chevrons"/></svg>
+            </div>
+            <button class="side-search" type="button"><svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span></button>
+            <nav class="side-nav">
+              <a class="nv" href="#home"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
+              <a class="nv" href="#page"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
+              <a class="nv on" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#star"/></svg><span class="grow">Favorites</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#graph"/></svg><span class="grow">Graph</span></a>
+            </nav>
+            <div class="side-label">Pinned</div>
+            <a class="nv" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Q4 roadmap</span></a>
+            <a class="nv active-page" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Reading list</span></a>
+            <div class="side-label">Pages</div>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-down"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Product</span></a>
+            <a class="nv lvl2" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Launch plan</span></a>
+            <a class="nv lvl2" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Design system</span></a>
+            <a class="nv" href="#page"><svg class="i sm chev"><use href="#chevron-right"/></svg><svg class="i sm"><use href="#file"/></svg><span class="grow">Team</span></a>
+            <div class="side-foot"><span class="avatar">P</span><span>Payne</span><span class="kbd">⌘/</span></div>
+          </aside>
+
+          <div class="main">
+            <div class="topbar">
+              <div class="crumb"><span>Databases</span><svg class="i sm"><use href="#chevron-right"/></svg><b>Reading list</b></div>
+              <div class="topbar-right">
+                <span class="save-state"><span class="dot"></span>View saved</span>
+                <button class="icon-btn" aria-label="Database options"><svg class="i sm"><use href="#more"/></svg></button>
+              </div>
+            </div>
+
+            <div class="db-head">
+              <div class="db-title-row">
+                <div class="db-title"><span class="emoji">📚</span>Reading list</div>
+                <div class="db-actions">
+                  <label class="search-inline"><svg class="i sm"><use href="#search"/></svg>Search rows</label>
+                  <button class="btn btn-outline btn-sm" type="button"><svg class="i"><use href="#filter"/></svg>Filter <span class="kbd">2</span></button>
+                  <button class="btn btn-outline btn-sm" type="button"><svg class="i"><use href="#sort"/></svg>Sort</button>
+                  <button class="btn btn-primary btn-sm" type="button"><svg class="i"><use href="#plus"/></svg>New record</button>
+                </div>
+              </div>
+              <div class="db-sub">12 records<span>·</span>Status grouped by read state<span>·</span>Edited 2m ago by you</div>
+
+              <div class="view-tabs">
+                <button class="view-tab on" type="button"><svg class="i"><use href="#table"/></svg>Table</button>
+                <button class="view-tab" type="button"><svg class="i"><use href="#board"/></svg>Board</button>
+                <button class="view-tab" type="button"><svg class="i"><use href="#gallery"/></svg>Gallery</button>
+                <button class="view-tab" type="button"><svg class="i"><use href="#calendar"/></svg>Calendar</button>
+                <button class="view-tab add" type="button" aria-label="Add view"><svg class="i"><use href="#plus"/></svg></button>
+              </div>
+            </div>
+
+            <div class="table-tools">
+              <button class="tool-btn" type="button"><svg class="i"><use href="#filter"/></svg>Read is not Done</button>
+              <button class="tool-btn" type="button"><svg class="i"><use href="#sort"/></svg>Added ↓</button>
+              <button class="tool-btn" type="button"><svg class="i"><use href="#hash"/></svg>Length</button>
+              <div class="tools-right">
+                <span>5 of 12</span>
+                <button class="icon-btn" aria-label="Row height"><svg class="i sm"><use href="#drag"/></svg></button>
+              </div>
+            </div>
+
+            <div class="dt-wrap">
+              <table class="dt">
+                <colgroup>
+                  <col style="width:36%" /><col style="width:14%" /><col style="width:15%" /><col style="width:8%" /><col style="width:8%" /><col style="width:11%" /><col style="width:8%" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th><span class="th-in"><svg class="i"><use href="#text"/></svg>Name</span></th>
+                    <th><span class="th-in"><svg class="i"><use href="#checkbox"/></svg>Status</span></th>
+                    <th><span class="th-in"><svg class="i"><use href="#link"/></svg>Source</span></th>
+                    <th style="text-align:right"><span class="th-in" style="justify-content:flex-end"><svg class="i"><use href="#hash"/></svg>Min</span></th>
+                    <th class="center"><span class="th-in" style="justify-content:center"><svg class="i"><use href="#checkbox"/></svg>Read</span></th>
+                    <th><span class="th-in"><svg class="i"><use href="#clock"/></svg>Added</span></th>
+                    <th><span class="th-in"><svg class="i"><use href="#tag"/></svg>Tags</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span class="name-cell"><svg class="i"><use href="#file"/></svg>Designing calmer interfaces</span></td>
+                    <td><span class="pill done"><span class="dot"></span>Done</span></td>
+                    <td style="color:var(--muted)">acme.design</td>
+                    <td class="num">8</td>
+                    <td class="center"><span class="check on" style="margin:0 auto"><svg class="i"><use href="#check"/></svg></span></td>
+                    <td class="date">Nov 3</td>
+                    <td><span class="tag">design</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="name-cell"><svg class="i"><use href="#file"/></svg>The case against infinite nesting</span></td>
+                    <td><span class="pill progress"><span class="dot"></span>In progress</span></td>
+                    <td style="color:var(--muted)">notes.kbs</td>
+                    <td class="num">12</td>
+                    <td class="center"><span class="check" style="margin:0 auto"></span></td>
+                    <td class="date">Nov 2</td>
+                    <td><span class="tag">structure</span></td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span class="name-cell"><svg class="i"><use href="#file"/></svg>Keyboard-first editing</span>
+                      <span class="row-actions"><button type="button" aria-label="Row actions"><svg class="i sm"><use href="#more"/></svg></button></span>
+                    </td>
+                    <td><span class="pill planned"><span class="dot"></span>Planned</span></td>
+                    <td style="color:var(--muted)">blog.kbs</td>
+                    <td class="num">6</td>
+                    <td class="center"><span class="check" style="margin:0 auto"></span></td>
+                    <td class="date">Oct 30</td>
+                    <td><span class="tag">editor</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="name-cell"><svg class="i"><use href="#file"/></svg>Tokens, not themes</span></td>
+                    <td><span class="pill done"><span class="dot"></span>Done</span></td>
+                    <td style="color:var(--muted)">style.dev</td>
+                    <td class="num">5</td>
+                    <td class="center"><span class="check on" style="margin:0 auto"><svg class="i"><use href="#check"/></svg></span></td>
+                    <td class="date">Oct 28</td>
+                    <td><span class="tag">design</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="name-cell"><svg class="i"><use href="#file"/></svg>Why search feels slow</span></td>
+                    <td><span class="pill review"><span class="dot"></span>To review</span></td>
+                    <td style="color:var(--muted)">perf.io</td>
+                    <td class="num">15</td>
+                    <td class="center"><span class="check" style="margin:0 auto"></span></td>
+                    <td class="date">Oct 26</td>
+                    <td><span class="tag">search</span></td>
+                  </tr>
+                  <tr class="add-row">
+                    <td colspan="7"><svg class="i"><use href="#plus"/></svg>New record</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="tb-foot">
+              <span>Count 12</span><span>·</span><span>Unread 4</span>
+              <div class="right">
+                <span class="kbd">⌘↵</span><span>to add a record</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="notes">
+        <h4>Why it works</h4>
+        <div class="note"><span class="note-n">1</span><div><b>Pills replace native selects</b><p>Status and multi-select cells render as coloured chips, opened by a small picker on click. They scan in a column instead of reading as form inputs.</p></div></div>
+        <div class="note"><span class="note-n">2</span><div><b>Column types drive alignment</b><p>Numbers right-align with tabular figures, dates stay short, checkboxes centre, and relation/tag cells use chips with overflow counts.</p></div></div>
+        <div class="note"><span class="note-n">3</span><div><b>Sticky name column</b><p>Name pins while properties scroll, so wide databases never lose the row label.</p></div></div>
+        <div class="note"><span class="note-n">4</span><div><b>One ＋ for new views</b><p>Board, Gallery and Calendar move into an add-view menu, replacing three separate buttons that competed with the view tabs.</p></div></div>
+        <div class="note"><span class="note-n">5</span><div><b>Inline add row</b><p>The empty bottom row is the fastest way to enter several records; Enter saves and opens the next.</p></div></div>
+        <div class="note"><span class="note-n">6</span><div><b>Filter state is visible</b><p>Active filters and sorts show as removable chips above the table, so a short list never looks like missing data.</p></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================= 04 PALETTE -->
+  <section class="screen" id="palette">
+    <div class="screen-head">
+      <div class="screen-num">04</div>
+      <div>
+        <h2>Command palette — grouped and self-explaining</h2>
+        <p>Recents, destinations and actions are separated into labelled groups, with the selected row carrying the accent and its shortcut on show.</p>
+      </div>
+      <div class="screen-badges"><span class="badge">Desktop</span><span class="badge">Overlay</span></div>
+    </div>
+
+    <div class="screen-grid">
+      <div class="frame">
+        <div class="frame-bar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <div class="urlbar"><svg class="i sm"><use href="#search"/></svg> kbs.local</div>
+        </div>
+
+        <div class="pal-stage">
+          <div class="pal-bg">
+            <div class="frame-body" style="min-height:430px">
+              <aside class="side" style="height:430px">
+                <div class="ws"><span class="ws-logo">K</span><span class="ws-name"><b>KBS</b><small>Personal workspace</small></span></div>
+                <button class="side-search" type="button"><svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span></button>
+                <nav class="side-nav">
+                  <a class="nv on"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+                  <a class="nv"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
+                  <a class="nv"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
+                  <a class="nv"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
+                  <a class="nv"><svg class="i sm"><use href="#star"/></svg><span class="grow">Favorites</span></a>
+                </nav>
+              </aside>
+              <div class="main">
+                <div class="topbar"><div class="crumb"><b>Home</b></div></div>
+                <div class="page">
+                  <div class="greet"><div><div class="eyebrow">Friday · 7 November</div><h1>Good evening, Payne</h1></div></div>
+                  <div class="resume">
+                    <div class="resume-card"><div class="resume-top"><span class="doc-icon"><svg class="i"><use href="#file"/></svg></span><span class="grow">Launch plan</span></div><p>Positioning, checklist and rollout.</p></div>
+                    <div class="resume-card"><div class="resume-top"><span class="doc-icon"><svg class="i"><use href="#file"/></svg></span><span class="grow">Design system</span></div><p>Tokens and component rules.</p></div>
+                    <div class="resume-card"><div class="resume-top"><span class="doc-icon"><svg class="i"><use href="#db"/></svg></span><span class="grow">Reading list</span></div><p>12 saved articles.</p></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pal-dim"></div>
+
+          <div class="palette" role="dialog" aria-label="Command palette">
+            <div class="pal-input">
+              <svg class="i"><use href="#search"/></svg>
+              <span class="ph">Search pages, databases, or type a command</span>
+              <span class="caret"></span>
+              <span class="kbd">esc</span>
+            </div>
+            <div class="pal-body">
+              <div class="pal-group">Recent</div>
+              <div class="pal-item sel">
+                <svg class="i"><use href="#file"/></svg>
+                <span class="grow">Launch plan</span>
+                <small>Edited 12m ago</small>
+                <span class="enter">↵</span>
+              </div>
+              <div class="pal-item">
+                <svg class="i"><use href="#db"/></svg>
+                <span class="grow">Reading list</span>
+                <small>Database · 12 records</small>
+              </div>
+
+              <div class="pal-group">Jump to</div>
+              <div class="pal-item">
+                <svg class="i"><use href="#inbox"/></svg>
+                <span class="grow">Inbox</span>
+                <span class="badge-dot">3</span>
+              </div>
+              <div class="pal-item">
+                <svg class="i"><use href="#graph"/></svg>
+                <span class="grow">Graph</span>
+              </div>
+
+              <div class="pal-group">Actions</div>
+              <div class="pal-item">
+                <svg class="i"><use href="#plus"/></svg>
+                <span class="grow">New page</span>
+                <span class="kbd">⌘N</span>
+              </div>
+              <div class="pal-item">
+                <svg class="i"><use href="#db"/></svg>
+                <span class="grow">New database</span>
+              </div>
+              <div class="pal-item">
+                <svg class="i"><use href="#moon"/></svg>
+                <span class="grow">Switch to dark theme</span>
+                <span class="kbd">⌘⇧L</span>
+              </div>
+            </div>
+            <div class="pal-foot">
+              <span class="set"><span class="kbd">↑</span><span class="kbd">↓</span>navigate</span>
+              <span class="set"><span class="kbd">↵</span>open</span>
+              <span class="set"><span class="kbd">esc</span>close</span>
+              <span style="margin-left:auto">KBS search</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="notes">
+        <h4>Why it works</h4>
+        <div class="note"><span class="note-n">1</span><div><b>Three labelled groups</b><p>Recent → destinations → actions. The order matches intent: return somewhere, go somewhere, do something.</p></div></div>
+        <div class="note"><span class="note-n">2</span><div><b>Every row explains itself</b><p>Edit time, record count or unread badge sits on the right, so results are distinguishable before opening them.</p></div></div>
+        <div class="note"><span class="note-n">3</span><div><b>Selection is unmistakable</b><p>One brand-tinted row with an ↵ hint — no ambiguity between hover and keyboard focus.</p></div></div>
+        <div class="note"><span class="note-n">4</span><div><b>Shortcuts are taught in place</b><p>⌘N and ⌘⇧L appear on their commands, which is how people learn them without a settings page.</p></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================== 05 MOBILE -->
+  <section class="screen" id="mobile">
+    <div class="screen-head">
+      <div class="screen-num">05</div>
+      <div>
+        <h2>Mobile — four destinations, one capture</h2>
+        <p>The current bottom bar packs workspace navigation, search and capture into a nine-column grid. On phones that becomes four 48px targets plus a floating capture button.</p>
+      </div>
+      <div class="screen-badges"><span class="badge">Mobile</span><span class="badge">390 × 844</span></div>
+    </div>
+
+    <div class="screen-grid">
+      <div class="frame" style="background:var(--surface);padding:20px 0 26px;display:flex;justify-content:center">
+        <div class="phones">
+          <!-- phone 1 -->
+          <div class="phone">
+            <div class="phone-screen">
+              <div class="statusbar"><span>21:04</span><span class="sig"><span class="bar"></span><svg class="i" style="width:11px;height:11px"><use href="#settings"/></svg></span></div>
+              <div class="ph-head">
+                <span class="ws-logo" style="width:20px;height:20px;font-size:10px">K</span>
+                <b>KBS</b>
+                <span class="avatar">P</span>
+              </div>
+              <div class="ph-search"><svg class="i sm"><use href="#search"/></svg>Search anything</div>
+              <div class="ph-body">
+                <div class="ph-h1">Good evening</div>
+                <div class="ph-sub">4 pages edited today</div>
+
+                <div class="ph-card" style="border-color:color-mix(in srgb,var(--brand) 30%,var(--border));background:var(--brand-soft)">
+                  <b style="color:var(--brand-fg)">Continue: Launch plan</b>
+                  <p style="color:var(--brand-fg);opacity:.8">Positioning · checklist · rollout</p>
+                </div>
+
+                <div class="section-head" style="margin-top:12px"><h2>Recent</h2><a href="#home">All</a></div>
+                <div class="ph-row"><svg class="i sm" style="color:var(--faint)"><use href="#file"/></svg><span class="grow">Week 45 review</span><span class="row-time">26m</span></div>
+                <div class="ph-row"><svg class="i sm" style="color:var(--faint)"><use href="#file"/></svg><span class="grow">Interview notes</span><span class="row-time">1h</span></div>
+                <div class="ph-row"><svg class="i sm" style="color:var(--faint)"><use href="#file"/></svg><span class="grow">Pricing experiments</span><span class="row-time">3h</span></div>
+                <div class="ph-row" style="border-bottom:0"><svg class="i sm" style="color:var(--faint)"><use href="#db"/></svg><span class="grow">Reading list</span><span class="row-time">12</span></div>
+              </div>
+              <button class="fab" type="button" aria-label="Quick capture"><svg class="i"><use href="#plus"/></svg></button>
+              <nav class="ph-nav">
+                <a class="on"><svg class="i"><use href="#home"/></svg>Home</a>
+                <a><svg class="i"><use href="#pages"/></svg>Pages</a>
+                <a><svg class="i"><use href="#db"/></svg>Data</a>
+                <a><svg class="i"><use href="#inbox"/></svg>Inbox</a>
+              </nav>
+            </div>
+          </div>
+
+          <!-- phone 2 -->
+          <div class="phone">
+            <div class="phone-screen">
+              <div class="statusbar"><span>21:05</span><span class="sig"><span class="bar"></span><svg class="i" style="width:11px;height:11px"><use href="#settings"/></svg></span></div>
+              <div class="ph-head">
+                <svg class="i"><use href="#chevron-left"/></svg>
+                <b style="font-size:11px;color:var(--muted);font-weight:500">Product</b>
+                <button class="icon-btn" style="margin-left:auto" aria-label="Page options"><svg class="i sm"><use href="#more"/></svg></button>
+              </div>
+              <div class="ph-doc">
+                <h2>Launch plan</h2>
+                <div class="doc-meta">
+                  <span class="pill progress"><span class="dot"></span>In progress</span>
+                  <span class="tag">Product</span>
+                </div>
+                <div class="prose">
+                  <p>KBS is the workspace for people whose notes outgrew their notebook. One place to capture, one place to find it again.</p>
+                  <h3>Checklist</h3>
+                  <div class="task on"><span class="check on"><svg class="i"><use href="#check"/></svg></span><span>Draft announcement post</span></div>
+                  <div class="task"><span class="check"></span><span>Ship palette v2 behind a flag</span></div>
+                  <div class="task"><span class="check"></span><span>Migrate docs workspace</span></div>
+                  <div class="callout">
+                    <svg class="i sm"><use href="#sparkle"/></svg>
+                    <span>Launch target <strong>21 Nov</strong>.</span>
+                  </div>
+                  <h3>Rollout</h3>
+                  <p>Week one is existing workspaces; public signups open once palette retention clears 60%.</p>
+                </div>
+              </div>
+              <div class="ph-toolbar">
+                <button class="icon-btn" aria-label="Bold"><svg class="i sm"><use href="#bold"/></svg></button>
+                <button class="icon-btn" aria-label="List"><svg class="i sm"><use href="#list"/></svg></button>
+                <button class="icon-btn" aria-label="Insert"><svg class="i sm"><use href="#plus"/></svg></button>
+                <span>Saved</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="notes">
+        <h4>Why it works</h4>
+        <div class="note"><span class="note-n">1</span><div><b>Four destinations</b><p>Home, Pages, Data, Inbox — each a 48px target. Favorites, Graph and Trash move into the Pages screen instead of shrinking to fit.</p></div></div>
+        <div class="note"><span class="note-n">2</span><div><b>Capture floats</b><p>Quick capture is the thumb-zone action, so it becomes a FAB instead of a nav tab that competes with navigation.</p></div></div>
+        <div class="note"><span class="note-n">3</span><div><b>One resume card, not a hero</b><p>Mobile drops the large welcome block; the first thing under the title is the page you were last in.</p></div></div>
+        <div class="note"><span class="note-n">4</span><div><b>Editor chrome gets out of the way</b><p>Formatting collapses to a three-button strip above the keyboard area, with the save state on the right.</p></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================== 06 NAVIGATION -->
+  <section class="screen" id="navigation">
+    <div class="screen-head">
+      <div class="screen-num">06</div>
+      <div>
+        <h2>Navigation — yours to arrange</h2>
+        <p>One editor for both surfaces: drag to reorder the sidebar, and choose which four destinations the bottom bar carries. On phones the same dialog arrives as a bottom sheet.</p>
+      </div>
+      <div class="screen-badges"><span class="badge">Desktop + mobile</span><span class="badge">Editor</span></div>
+    </div>
+
+    <div class="screen-grid">
+      <div class="frame" style="padding:0">
+        <div class="nav-stage">
+          <div class="nav-ghost" aria-hidden="true">
+            <div class="ghost-side">
+              <span class="ghost-logo">KBS</span>
+              <span class="ghost-line w80"></span>
+              <span class="ghost-line w60" style="margin-bottom:6px"></span>
+              <span class="ghost-line"></span>
+              <span class="ghost-line"></span>
+              <span class="ghost-line w80"></span>
+              <span class="ghost-line"></span>
+              <span class="ghost-line w60"></span>
+            </div>
+            <div class="ghost-main">
+              <div class="ghost-h">Good evening</div>
+              <div class="ghost-card"></div>
+              <div class="ghost-card" style="height:36px"></div>
+              <div class="ghost-line w60" style="margin-top:6px"></div>
+              <div class="ghost-line"></div>
+              <div class="ghost-line w80"></div>
+            </div>
+          </div>
+          <div class="nav-scrim"></div>
+
+          <div class="editor" role="img" aria-label="Edit navigation dialog with sidebar order and bottom bar selection">
+            <div class="ed-head">
+              <div><b>Edit navigation</b><small>Saved on this device</small></div>
+              <span class="ed-close" aria-hidden="true">✕</span>
+            </div>
+            <div class="ed-body">
+              <div>
+                <div class="ed-label">Sidebar order</div>
+                <p class="ed-hint">Drag in the sidebar, or move here with arrows.</p>
+                <div class="ed-row"><span class="grow">Home</span><span class="ed-move dis">↑</span><span class="ed-move">↓</span></div>
+                <div class="ed-row"><span class="grow">Pages</span><span class="ed-move">↑</span><span class="ed-move">↓</span></div>
+                <div class="ed-row"><span class="grow">Inbox</span><span class="ed-move">↑</span><span class="ed-move">↓</span></div>
+                <div class="ed-row"><span class="grow">Databases</span><span class="ed-move">↑</span><span class="ed-move">↓</span></div>
+                <div class="ed-row"><span class="grow">Favorites</span><span class="ed-move">↑</span><span class="ed-move">↓</span></div>
+                <div class="ed-row"><span class="grow">Graph</span><span class="ed-move">↑</span><span class="ed-move">↓</span></div>
+                <div class="ed-row"><span class="grow">Trash</span><span class="ed-move">↑</span><span class="ed-move dis">↓</span></div>
+              </div>
+              <div>
+                <div class="ed-label">Bottom bar</div>
+                <p class="ed-hint">Up to four. Search and capture stay fixed.</p>
+                <div class="ed-chips">
+                  <span class="ed-chip on">✓ Home</span>
+                  <span class="ed-chip on">✓ Pages</span>
+                  <span class="ed-chip on">✓ Databases</span>
+                  <span class="ed-chip on">✓ Inbox</span>
+                  <span class="ed-chip off">Favorites</span>
+                  <span class="ed-chip off">Graph</span>
+                  <span class="ed-chip off">Trash</span>
+                </div>
+                <p class="ed-hint" style="margin:6px 0 0">4 of 4 selected</p>
+              </div>
+            </div>
+            <div class="ed-foot"><span class="ed-btn">Reset</span><span class="ed-btn primary">Done</span></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="notes">
+        <h4>Why it works</h4>
+        <div class="note"><span class="note-n">1</span><div><b>Reorder where you see it</b><p>A grip appears on the row you hover; the editor repeats the list with arrow buttons so keyboard and touch users never have to drag.</p></div></div>
+        <div class="note"><span class="note-n">2</span><div><b>The bar is a choice, not a squeeze</b><p>Four destinations are picked, not reordered — nine reorderable tabs would keep the 43px targets the mockups are trying to fix.</p></div></div>
+        <div class="note"><span class="note-n">3</span><div><b>You can never lose your place</b><p>When the current route is not one of the four, it is appended to the bar, so the active destination is always visible.</p></div></div>
+        <div class="note"><span class="note-n">4</span><div><b>One click back</b><p>Reset restores the default order. The preference is per device, alongside the theme and recent pages, not a new workspace setting.</p></div></div>
+        <div class="note"><span class="note-n">5</span><div><b>Pages stay separate</b><p>Sidebar destinations and the page tree keep different drag rules, so reordering a page never silently reorders navigation.</p></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <footer class="deck-foot">
+    <div><b>Notes</b> — static HTML and CSS, no app code touched. Colours mirror the existing token set so the concepts can be ported screen by screen.</div>
+    <div class="swatches">
+      <span class="sw" style="background:#4f46e5"></span>
+      <span class="sw" style="background:#dcfce7"></span>
+      <span class="sw" style="background:#dbeafe"></span>
+      <span class="sw" style="background:#fef3c7"></span>
+      <span class="sw" style="background:#f4f4f5"></span>
+      <span class="sw-l">Light + dark</span>
+    </div>
+  </footer>
+</main>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById("theme-toggle");
+    var label = document.getElementById("theme-label");
+    function apply(theme) {
+      root.dataset.theme = theme;
+      label.textContent = theme === "dark" ? "Light mode" : "Dark mode";
+      btn.setAttribute("aria-label", "Switch to " + (theme === "dark" ? "light" : "dark") + " mode");
+    }
+    var stored = null;
+    try { stored = localStorage.getItem("kbs-mockup-theme"); } catch (e) {}
+    apply(stored === "dark" ? "dark" : "light");
+    btn.addEventListener("click", function () {
+      var next = root.dataset.theme === "dark" ? "light" : "dark";
+      apply(next);
+      try { localStorage.setItem("kbs-mockup-theme", next); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

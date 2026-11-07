@@ -57,7 +57,7 @@ test("RecentPages clears the stored history", () => {
   fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 
   assert.equal(window.localStorage.getItem("kbs:recent-pages"), null);
-  assert.equal(screen.queryByText("Jump back in"), null);
+  assert.equal(screen.queryByText("Recent pages"), null);
 });
 
 test("RecentPages ignores malformed stored entries", () => {
