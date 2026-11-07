@@ -43,6 +43,14 @@ Run the pure reliability tests with:
 npm test
 ```
 
+Run the browser-level workflow checks with:
+
+```bash
+npm run test:browser
+```
+
+Playwright starts an isolated Next.js server at `http://127.0.0.1:3100`, creates and migrates a temporary PostgreSQL database from `DATABASE_URL`, and drops it (and its temporary attachments directory) when the run ends, even though the server process is force-killed on Windows. It never uses the development server or database. Install Chromium once with `npx playwright install chromium`; set `PLAYWRIGHT_PORT` to use another port.
+
 Run the PostgreSQL transaction checks with:
 
 ```bash

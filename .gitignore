@@ -12,9 +12,15 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
+/blob-report/
+/tests/.tmp-attachments-*
+/tests/.browser-test-database.json
 
 # next.js
 /.next/
+/.next-browser-test/
 /out/
 
 # production

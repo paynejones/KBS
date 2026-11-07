@@ -4,7 +4,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { asc, eq } from "drizzle-orm";
 import type { Pool } from "pg";
-import { pages as pagesTable } from "../../src/db/schema";
+import { databaseRecords as databaseRecordTable, pages as pagesTable } from "../../src/db/schema";
 import { createTestDatabase, type TestDatabase } from "./db-harness";
 
 type ApiModules = {
@@ -33,6 +33,13 @@ type ApiModules = {
   template: typeof import("../../src/app/api/databases/[id]/templates/[templateId]/route");
   pageTemplatesList: typeof import("../../src/app/api/page-templates/route");
   pageTemplate: typeof import("../../src/app/api/page-templates/[id]/route");
+  record: typeof import("../../src/app/api/databases/[id]/records/[recordId]/route");
+  dashboard: typeof import("../../src/app/api/dashboard/route");
+  search: typeof import("../../src/app/api/search/route");
+  exportWorkspace: typeof import("../../src/app/api/export/route");
+  trash: typeof import("../../src/app/api/trash/route");
+  trashItem: typeof import("../../src/app/api/trash/[id]/route");
+  trashRestore: typeof import("../../src/app/api/trash/[id]/restore/route");
 };
 
 type Json = Record<string, unknown>;
@@ -71,6 +78,36 @@ async function createPage(overrides: Json = {}): Promise<PageRow> {
   const response = await api.pages.POST(jsonRequest("/api/pages", "POST", overrides));
   assert.equal(response.status, 201);
   return await body<PageRow>(response);
+}
+
+async function createDatabase(name: string): Promise<{ id: string; name: string }> {
+  const response = await api.databases.POST(jsonRequest("/api/databases", "POST", { name }));
+  assert.equal(response.status, 201);
+  return await body<{ id: string; name: string }>(response);
+}
+
+async function createDatabaseProperty(databaseId: string, input: Json): Promise<{ id: string; name: string; type: string; options: Json }> {
+  const response = await api.properties.POST(
+    jsonRequest(`/api/databases/${databaseId}/properties`, "POST", input),
+    routeContext({ id: databaseId }),
+  );
+  assert.equal(response.status, 201);
+  return await body(response);
+}
+
+async function createDatabaseRecord(databaseId: string, input: Json = {}): Promise<{
+  id: string;
+  title: string;
+  pageId: string;
+  values: Json;
+  relations: Record<string, string[]>;
+}> {
+  const response = await api.records.POST(
+    jsonRequest(`/api/databases/${databaseId}/records`, "POST", input),
+    routeContext({ id: databaseId }),
+  );
+  assert.equal(response.status, 201);
+  return await body(response);
 }
 
 function uploadForm(file: File, purpose?: "image") {
@@ -129,6 +166,13 @@ before(async () => {
     template,
     pageTemplatesList,
     pageTemplate,
+    record,
+    dashboard,
+    search,
+    exportWorkspace,
+    trash,
+    trashItem,
+    trashRestore,
   ] = await Promise.all([
     import("../../src/app/api/pages/route"),
     import("../../src/app/api/pages/[id]/route"),
@@ -155,9 +199,16 @@ before(async () => {
     import("../../src/app/api/databases/[id]/templates/[templateId]/route"),
     import("../../src/app/api/page-templates/route"),
     import("../../src/app/api/page-templates/[id]/route"),
+    import("../../src/app/api/databases/[id]/records/[recordId]/route"),
+    import("../../src/app/api/dashboard/route"),
+    import("../../src/app/api/search/route"),
+    import("../../src/app/api/export/route"),
+    import("../../src/app/api/trash/route"),
+    import("../../src/app/api/trash/[id]/route"),
+    import("../../src/app/api/trash/[id]/restore/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, templates, template, pageTemplatesList, pageTemplate };
+  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore };
 });
 
 after(async () => {
@@ -1259,6 +1310,604 @@ describe("page templates API", () => {
     assert.equal(
       (await api.pageTemplatesList.POST(jsonRequest("/api/page-templates", "POST", { name: "Gone", pageId: MISSING_ID }))).status,
       404,
+    );
+  });
+});
+
+describe("database lifecycle API", () => {
+  it("creates a database with a default view and cascades its records on delete", async () => {
+    const database = await createDatabase("Lifecycle database");
+    const loadedResponse = await api.database.GET(
+      jsonRequest(`/api/databases/${database.id}`, "GET"),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(loadedResponse.status, 200);
+    const loaded = await body<{ views: { name: string; type: string }[] }>(loadedResponse);
+    assert.equal(loaded.views.length, 1);
+    assert.equal(loaded.views[0]?.name, "All records");
+    assert.equal(loaded.views[0]?.type, "table");
+
+    const record = await createDatabaseRecord(database.id, { title: "Cascade record" });
+    const deleted = await api.database.DELETE(
+      jsonRequest(`/api/databases/${database.id}`, "DELETE"),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await body(deleted), { success: true });
+    assert.equal(
+      (await api.database.GET(jsonRequest(`/api/databases/${database.id}`, "GET"), routeContext({ id: database.id }))).status,
+      404,
+    );
+    assert.equal(
+      (await api.record.GET(
+        jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "GET"),
+        routeContext({ id: database.id, recordId: record.id }),
+      )).status,
+      404,
+      "deleting a database removes its records",
+    );
+  });
+
+  it("rejects invalid database creation and unknown database mutations", async () => {
+    assert.equal(
+      (await api.databases.POST(jsonRequest("/api/databases", "POST", { name: "   " }))).status,
+      400,
+    );
+    assert.equal(
+      (await api.database.GET(jsonRequest("/api/databases/nope", "GET"), routeContext({ id: "nope" }))).status,
+      400,
+    );
+    assert.equal(
+      (await api.database.GET(jsonRequest(`/api/databases/${MISSING_ID}`, "GET"), routeContext({ id: MISSING_ID }))).status,
+      404,
+    );
+    assert.equal(
+      (await api.database.DELETE(jsonRequest(`/api/databases/${MISSING_ID}`, "DELETE"), routeContext({ id: MISSING_ID }))).status,
+      404,
+    );
+  });
+});
+
+describe("database records API", () => {
+  it("creates, reads, updates, and deletes a record with its page", async () => {
+    const database = await createDatabase("Record CRUD database");
+    const score = await createDatabaseProperty(database.id, { name: "Score", type: "number" });
+    const notes = await createDatabaseProperty(database.id, { name: "Notes", type: "text" });
+    const record = await createDatabaseRecord(database.id, { title: "First record" });
+
+    assert.equal(record.title, "First record");
+    assert.ok(record.pageId);
+    assert.deepEqual(record.values, {});
+    assert.deepEqual(record.relations, {});
+
+    const fetchedResponse = await api.record.GET(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "GET"),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(fetchedResponse.status, 200);
+    const fetched = await body<{
+      pageId: string;
+      properties: { id: string }[];
+      relations: Record<string, string[]>;
+      database: { name: string };
+    }>(fetchedResponse);
+    assert.equal(fetched.pageId, record.pageId);
+    assert.equal(fetched.database.name, "Record CRUD database");
+    assert.deepEqual(fetched.properties.map((property) => property.id).sort(), [notes.id, score.id].sort());
+    assert.deepEqual(fetched.relations, {});
+
+    const updatedResponse = await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+        title: "Revised record",
+        values: { [score.id]: 42, [notes.id]: "Ready" },
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(updatedResponse.status, 200);
+    const updated = await body<{ title: string; values: Record<string, unknown> }>(updatedResponse);
+    assert.equal(updated.title, "Revised record");
+    assert.deepEqual(updated.values, { [score.id]: 42, [notes.id]: "Ready" });
+
+    const pageResponse = await api.page.GET(
+      jsonRequest(`/api/pages/${record.pageId}`, "GET"),
+      routeContext({ id: record.pageId }),
+    );
+    assert.equal(pageResponse.status, 200);
+    assert.equal((await body<{ title: string }>(pageResponse)).title, "Revised record", "the record page follows the title");
+
+    const invalidValue = await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+        values: { [score.id]: "not a number" },
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(invalidValue.status, 400);
+    assert.match(String((await body(invalidValue)).error), /finite number/);
+
+    const other = await createDatabase("Record CRUD other");
+    assert.equal(
+      (await api.record.PATCH(
+        jsonRequest(`/api/databases/${other.id}/records/${record.id}`, "PATCH", { title: "Wrong database" }),
+        routeContext({ id: other.id, recordId: record.id }),
+      )).status,
+      404,
+    );
+
+    const deleted = await api.record.DELETE(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "DELETE"),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await body(deleted), { success: true });
+    assert.equal(
+      (await api.record.GET(
+        jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "GET"),
+        routeContext({ id: database.id, recordId: record.id }),
+      )).status,
+      404,
+    );
+    assert.equal(
+      (await api.record.DELETE(
+        jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "DELETE"),
+        routeContext({ id: database.id, recordId: record.id }),
+      )).status,
+      404,
+    );
+  });
+
+  it("repairs a record whose linked page was removed", async () => {
+    const database = await createDatabase("Legacy record database");
+    const record = await createDatabaseRecord(database.id, { title: "Legacy record" });
+    const originalPageId = record.pageId;
+    await db.update(databaseRecordTable)
+      .set({ pageId: null })
+      .where(eq(databaseRecordTable.id, record.id));
+
+    const response = await api.record.GET(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "GET"),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(response.status, 200);
+    const repaired = await body<{ pageId: string }>(response);
+    assert.ok(repaired.pageId);
+    assert.notEqual(repaired.pageId, originalPageId);
+    assert.equal(
+      (await api.page.GET(jsonRequest(`/api/pages/${repaired.pageId}`, "GET"), routeContext({ id: repaired.pageId }))).status,
+      200,
+    );
+  });
+
+  it("creates records from database templates and rejects foreign templates", async () => {
+    const owner = await createDatabase("Record template owner");
+    const other = await createDatabase("Record template other");
+    const templateResponse = await api.templates.POST(
+      jsonRequest(`/api/databases/${owner.id}/templates`, "POST", {
+        name: "Record starter",
+        title: "From template",
+        values: {},
+      }),
+      routeContext({ id: owner.id }),
+    );
+    assert.equal(templateResponse.status, 201);
+    const template = await body<{ id: string }>(templateResponse);
+
+    const created = await createDatabaseRecord(owner.id, { templateId: template.id });
+    assert.equal(created.title, "From template");
+    assert.deepEqual(created.values, {});
+
+    assert.equal(
+      (await api.records.POST(
+        jsonRequest(`/api/databases/${other.id}/records`, "POST", { templateId: template.id }),
+        routeContext({ id: other.id }),
+      )).status,
+      404,
+      "a template only seeds records in its own database",
+    );
+  });
+
+  it("stores relation targets and rejects foreign or malformed relations", async () => {
+    const owner = await createDatabase("Relation owner");
+    const target = await createDatabase("Relation target");
+    const stranger = await createDatabase("Relation stranger");
+    const relation = await createDatabaseProperty(owner.id, {
+      name: "Related",
+      type: "relation",
+      options: { relatedDatabaseId: target.id },
+    });
+    const targetRecord = await createDatabaseRecord(target.id, { title: "Valid target" });
+    const strangerRecord = await createDatabaseRecord(stranger.id, { title: "Foreign target" });
+    const source = await createDatabaseRecord(owner.id, { title: "Relation source" });
+
+    const assignedResponse = await api.record.PATCH(
+      jsonRequest(`/api/databases/${owner.id}/records/${source.id}`, "PATCH", {
+        relations: { [relation.id]: [targetRecord.id] },
+      }),
+      routeContext({ id: owner.id, recordId: source.id }),
+    );
+    assert.equal(assignedResponse.status, 200);
+    const assigned = await body<{ relations: Record<string, string[]> }>(assignedResponse);
+    assert.deepEqual(assigned.relations[relation.id], [targetRecord.id]);
+
+    const loaded = await body<{ records: { id: string; relations: Record<string, string[]> }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${owner.id}`, "GET"), routeContext({ id: owner.id })),
+    );
+    assert.deepEqual(loaded.records.find((record) => record.id === source.id)?.relations[relation.id], [targetRecord.id]);
+
+    assert.equal(
+      (await api.record.PATCH(
+        jsonRequest(`/api/databases/${owner.id}/records/${source.id}`, "PATCH", {
+          relations: { [relation.id]: [strangerRecord.id] },
+        }),
+        routeContext({ id: owner.id, recordId: source.id }),
+      )).status,
+      400,
+      "a relation cannot point at another database",
+    );
+    assert.equal(
+      (await api.record.PATCH(
+        jsonRequest(`/api/databases/${owner.id}/records/${source.id}`, "PATCH", {
+          relations: { [MISSING_ID]: [] },
+        }),
+        routeContext({ id: owner.id, recordId: source.id }),
+      )).status,
+      400,
+      "a relation property must belong to the database",
+    );
+
+    const clearedResponse = await api.record.PATCH(
+      jsonRequest(`/api/databases/${owner.id}/records/${source.id}`, "PATCH", {
+        relations: { [relation.id]: [] },
+      }),
+      routeContext({ id: owner.id, recordId: source.id }),
+    );
+    assert.equal(clearedResponse.status, 200);
+    const cleared = await body<{ relations: Record<string, string[]> }>(clearedResponse);
+    assert.deepEqual(cleared.relations[relation.id] ?? [], []);
+  });
+});
+
+describe("database view mutations API", () => {
+  it("renames and reconfigures a view and rejects invalid or foreign updates", async () => {
+    const database = await createDatabase("View mutation database");
+    const other = await createDatabase("View mutation other");
+    const createdResponse = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", {
+        name: "Board",
+        type: "board",
+        config: { groupBy: "status" },
+      }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(createdResponse.status, 201);
+    const created = await body<{ id: string }>(createdResponse);
+
+    const updatedResponse = await api.view.PATCH(
+      jsonRequest(`/api/databases/${database.id}/views/${created.id}`, "PATCH", {
+        name: "Pipeline",
+        config: { groupBy: "stage" },
+      }),
+      routeContext({ id: database.id, viewId: created.id }),
+    );
+    assert.equal(updatedResponse.status, 200);
+    const updated = await body<{ name: string; config: Record<string, unknown> }>(updatedResponse);
+    assert.equal(updated.name, "Pipeline");
+    assert.deepEqual(updated.config, { groupBy: "stage" });
+
+    const loaded = await body<{ views: { id: string; name: string }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${database.id}`, "GET"), routeContext({ id: database.id })),
+    );
+    assert.equal(loaded.views.find((view) => view.id === created.id)?.name, "Pipeline");
+
+    assert.equal(
+      (await api.view.PATCH(
+        jsonRequest(`/api/databases/${other.id}/views/${created.id}`, "PATCH", { name: "Foreign" }),
+        routeContext({ id: other.id, viewId: created.id }),
+      )).status,
+      404,
+    );
+    assert.equal(
+      (await api.view.PATCH(
+        jsonRequest(`/api/databases/${database.id}/views/${created.id}`, "PATCH", { name: "   " }),
+        routeContext({ id: database.id, viewId: created.id }),
+      )).status,
+      400,
+    );
+    assert.equal(
+      (await api.views.POST(
+        jsonRequest(`/api/databases/${database.id}/views`, "POST", { name: "Timeline", type: "timeline" }),
+        routeContext({ id: database.id }),
+      )).status,
+      400,
+    );
+  });
+});
+
+describe("dashboard API", () => {
+  it("returns requested widgets with capped previews and totals", async () => {
+    const database = await createDatabase("Dashboard database");
+    for (let index = 0; index < 7; index += 1) {
+      await createDatabaseRecord(database.id, { title: `Widget record ${index}` });
+    }
+    const viewResponse = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", { name: "Pinned view", type: "gallery" }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(viewResponse.status, 201);
+    const view = await body<{ id: string }>(viewResponse);
+
+    const response = await api.dashboard.GET(
+      new Request(`http://localhost/api/dashboard?viewIds=${view.id}`),
+    );
+    assert.equal(response.status, 200);
+    const data = await body<{
+      views: { id: string; databaseName: string }[];
+      widgets: {
+        view: { id: string; databaseName: string };
+        records: { id: string }[];
+        total: number;
+      }[];
+    }>(response);
+    assert.ok(data.views.some((candidate) => candidate.id === view.id));
+    const widget = data.widgets.find((candidate) => candidate.view.id === view.id);
+    assert.ok(widget);
+    assert.equal(widget.view.databaseName, "Dashboard database");
+    assert.equal(widget.total, 7);
+    assert.equal(widget.records.length, 5, "dashboard previews are capped at five records");
+
+    const empty = await body<{ views: { id: string }[]; widgets: unknown[] }>(
+      await api.dashboard.GET(new Request("http://localhost/api/dashboard")),
+    );
+    assert.deepEqual(empty.widgets, []);
+    assert.ok(empty.views.some((candidate) => candidate.id === view.id));
+
+    const unknown = await body<{ widgets: unknown[] }>(
+      await api.dashboard.GET(new Request(`http://localhost/api/dashboard?viewIds=${MISSING_ID}`)),
+    );
+    assert.deepEqual(unknown.widgets, []);
+  });
+
+  it("applies saved filters to dashboard widgets", async () => {
+    const database = await createDatabase("Dashboard filter database");
+    const score = await createDatabaseProperty(database.id, { name: "Score", type: "number" });
+    for (const [title, value] of [["Low", 10], ["Medium", 20], ["High", 30]] as const) {
+      const record = await createDatabaseRecord(database.id, { title });
+      const updated = await api.record.PATCH(
+        jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+          values: { [score.id]: value },
+        }),
+        routeContext({ id: database.id, recordId: record.id }),
+      );
+      assert.equal(updated.status, 200);
+    }
+    const viewResponse = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", {
+        name: "High scores",
+        type: "table",
+        config: {
+          filters: [{ id: "score", propertyId: score.id, operator: "greater_than", value: "15" }],
+        },
+      }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(viewResponse.status, 201);
+    const view = await body<{ id: string }>(viewResponse);
+
+    const response = await api.dashboard.GET(
+      new Request(`http://localhost/api/dashboard?viewIds=${view.id}`),
+    );
+    const data = await body<{
+      widgets: {
+        view: { id: string };
+        records: { values: Record<string, unknown> }[];
+        total: number;
+      }[];
+    }>(response);
+    const widget = data.widgets.find((candidate) => candidate.view.id === view.id);
+    assert.ok(widget);
+    assert.equal(widget.total, 2);
+    assert.deepEqual(
+      widget.records.map((record) => record.values[score.id]).sort((left, right) => Number(left) - Number(right)),
+      [20, 30],
+    );
+  });
+});
+
+describe("search API", () => {
+  it("handles empty and oversized queries", async () => {
+    assert.deepEqual(
+      await body(await api.search.GET(new Request("http://localhost/api/search"))),
+      { pages: [], records: [] },
+    );
+    assert.equal(
+      (await api.search.GET(new Request(`http://localhost/api/search?q=${"x".repeat(201)}`))).status,
+      400,
+    );
+  });
+
+  it("searches pages and record values while excluding trashed pages", async () => {
+    const token = "NebulaSearchToken";
+    const page = await createPage({ title: `${token} page`, content: `${token} content` });
+    const trashed = await createPage({ title: `${token} trashed` });
+    await api.page.DELETE(
+      jsonRequest(`/api/pages/${trashed.id}`, "DELETE"),
+      routeContext({ id: trashed.id }),
+    );
+    const database = await createDatabase(`${token} database`);
+    const notes = await createDatabaseProperty(database.id, { name: "Notes", type: "text" });
+    const record = await createDatabaseRecord(database.id, {
+      title: `${token} record`,
+      values: { [notes.id]: `${token} value` },
+    });
+
+    const response = await api.search.GET(
+      new Request(`http://localhost/api/search?q=${encodeURIComponent(token)}`),
+    );
+    assert.equal(response.status, 200);
+    const results = await body<{
+      pages: { id: string; title: string }[];
+      records: { id: string; title: string; databaseName: string }[];
+    }>(response);
+    assert.ok(results.pages.some((result) => result.id === page.id));
+    assert.ok(!results.pages.some((result) => result.id === trashed.id));
+    assert.ok(results.records.some((result) => result.id === record.id && result.databaseName === `${token} database`));
+  });
+});
+
+describe("export API", () => {
+  it("returns a complete workspace snapshot with safe headers", async () => {
+    const page = await createPage({ title: "Export snapshot page", content: "Export body" });
+    const database = await createDatabase("Export snapshot database");
+    const response = await api.exportWorkspace.GET();
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.match(
+      response.headers.get("content-disposition") ?? "",
+      /^attachment; filename="kbs-export-\d{4}-\d{2}-\d{2}\.json"$/,
+    );
+
+    const payload = await body<{
+      format: string;
+      version: number;
+      exportedAt: string;
+      counts: Record<string, number>;
+      pages: { id: string }[];
+      databases: { id: string }[];
+      attachments: { id: string; url: string }[];
+      attachmentsNote: string;
+    }>(response);
+    assert.equal(payload.format, "kbs-export");
+    assert.equal(payload.version, 1);
+    assert.ok(!Number.isNaN(Date.parse(payload.exportedAt)));
+    assert.ok(payload.counts.pages >= 1);
+    assert.ok(payload.pages.some((candidate) => candidate.id === page.id));
+    assert.ok(payload.databases.some((candidate) => candidate.id === database.id));
+    assert.match(payload.attachmentsNote, /bytes/i);
+    for (const attachment of payload.attachments) {
+      assert.equal(attachment.url, `/api/attachments/${attachment.id}`);
+    }
+  });
+});
+
+describe("page browser API", () => {
+  it("separates regular, inbox, record, and favorite pages", async () => {
+    const token = "PageBrowserScopeToken";
+    const regular = await createPage({ title: `${token} regular` });
+    const favorite = await createPage({ title: `${token} favorite` });
+    await api.page.PATCH(
+      jsonRequest(`/api/pages/${favorite.id}`, "PATCH", { isFavorite: true }),
+      routeContext({ id: favorite.id }),
+    );
+    const inbox = await body<PageRow>(await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+      title: `${token} inbox`,
+      content: "Inbox body",
+    })));
+    const database = await createDatabase(`${token} database`);
+    const record = await createDatabaseRecord(database.id, { title: `${token} record` });
+    const base = `/api/pages?q=${encodeURIComponent(token)}`;
+
+    const defaultPages = await body<PageRow[]>(await api.pages.GET(jsonRequest(base, "GET")));
+    assert.ok(defaultPages.some((page) => page.id === regular.id));
+    assert.ok(defaultPages.some((page) => page.id === favorite.id));
+    assert.ok(!defaultPages.some((page) => page.id === inbox.id));
+    assert.ok(!defaultPages.some((page) => page.id === record.pageId));
+
+    const favorites = await body<PageRow[]>(await api.pages.GET(jsonRequest(`${base}&favorite=true`, "GET")));
+    assert.deepEqual(favorites.map((page) => page.id), [favorite.id]);
+
+    const withInbox = await body<PageRow[]>(await api.pages.GET(jsonRequest(`${base}&includeInbox=true`, "GET")));
+    assert.ok(withInbox.some((page) => page.id === inbox.id));
+    assert.ok(!withInbox.some((page) => page.id === record.pageId));
+
+    const withRecordPages = await body<PageRow[]>(await api.pages.GET(jsonRequest(`${base}&includeRecordPages=true`, "GET")));
+    assert.ok(withRecordPages.some((page) => page.id === record.pageId));
+    assert.ok(!withRecordPages.some((page) => page.id === inbox.id));
+  });
+
+  it("rejects malformed tag filters", async () => {
+    assert.equal(
+      (await api.pages.GET(jsonRequest("/api/pages?tagId=nope", "GET"))).status,
+      400,
+    );
+  });
+});
+
+describe("trash API", () => {
+  it("lists a trashed subtree and restores it together", async () => {
+    const parent = await createPage({ title: "Trash parent" });
+    const child = await createPage({ title: "Trash child", parentId: parent.id });
+    const deleted = await api.page.DELETE(
+      jsonRequest(`/api/pages/${parent.id}`, "DELETE"),
+      routeContext({ id: parent.id }),
+    );
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await body(deleted), { success: true, trashedCount: 2 });
+
+    const trash = await body<{
+      items: { id: string; descendantCount: number }[];
+      totalTrashed: number;
+    }>(await api.trash.GET());
+    const root = trash.items.find((item) => item.id === parent.id);
+    assert.ok(root);
+    assert.equal(root.descendantCount, 1);
+    assert.ok(trash.totalTrashed >= 2);
+    assert.ok(!trash.items.some((item) => item.id === child.id), "children are listed under their trashed root");
+
+    const restored = await api.trashRestore.POST(
+      jsonRequest(`/api/trash/${parent.id}/restore`, "POST"),
+      routeContext({ id: parent.id }),
+    );
+    assert.equal(restored.status, 200);
+    assert.deepEqual(await body(restored), { success: true, restoredCount: 2 });
+    assert.equal(
+      (await api.page.GET(jsonRequest(`/api/pages/${parent.id}`, "GET"), routeContext({ id: parent.id }))).status,
+      200,
+    );
+    assert.equal(
+      (await api.page.GET(jsonRequest(`/api/pages/${child.id}`, "GET"), routeContext({ id: child.id }))).status,
+      200,
+    );
+  });
+
+  it("purges only trashed pages and reports counts", async () => {
+    const page = await createPage({ title: "Purge me" });
+    assert.equal(
+      (await api.trashItem.DELETE(
+        jsonRequest(`/api/trash/${page.id}`, "DELETE"),
+        routeContext({ id: page.id }),
+      )).status,
+      404,
+      "active pages cannot be purged",
+    );
+
+    await api.page.DELETE(
+      jsonRequest(`/api/pages/${page.id}`, "DELETE"),
+      routeContext({ id: page.id }),
+    );
+    const purged = await api.trashItem.DELETE(
+      jsonRequest(`/api/trash/${page.id}`, "DELETE"),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(purged.status, 200);
+    assert.deepEqual(await body(purged), {
+      success: true,
+      deletedCount: 1,
+      attachmentsRemoved: 0,
+      bytesFreed: 0,
+    });
+    assert.equal(
+      (await api.page.GET(jsonRequest(`/api/pages/${page.id}`, "GET"), routeContext({ id: page.id }))).status,
+      404,
+    );
+    assert.equal(
+      (await api.trashItem.DELETE(
+        jsonRequest(`/api/trash/${page.id}`, "DELETE"),
+        routeContext({ id: page.id }),
+      )).status,
+      404,
+    );
+    assert.equal(
+      (await api.trashItem.DELETE(jsonRequest("/api/trash/nope", "DELETE"), routeContext({ id: "nope" }))).status,
+      400,
     );
   });
 });
