@@ -16,7 +16,7 @@ function increment(counts: Map<string, number>, id: string) {
   counts.set(id, (counts.get(id) ?? 0) + 1);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const [
       pageRows,
@@ -129,7 +129,8 @@ export async function GET() {
       total: orphanPages.length + orphanRecords.length,
     });
   } catch (error) {
-    console.error("Failed to find unconnected items:", error);
-    return NextResponse.json({ error: "Failed to find unconnected items" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to find unconnected items", error, { status: 500, logMessage: "Failed to find unconnected items:" });
   }
 }
+
+import { apiErrorResponse } from "@/lib/api-log";

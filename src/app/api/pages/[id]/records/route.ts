@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseRecords, databases, pageRecordLinks, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
@@ -15,7 +16,7 @@ const recordColumns = {
   databaseName: databases.name,
 };
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) {
     return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
@@ -52,8 +53,7 @@ export async function GET(_request: Request, context: Context) {
       options: all.filter((record) => !linkedIds.has(record.id)),
     });
   } catch (error) {
-    console.error("Failed to load page records:", error);
-    return NextResponse.json({ error: "Failed to load page records" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load page records", error, { status: 500, logMessage: "Failed to load page records:" });
   }
 }
 
@@ -99,8 +99,7 @@ export async function POST(request: Request, context: Context) {
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
-    console.error("Failed to link a record:", error);
-    return NextResponse.json({ error: "Failed to link a record" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to link a record", error, { status: 500, logMessage: "Failed to link a record:" });
   }
 }
 
@@ -125,7 +124,6 @@ export async function DELETE(request: Request, context: Context) {
       );
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to unlink a record:", error);
-    return NextResponse.json({ error: "Failed to unlink a record" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to unlink a record", error, { status: 500, logMessage: "Failed to unlink a record:" });
   }
 }

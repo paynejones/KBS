@@ -4,10 +4,11 @@ import { z } from "zod";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
 import { collectSubtreeIds } from "@/lib/trash";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 
-export async function POST(_request: Request, context: Context) {
+export async function POST(request: Request, context: Context) {
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) {
     return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
@@ -48,7 +49,6 @@ export async function POST(_request: Request, context: Context) {
 
     return NextResponse.json({ success: true, restoredCount });
   } catch (error) {
-    console.error("Failed to restore page:", error);
-    return NextResponse.json({ error: "Failed to restore page." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to restore page.", error, { status: 500, logMessage: "Failed to restore page:" });
   }
 }

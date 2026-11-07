@@ -11,6 +11,7 @@ import {
   QuickCapture,
 } from "@/components/quick-capture";
 import { ThemePicker } from "@/components/theme-picker";
+import { SignOutButton } from "@/components/sign-out-button";
 import { NavigationEditor } from "@/components/navigation-editor";
 import {
   WorkspaceNavigation,
@@ -81,6 +82,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             K
           </span>
           <span className="min-w-0 flex-1 truncate">My workspace</span>
+          <SignOutButton />
         </div>
       </aside>
 

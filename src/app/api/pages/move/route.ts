@@ -4,6 +4,7 @@ import { eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
 import { z } from "zod";
+import { logApiError } from "@/lib/api-log";
 
 const movePageSchema = z.object({
   pageId: z.string().uuid(),
@@ -163,7 +164,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Move page error:", error);
+    logApiError(request, "Move page error", error);
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

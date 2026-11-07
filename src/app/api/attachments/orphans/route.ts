@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { listOrphanedAttachments, removeOrphanedAttachments } from "@/lib/attachment-cleanup";
+import { apiErrorResponse } from "@/lib/api-log";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const items = await listOrphanedAttachments();
     return NextResponse.json({
@@ -10,17 +11,15 @@ export async function GET() {
       items,
     });
   } catch (error) {
-    console.error("Failed to scan attachments:", error);
-    return NextResponse.json({ error: "Failed to scan stored files." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to scan stored files.", error, { status: 500, logMessage: "Failed to scan attachments:" });
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     const result = await removeOrphanedAttachments();
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Failed to remove unused attachments:", error);
-    return NextResponse.json({ error: "Failed to remove unused files." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to remove unused files.", error, { status: 500, logMessage: "Failed to remove unused attachments:" });
   }
 }

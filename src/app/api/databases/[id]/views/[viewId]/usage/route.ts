@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseViews, pages, pageTemplates } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string; viewId: string }> };
 
@@ -35,7 +36,7 @@ function embedsView(
     && record.content.some((child) => embedsView(child, databaseId, viewId, knownViewIds, firstViewId));
 }
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id, viewId } = await context.params;
   if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(viewId).success) {
     return NextResponse.json({ error: "Invalid view ID" }, { status: 400 });
@@ -79,7 +80,6 @@ export async function GET(_request: Request, context: Context) {
 
     return NextResponse.json({ pages: pageUsage, templates: templateUsage });
   } catch (error) {
-    console.error("Failed to load database view usage:", error);
-    return NextResponse.json({ error: "Failed to load view usage" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load view usage", error, { status: 500, logMessage: "Failed to load database view usage:" });
   }
 }

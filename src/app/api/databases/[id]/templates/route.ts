@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { databases, databaseProperties, databaseTemplates } from "@/db/schema";
 import { missingAttachmentIds } from "@/lib/attachment-store";
 import { referencedAttachmentIds, validateDatabaseRecordValues } from "@/lib/database-values";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
@@ -32,7 +33,6 @@ export async function POST(request: Request, context: Context) {
     const [template] = await db.insert(databaseTemplates).values({ databaseId: id, ...parsed.data }).returning();
     return NextResponse.json(template, { status: 201 });
   } catch (error) {
-    console.error("Failed to create database template:", error);
-    return NextResponse.json({ error: "Failed to create template" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to create template", error, { status: 500, logMessage: "Failed to create database template:" });
   }
 }

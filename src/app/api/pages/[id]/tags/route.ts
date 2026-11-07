@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { pageTags, pages, tags } from "@/db/schema";
 import { z } from "zod";
+import { apiErrorResponse } from "@/lib/api-log";
 
 const pageIdSchema = z.string().uuid();
 
@@ -18,7 +19,7 @@ type RouteContext = {
 };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: RouteContext
 ) {
   try {
@@ -39,12 +40,7 @@ export async function GET(
 
     return Response.json(results);
   } catch (error) {
-    console.error("Failed to fetch page tags:", error);
-
-    return Response.json(
-      { error: "Failed to fetch page tags." },
-      { status: 500 }
-    );
+    return apiErrorResponse(request, "Failed to fetch page tags.", error, { status: 500, logMessage: "Failed to fetch page tags:" });
   }
 }
 
@@ -105,12 +101,7 @@ export async function POST(
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error("Failed to assign tag:", error);
-
-    return Response.json(
-      { error: "Failed to assign tag." },
-      { status: 500 }
-    );
+    return apiErrorResponse(request, "Failed to assign tag.", error, { status: 500, logMessage: "Failed to assign tag:" });
   }
 }
 
@@ -146,11 +137,6 @@ export async function DELETE(
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error("Failed to remove tag:", error);
-
-    return Response.json(
-      { error: "Failed to remove tag." },
-      { status: 500 }
-    );
+    return apiErrorResponse(request, "Failed to remove tag.", error, { status: 500, logMessage: "Failed to remove tag:" });
   }
 }

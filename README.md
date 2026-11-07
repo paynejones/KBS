@@ -35,6 +35,17 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Signing in
+
+KBS is a single-user workspace behind one password. Set both variables to enable the gate:
+
+```bash
+KBS_AUTH_PASSWORD=your-workspace-password
+KBS_AUTH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")
+```
+
+`/signin` then issues a 30-day signed, httpOnly session cookie, and every page, API route, and attachment request needs it. With either variable unset the development server stays open for local work; a production build returns `503` instead of serving unauthenticated data. See [the deployment readiness runbook](docs/deployment-readiness.md) for the full behaviour and release steps.
+
 ## Reliability checks
 
 Run the pure reliability tests with:

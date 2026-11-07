@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseRecords, pageRecordLinks, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ recordId: string }> };
 const idSchema = z.string().uuid();
@@ -12,7 +13,7 @@ const linkSchema = z.object({ pageId: z.string().uuid() });
  * Pages a record is connected to. The rows are the same ones the page-side
  * panel writes, so a connection made from either side appears on both.
  */
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { recordId } = await context.params;
   if (!idSchema.safeParse(recordId).success) {
     return NextResponse.json({ error: "Invalid record ID" }, { status: 400 });
@@ -61,8 +62,7 @@ export async function GET(_request: Request, context: Context) {
       options: all.filter((page) => !linkedIds.has(page.id) && page.id !== record.pageId),
     });
   } catch (error) {
-    console.error("Failed to load record pages:", error);
-    return NextResponse.json({ error: "Failed to load record pages" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load record pages", error, { status: 500, logMessage: "Failed to load record pages:" });
   }
 }
 
@@ -108,8 +108,7 @@ export async function POST(request: Request, context: Context) {
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
-    console.error("Failed to link a page:", error);
-    return NextResponse.json({ error: "Failed to link a page" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to link a page", error, { status: 500, logMessage: "Failed to link a page:" });
   }
 }
 
@@ -134,7 +133,6 @@ export async function DELETE(request: Request, context: Context) {
       );
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to unlink a page:", error);
-    return NextResponse.json({ error: "Failed to unlink a page" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to unlink a page", error, { status: 500, logMessage: "Failed to unlink a page:" });
   }
 }

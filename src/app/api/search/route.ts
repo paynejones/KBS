@@ -2,6 +2,7 @@ import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { databases, databaseRecords, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams.get("q")?.trim();
@@ -33,7 +34,6 @@ export async function GET(request: Request) {
     ]);
     return NextResponse.json({ pages: pageResults, records: recordResults });
   } catch (error) {
-    console.error("Global search failed:", error);
-    return NextResponse.json({ error: "Search is unavailable right now" }, { status: 500 });
+    return apiErrorResponse(request, "Search is unavailable right now", error, { status: 500, logMessage: "Global search failed:" });
   }
 }

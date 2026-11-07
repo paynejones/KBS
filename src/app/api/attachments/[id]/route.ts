@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { readStoredAttachment } from "@/lib/attachment-store";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -9,7 +10,7 @@ function contentDispositionFilename(filename: string) {
   return `inline; filename="${ascii}"`;
 }
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) {
     return NextResponse.json({ error: "Invalid attachment ID" }, { status: 400 });
@@ -28,7 +29,6 @@ export async function GET(_request: Request, context: Context) {
       },
     });
   } catch (error) {
-    console.error("Failed to read attachment:", error);
-    return NextResponse.json({ error: "Failed to read attachment" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to read attachment", error, { status: 500, logMessage: "Failed to read attachment:" });
   }
 }

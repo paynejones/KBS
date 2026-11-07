@@ -320,14 +320,14 @@ describe("attachments API", () => {
     );
     assert.equal(patched.status, 200);
 
-    const scan = await body<{ count: number; items: { id: string }[] }>(await api.orphans.GET());
+    const scan = await body<{ count: number; items: { id: string }[] }>(await api.orphans.GET(jsonRequest("/api/connections", "GET")));
     assert.ok(scan.items.some((item) => item.id === orphan.id), "unreferenced files should be reported");
     assert.ok(!scan.items.some((item) => item.id === kept.id), "a page cover should protect its file");
 
-    const clean = await body<{ removed: number }>(await api.orphans.DELETE());
+    const clean = await body<{ removed: number }>(await api.orphans.DELETE(jsonRequest("/api/connections", "DELETE")));
     assert.ok(clean.removed >= 1);
 
-    const afterCleanup = await body<{ items: { id: string }[] }>(await api.orphans.GET());
+    const afterCleanup = await body<{ items: { id: string }[] }>(await api.orphans.GET(jsonRequest("/api/connections", "GET")));
     assert.ok(!afterCleanup.items.some((item) => item.id === orphan.id));
     assert.equal(
       (await api.attachment.GET(jsonRequest(kept.url, "GET"), routeContext({ id: kept.id }))).status,
@@ -511,7 +511,7 @@ describe("inbox API", () => {
     })));
     const normal = await createPage({ title: "Regular page" });
 
-    const beforeList = await body<PageRow[]>(await api.inbox.GET());
+    const beforeList = await body<PageRow[]>(await api.inbox.GET(jsonRequest("/api/inbox", "GET")));
     assert.ok(beforeList.some((item) => item.id === captured.id));
     assert.ok(!beforeList.some((item) => item.id === normal.id), "regular pages are not inbox items");
 
@@ -1064,7 +1064,7 @@ describe("orphan view API", () => {
       pages: { id: string }[];
       records: { id: string; databaseId: string; databaseName: string }[];
       total: number;
-    }>(await api.connections.GET());
+    }>(await api.connections.GET(jsonRequest("/api/connections", "GET")));
     assert.ok(first.pages.some((row) => row.id === page.id));
     assert.ok(
       !first.pages.some((row) => row.id === record.pageId),
@@ -1082,7 +1082,7 @@ describe("orphan view API", () => {
     );
 
     const afterLink = await body<{ pages: { id: string }[]; records: { id: string }[] }>(
-      await api.connections.GET(),
+      await api.connections.GET(jsonRequest("/api/connections", "GET")),
     );
     assert.ok(!afterLink.pages.some((row) => row.id === page.id), "a page with a record link is connected");
     assert.ok(!afterLink.records.some((row) => row.id === record.id), "a record with a page link is connected");
@@ -1118,7 +1118,7 @@ describe("orphan view API", () => {
     assert.equal(patched.status, 200);
 
     const scan = await body<{ pages: { id: string }[]; records: { id: string }[] }>(
-      await api.connections.GET(),
+      await api.connections.GET(jsonRequest("/api/connections", "GET")),
     );
     const pageIds = new Set(scan.pages.map((row) => row.id));
     assert.ok(!pageIds.has(parent.id), "a page with a child is connected");
@@ -1142,7 +1142,7 @@ describe("tags API", () => {
     assert.equal((await body<TagRow>(duplicate)).id, zebra.id);
 
     await api.tags.POST(jsonRequest("/api/tags", "POST", { name: "Apple tag" }));
-    const tags = await body<TagRow[]>(await api.tags.GET());
+    const tags = await body<TagRow[]>(await api.tags.GET(jsonRequest("/api/tags", "GET")));
     const names = tags.map((tag) => tag.name);
     assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)), "tags come back sorted by name");
   });
@@ -1604,7 +1604,7 @@ describe("page templates API", () => {
     assert.equal(template.name, "Meeting notes");
     assert.equal(template.icon, "🗒️");
 
-    const listed = await body<{ id: string; name: string }[]>(await api.pageTemplatesList.GET());
+    const listed = await body<{ id: string; name: string }[]>(await api.pageTemplatesList.GET(jsonRequest("/api/page-templates", "GET")));
     assert.ok(listed.some((row) => row.id === template.id));
     const names = listed.map((row) => row.name);
     assert.deepEqual(names, [...names].sort((left, right) => left.localeCompare(right)), "templates come back sorted by name");
@@ -1674,7 +1674,7 @@ describe("page templates API", () => {
       jsonRequest(`/api/pages/${page.id}`, "PATCH", { content: "Changed after creation" }),
       routeContext({ id: page.id }),
     );
-    const listed = await body<{ id: string; content: string }[]>(await api.pageTemplatesList.GET());
+    const listed = await body<{ id: string; content: string }[]>(await api.pageTemplatesList.GET(jsonRequest("/api/page-templates", "GET")));
     assert.equal(listed.find((row) => row.id === template.id)?.content, "Goal: ship");
 
     assert.equal(
@@ -2132,7 +2132,7 @@ describe("export API", () => {
   it("returns a complete workspace snapshot with safe headers", async () => {
     const page = await createPage({ title: "Export snapshot page", content: "Export body" });
     const database = await createDatabase("Export snapshot database");
-    const response = await api.exportWorkspace.GET();
+    const response = await api.exportWorkspace.GET(jsonRequest("/api/export", "GET"));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.match(
@@ -2220,7 +2220,7 @@ describe("trash API", () => {
     const trash = await body<{
       items: { id: string; descendantCount: number }[];
       totalTrashed: number;
-    }>(await api.trash.GET());
+    }>(await api.trash.GET(jsonRequest("/api/trash", "GET")));
     const root = trash.items.find((item) => item.id === parent.id);
     assert.ok(root);
     assert.equal(root.descendantCount, 1);

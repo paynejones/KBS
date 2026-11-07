@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseProperties, databaseRecords, databases, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -66,12 +67,11 @@ export async function POST(request: Request, context: Context) {
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json(result.record, { status: 201 });
   } catch (error) {
-    console.error("Failed to move inbox item to database:", error);
-    return NextResponse.json({ error: "Failed to move inbox item to database." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to move inbox item to database.", error, { status: 500, logMessage: "Failed to move inbox item to database:" });
   }
 }
 
-export async function PATCH(_request: Request, context: Context) {
+export async function PATCH(request: Request, context: Context) {
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) {
     return NextResponse.json({ error: "Invalid inbox item ID." }, { status: 400 });
@@ -83,7 +83,6 @@ export async function PATCH(_request: Request, context: Context) {
     if (!item) return NextResponse.json({ error: "Inbox item not found." }, { status: 404 });
     return NextResponse.json(item);
   } catch (error) {
-    console.error("Failed to organize inbox item:", error);
-    return NextResponse.json({ error: "Failed to organize inbox item." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to organize inbox item.", error, { status: 500, logMessage: "Failed to organize inbox item:" });
   }
 }

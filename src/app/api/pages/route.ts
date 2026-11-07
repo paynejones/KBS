@@ -108,12 +108,7 @@ export async function GET(request: Request) {
 
     return Response.json(pagesWithTags);
   } catch (error) {
-    console.error("Failed to fetch pages:", error);
-
-    return Response.json(
-      { error: "Failed to fetch pages." },
-      { status: 500 }
-    );
+    return apiErrorResponse(request, "Failed to fetch pages.", error, { status: 500, logMessage: "Failed to fetch pages:" });
   }
 }
 
@@ -193,7 +188,8 @@ export async function POST(request: Request) {
 
   return NextResponse.json(page, { status: 201 });
   } catch (error) {
-    console.error("Failed to create page:", error);
-    return NextResponse.json({ error: "Failed to create page." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to create page.", error, { status: 500, logMessage: "Failed to create page:" });
   }
 }
+
+import { apiErrorResponse } from "@/lib/api-log";

@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { databaseProperties, databaseRecordRelations, databaseRecords, databases, pages } from "@/db/schema";
 import { missingAttachmentIds } from "@/lib/attachment-store";
 import { referencedAttachmentIds, validateDatabaseRecordValues } from "@/lib/database-values";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string; recordId: string }> };
 const recordSchema = z.object({
@@ -14,7 +15,7 @@ const recordSchema = z.object({
   relations: z.record(z.string().uuid(), z.array(z.string().uuid())).optional(),
 }).refine((data) => Object.keys(data).length > 0);
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id, recordId } = await context.params;
   if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(recordId).success) {
     return NextResponse.json({ error: "Invalid record ID" }, { status: 400 });
@@ -70,8 +71,7 @@ export async function GET(_request: Request, context: Context) {
       database: result.database,
     });
   } catch (error) {
-    console.error("Failed to load database record:", error);
-    return NextResponse.json({ error: "Failed to load database record" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load database record", error, { status: 500, logMessage: "Failed to load database record:" });
   }
 }
 
@@ -173,12 +173,11 @@ export async function PATCH(request: Request, context: Context) {
     }
     return NextResponse.json({ ...record, relations: relationMap });
   } catch (error) {
-    console.error("Failed to update database record:", error);
-    return NextResponse.json({ error: "Failed to update database record" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to update database record", error, { status: 500, logMessage: "Failed to update database record:" });
   }
 }
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id, recordId } = await context.params;
   if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(recordId).success) {
     return NextResponse.json({ error: "Invalid record ID" }, { status: 400 });
@@ -190,7 +189,6 @@ export async function DELETE(_request: Request, context: Context) {
     if (!record) return NextResponse.json({ error: "Record not found" }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete database record:", error);
-    return NextResponse.json({ error: "Failed to delete database record" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to delete database record", error, { status: 500, logMessage: "Failed to delete database record:" });
   }
 }

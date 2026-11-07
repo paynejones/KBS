@@ -4,6 +4,7 @@ import { asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 const reorderSchema = z.object({
   pageId: z.string().uuid(),
@@ -82,7 +83,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to reorder pages:", error);
-    return NextResponse.json({ error: "Failed to reorder pages." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to reorder pages.", error, { status: 500, logMessage: "Failed to reorder pages:" });
   }
 }

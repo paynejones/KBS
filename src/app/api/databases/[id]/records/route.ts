@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseRecords, databaseTemplates, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
@@ -50,7 +51,6 @@ export async function POST(request: Request, context: Context) {
     });
     return NextResponse.json({ ...record, relations: {} }, { status: 201 });
   } catch (error) {
-    console.error("Failed to create database record:", error);
-    return NextResponse.json({ error: "Failed to create database record" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to create database record", error, { status: 500, logMessage: "Failed to create database record:" });
   }
 }

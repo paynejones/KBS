@@ -1,5 +1,7 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -74,7 +76,7 @@ async function main() {
     process.env.DATABASE_URL = testUrl.toString();
     const [
       { db, pool },
-      { pages, pageLinks, databases, databaseRecords, databaseRecordRelations, databaseViews },
+      { pages, pageLinks, databases, databaseRecords, databaseRecordRelations, databaseViews, attachments: attachmentRows },
       { POST: createDatabase },
       { GET: getDatabase, DELETE: deleteDatabase },
       { POST: createProperty },
@@ -221,7 +223,7 @@ async function main() {
     assert.equal((await getPage(makeRequest(`/api/pages/${target.id}`, "GET"), routeContext({ id: target.id }))).status, 404,
       "trashed pages should not be readable through the page API");
 
-    const trashListing = await (await listTrash()).json() as { items: { id: string; descendantCount: number }[] };
+    const trashListing = await (await listTrash(makeRequest("/api/trash", "GET"))).json() as { items: { id: string; descendantCount: number }[] };
     const trashedRootEntry = trashListing.items.find((item) => item.id === target.id);
     assert.equal(trashedRootEntry?.descendantCount, 1, "the trash should list the trashed subtree once with its nested pages");
 
@@ -240,7 +242,7 @@ async function main() {
     assert.equal((await db.select().from(pages).where(eq(pages.id, grandchild.id))).length, 0,
       "permanent delete should remove the whole subtree");
 
-    const exportResponse = await exportWorkspace();
+    const exportResponse = await exportWorkspace(makeRequest("/api/export", "GET"));
     assert.equal(exportResponse.status, 200);
     const exported = await exportResponse.json() as { format: string; counts: { pages: number }; pages: { id: string }[] };
     assert.equal(exported.format, "kbs-export");
@@ -373,7 +375,7 @@ async function main() {
     assert.equal((await purgeTrashPage(makeRequest(`/api/trash/${root.id}`, "DELETE"), routeContext({ id: root.id }))).status, 404,
       "permanent delete should refuse a page that is not in the trash");
 
-    const orphanScanResponse = await getOrphanedAttachments();
+    const orphanScanResponse = await getOrphanedAttachments(makeRequest("/api/attachments/orphans", "GET"));
     assert.equal(orphanScanResponse.status, 200);
     const orphanScan = await orphanScanResponse.json() as { count: number; bytes: number; items: unknown[] };
     assert.equal(orphanScan.items.length, orphanScan.count);
@@ -626,9 +628,50 @@ async function main() {
     const targetStillExists = await db.select().from(databases).where(eq(databases.id, targetDatabase.id));
     assert.equal(targetStillExists.length, 1, "deleting one database should not affect a related database");
 
+    // A full backup must capture the export and every attachment file, and its
+    // restore check must catch a corrupted copy.
+    const backupsRoot = await mkdtemp(path.join(tmpdir(), "kbs-backup-check-"));
+    const attachmentsRoot = await mkdtemp(path.join(tmpdir(), "kbs-attachments-check-"));
+    const previousBackupsDir = process.env.BACKUPS_DIR;
+    const previousAttachmentsDir = process.env.ATTACHMENTS_DIR;
+    process.env.BACKUPS_DIR = backupsRoot;
+    process.env.ATTACHMENTS_DIR = attachmentsRoot;
+    try {
+      const { createBackup } = await import("../src/lib/backup-create");
+      const { verifyBackupDirectory } = await import("../src/lib/backup");
+      const [backupFile] = await db
+        .insert(attachmentRows)
+        .values({ filename: "backup.txt", mimeType: "text/plain", size: 8 })
+        .returning();
+      await writeFile(path.join(attachmentsRoot, backupFile.id), "contents");
+
+      const backup = await createBackup();
+      assert.equal(backup.verification.ok, true, backup.verification.errors.join("; "));
+      assert.equal(backup.manifest.totals.attachments, 1);
+      assert.deepEqual(await readdir(path.join(backup.directory, "attachments")), [backupFile.id]);
+
+      const storedExport = JSON.parse(
+        await readFile(path.join(backup.directory, "workspace.json"), "utf8"),
+      ) as { counts: Record<string, number> };
+      const allPages = await db.select().from(pages);
+      assert.equal(storedExport.counts.pages, allPages.length, "the backup should carry the exported page count");
+
+      await writeFile(path.join(backup.directory, "attachments", backupFile.id), "tampered");
+      const failedCheck = await verifyBackupDirectory(backup.directory);
+      assert.equal(failedCheck.ok, false, "a corrupted attachment copy should fail the restore check");
+      assert.match(failedCheck.errors.join("\n"), /checksum/);
+    } finally {
+      await rm(backupsRoot, { recursive: true, force: true });
+      await rm(attachmentsRoot, { recursive: true, force: true });
+      if (previousBackupsDir === undefined) delete process.env.BACKUPS_DIR;
+      else process.env.BACKUPS_DIR = previousBackupsDir;
+      if (previousAttachmentsDir === undefined) delete process.env.ATTACHMENTS_DIR;
+      else process.env.ATTACHMENTS_DIR = previousAttachmentsDir;
+    }
+
     await pool.end();
     applicationPool = undefined;
-    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, trash and restore, backlink context, dashboard widgets, workspace export, database CRUD, relations, rollups, views, and templates.");
+    console.log("Database reliability checks passed: page CRUD, favorites, tags, search, transactions, trash and restore, backlink context, dashboard widgets, workspace export, full backups, database CRUD, relations, rollups, views, and templates.");
   } finally {
     if (applicationPool) await applicationPool.end();
     try {

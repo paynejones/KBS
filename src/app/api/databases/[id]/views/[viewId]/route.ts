@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseViews } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string; viewId: string }> };
 const updateSchema = z.object({
@@ -26,12 +27,11 @@ export async function PATCH(request: Request, context: Context) {
     if (!view) return NextResponse.json({ error: "View not found" }, { status: 404 });
     return NextResponse.json(view);
   } catch (error) {
-    console.error("Failed to update database view:", error);
-    return NextResponse.json({ error: "Failed to update database view" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to update database view", error, { status: 500, logMessage: "Failed to update database view:" });
   }
 }
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id, viewId } = await context.params;
   if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(viewId).success) {
     return NextResponse.json({ error: "Invalid view ID" }, { status: 400 });
@@ -57,7 +57,6 @@ export async function DELETE(_request: Request, context: Context) {
     if (!deleted) return NextResponse.json({ error: "View not found" }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete database view:", error);
-    return NextResponse.json({ error: "Failed to delete database view" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to delete database view", error, { status: 500, logMessage: "Failed to delete database view:" });
   }
 }

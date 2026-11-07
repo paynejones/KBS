@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { pageTemplates, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 const createTemplateSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -14,13 +15,12 @@ const createTemplateSchema = z.object({
   icon: z.string().max(32).nullable().optional(),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const templates = await db.select().from(pageTemplates).orderBy(asc(pageTemplates.name));
     return NextResponse.json(templates);
   } catch (error) {
-    console.error("Failed to fetch page templates:", error);
-    return NextResponse.json({ error: "Failed to fetch page templates." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to fetch page templates.", error, { status: 500, logMessage: "Failed to fetch page templates:" });
   }
 }
 
@@ -71,7 +71,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json(template, { status: 201 });
   } catch (error) {
-    console.error("Failed to create page template:", error);
-    return NextResponse.json({ error: "Failed to create page template." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to create page template.", error, { status: 500, logMessage: "Failed to create page template:" });
   }
 }

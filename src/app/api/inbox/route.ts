@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
 import { fetchLinkPreview } from "@/lib/link-preview";
+import { apiErrorResponse } from "@/lib/api-log";
 
 const captureSchema = z.object({
   title: z.string().trim().max(200).optional(),
@@ -16,15 +17,14 @@ const captureSchema = z.object({
   message: "URL must use HTTP or HTTPS.",
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const items = await db.select().from(pages)
       .where(and(eq(pages.isInbox, true), isNull(pages.deletedAt)))
       .orderBy(desc(pages.capturedAt), desc(pages.createdAt));
     return NextResponse.json(items);
   } catch (error) {
-    console.error("Failed to load inbox:", error);
-    return NextResponse.json({ error: "Failed to load inbox." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load inbox.", error, { status: 500, logMessage: "Failed to load inbox:" });
   }
 }
 
@@ -56,7 +56,6 @@ export async function POST(request: Request) {
     }).returning();
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
-    console.error("Failed to capture inbox item:", error);
-    return NextResponse.json({ error: "Failed to save capture." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to save capture.", error, { status: 500, logMessage: "Failed to capture inbox item:" });
   }
 }

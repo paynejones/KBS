@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/reliability.test.ts tests/navigation.test.ts tests/recents.test.ts tests/trash.test.ts tests/backlinks.test.ts tests/orphans.test.ts tests/database-view.test.ts tests/calendar.test.ts tests/dashboard.test.ts tests/database-formula.test.ts tests/media.test.ts tests/media-upload.test.ts tests/markdown.test.ts tests/markdown-import.test.ts tests/link.test.ts tests/link-preview.test.ts tests/editor-popover.test.ts tests/save-status.test.ts tests/page-templates.test.ts tests/dom/media-image.test.tsx tests/dom/theme-picker.test.tsx tests/dom/recent-pages.test.tsx tests/dom/page-links.test.tsx tests/dom/record-links.test.tsx tests/dom/page-tags.test.tsx tests/dom/editor-link.test.tsx tests/dom/editor-drag-handle.test.tsx tests/dom/page-template-deep-link.test.ts tests/dom/database-view-controls.test.tsx tests/dom/database-cell-editors.test.tsx tests/dom/page-editor-link-sync.test.tsx tests/dom/inbox-capture.test.tsx tests/dom/page-quote.test.tsx",
+    "test": "tsx --test tests/reliability.test.ts tests/auth.test.ts tests/api-log.test.ts tests/backup.test.ts tests/navigation.test.ts tests/recents.test.ts tests/trash.test.ts tests/backlinks.test.ts tests/orphans.test.ts tests/database-view.test.ts tests/calendar.test.ts tests/dashboard.test.ts tests/database-formula.test.ts tests/media.test.ts tests/media-upload.test.ts tests/markdown.test.ts tests/markdown-import.test.ts tests/link.test.ts tests/link-preview.test.ts tests/editor-popover.test.ts tests/save-status.test.ts tests/page-templates.test.ts tests/dom/media-image.test.tsx tests/dom/theme-picker.test.tsx tests/dom/recent-pages.test.tsx tests/dom/page-links.test.tsx tests/dom/record-links.test.tsx tests/dom/page-tags.test.tsx tests/dom/editor-link.test.tsx tests/dom/editor-drag-handle.test.tsx tests/dom/page-template-deep-link.test.ts tests/dom/database-view-controls.test.tsx tests/dom/database-cell-editors.test.tsx tests/dom/page-editor-link-sync.test.tsx tests/dom/inbox-capture.test.tsx tests/dom/page-quote.test.tsx",
     "test:dom": "tsx --test tests/dom/media-image.test.tsx tests/dom/theme-picker.test.tsx tests/dom/recent-pages.test.tsx tests/dom/page-links.test.tsx tests/dom/record-links.test.tsx tests/dom/page-tags.test.tsx tests/dom/editor-link.test.tsx tests/dom/editor-drag-handle.test.tsx tests/dom/page-template-deep-link.test.ts tests/dom/database-view-controls.test.tsx tests/dom/database-cell-editors.test.tsx tests/dom/page-editor-link-sync.test.tsx tests/dom/inbox-capture.test.tsx tests/dom/page-quote.test.tsx",
     "test:api": "tsx --test tests/api/routes.test.ts",
     "test:browser": "playwright test",
@@ -17,7 +17,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:init-sort-order": "tsx src/db/initialize-sort-order.ts",
-    "restore:export": "tsx scripts/restore-export.ts"
+    "restore:export": "tsx scripts/restore-export.ts",
+    "backup": "tsx scripts/run-backup.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

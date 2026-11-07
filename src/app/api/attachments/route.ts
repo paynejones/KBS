@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { FILE_MIME_TYPES, IMAGE_MIME_TYPES } from "@/lib/media";
 import { storeAttachment } from "@/lib/attachment-store";
+import { apiErrorResponse } from "@/lib/api-log";
 
 export async function POST(request: Request) {
   const formData = await request.formData().catch(() => null);
@@ -16,7 +17,6 @@ export async function POST(request: Request) {
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json(result.attachment, { status: 201 });
   } catch (error) {
-    console.error("Failed to store attachment:", error);
-    return NextResponse.json({ error: "Failed to store the file." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to store the file.", error, { status: 500, logMessage: "Failed to store attachment:" });
   }
 }

@@ -3,19 +3,19 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseViews } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     return NextResponse.json(
       await db.select().from(databases).orderBy(desc(databases.updatedAt)),
     );
   } catch (error) {
-    console.error("Failed to load databases:", error);
-    return NextResponse.json({ error: "Failed to load databases" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load databases", error, { status: 500, logMessage: "Failed to load databases:" });
   }
 }
 
@@ -36,7 +36,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(database, { status: 201 });
   } catch (error) {
-    console.error("Failed to create database:", error);
-    return NextResponse.json({ error: "Failed to create database" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to create database", error, { status: 500, logMessage: "Failed to create database:" });
   }
 }

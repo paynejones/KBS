@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { databaseRecords, pageRevisions, pages } from "@/db/schema";
 import { isAllowedMediaUrl } from "@/lib/media";
 import { collectSubtreeIds } from "@/lib/trash";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = {
   params: Promise<{ id: string }>;
@@ -30,7 +31,7 @@ const updatePageSchema = z.object({
   { message: "Cover image must be an uploaded file or an http(s) URL" },
 );
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
 
   if (!idSchema.safeParse(id).success) {
@@ -50,8 +51,7 @@ export async function GET(_request: Request, context: Context) {
 
     return NextResponse.json(page);
   } catch (error) {
-    console.error("Failed to fetch page:", error);
-    return NextResponse.json({ error: "Failed to fetch page" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to fetch page", error, { status: 500, logMessage: "Failed to fetch page:" });
   }
 }
 
@@ -244,14 +244,13 @@ export async function PATCH(request: Request, context: Context) {
 
   return NextResponse.json(page);
   } catch (error) {
-    console.error("Failed to update page:", error);
-    return NextResponse.json({ error: "Failed to update page" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to update page", error, { status: 500, logMessage: "Failed to update page:" });
   }
 }
 
 
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id } = await context.params;
 
   if (!idSchema.safeParse(id).success) {
@@ -293,7 +292,6 @@ export async function DELETE(_request: Request, context: Context) {
 
     return NextResponse.json({ success: true, trashedCount });
   } catch (error) {
-    console.error("Failed to delete page:", error);
-    return NextResponse.json({ error: "Failed to delete page" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to delete page", error, { status: 500, logMessage: "Failed to delete page:" });
   }
 }

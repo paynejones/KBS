@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseProperties } from "@/db/schema";
 import { parseFormula } from "@/lib/database-formula";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
@@ -84,7 +85,6 @@ export async function POST(request: Request, context: Context) {
     }).returning();
     return NextResponse.json(property, { status: 201 });
   } catch (error) {
-    console.error("Failed to create database property:", error);
-    return NextResponse.json({ error: "Failed to create database property" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to create database property", error, { status: 500, logMessage: "Failed to create database property:" });
   }
 }

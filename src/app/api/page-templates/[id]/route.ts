@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { pageTemplates } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) {
     return NextResponse.json({ error: "Invalid template ID" }, { status: 400 });
@@ -24,7 +25,6 @@ export async function DELETE(_request: Request, context: Context) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete page template:", error);
-    return NextResponse.json({ error: "Failed to delete page template." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to delete page template.", error, { status: 500, logMessage: "Failed to delete page template:" });
   }
 }

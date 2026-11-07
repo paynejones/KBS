@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseTemplates } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string; templateId: string }> };
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id, templateId } = await context.params;
   if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(templateId).success) {
     return NextResponse.json({ error: "Invalid template ID" }, { status: 400 });
@@ -19,7 +20,6 @@ export async function DELETE(_request: Request, context: Context) {
     if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete database template:", error);
-    return NextResponse.json({ error: "Failed to delete template" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to delete template", error, { status: 500, logMessage: "Failed to delete database template:" });
   }
 }

@@ -2,12 +2,13 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { tags } from "@/db/schema";
 import { z } from "zod";
+import { apiErrorResponse } from "@/lib/api-log";
 
 const createTagSchema = z.object({
   name: z.string().trim().min(1).max(50),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const results = await db
       .select()
@@ -16,12 +17,7 @@ export async function GET() {
 
     return Response.json(results);
   } catch (error) {
-    console.error("Failed to fetch tags:", error);
-
-    return Response.json(
-      { error: "Failed to fetch tags." },
-      { status: 500 }
-    );
+    return apiErrorResponse(request, "Failed to fetch tags.", error, { status: 500, logMessage: "Failed to fetch tags:" });
   }
 }
 
@@ -56,11 +52,6 @@ export async function POST(request: Request) {
 
     return Response.json(newTag, { status: 201 });
   } catch (error) {
-    console.error("Failed to create tag:", error);
-
-    return Response.json(
-      { error: "Failed to create tag." },
-      { status: 500 }
-    );
+    return apiErrorResponse(request, "Failed to create tag.", error, { status: 500, logMessage: "Failed to create tag:" });
   }
 }

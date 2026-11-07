@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseProperties, databaseRecords, databaseRecordRelations, databaseTemplates, databaseViews } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
@@ -11,7 +12,7 @@ const updateSchema = z.object({
   description: z.string().max(2000).optional(),
 }).refine((data) => Object.keys(data).length > 0);
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) return NextResponse.json({ error: "Invalid database ID" }, { status: 400 });
   try {
@@ -41,8 +42,7 @@ export async function GET(_request: Request, context: Context) {
     }));
     return NextResponse.json({ ...database, properties, records: recordsWithRelations, views, templates });
   } catch (error) {
-    console.error("Failed to load database:", error);
-    return NextResponse.json({ error: "Failed to load database" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load database", error, { status: 500, logMessage: "Failed to load database:" });
   }
 }
 
@@ -56,12 +56,11 @@ export async function PATCH(request: Request, context: Context) {
     if (!database) return NextResponse.json({ error: "Database not found" }, { status: 404 });
     return NextResponse.json(database);
   } catch (error) {
-    console.error("Failed to update database:", error);
-    return NextResponse.json({ error: "Failed to update database" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to update database", error, { status: 500, logMessage: "Failed to update database:" });
   }
 }
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) return NextResponse.json({ error: "Invalid database ID" }, { status: 400 });
   try {
@@ -69,7 +68,6 @@ export async function DELETE(_request: Request, context: Context) {
     if (!database) return NextResponse.json({ error: "Database not found" }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete database:", error);
-    return NextResponse.json({ error: "Failed to delete database" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to delete database", error, { status: 500, logMessage: "Failed to delete database:" });
   }
 }

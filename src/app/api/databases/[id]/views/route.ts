@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseViews } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
@@ -32,7 +33,6 @@ export async function POST(request: Request, context: Context) {
     }).returning();
     return NextResponse.json(view, { status: 201 });
   } catch (error) {
-    console.error("Failed to create database view:", error);
-    return NextResponse.json({ error: "Failed to create database view" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to create database view", error, { status: 500, logMessage: "Failed to create database view:" });
   }
 }

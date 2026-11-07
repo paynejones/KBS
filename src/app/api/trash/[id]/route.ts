@@ -6,10 +6,11 @@ import { pages } from "@/db/schema";
 import { attachmentIdsInText } from "@/lib/media";
 import { removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
 import { collectSubtreeIds } from "@/lib/trash";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) {
     return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
@@ -63,7 +64,6 @@ export async function DELETE(_request: Request, context: Context) {
       bytesFreed: purged.bytes,
     });
   } catch (error) {
-    console.error("Failed to permanently delete page:", error);
-    return NextResponse.json({ error: "Failed to delete page." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to delete page.", error, { status: 500, logMessage: "Failed to permanently delete page:" });
   }
 }

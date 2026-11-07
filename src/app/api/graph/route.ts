@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { asc, eq, exists, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { databaseRecords, pageLinks, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 export async function GET(request: Request) {
   try {
@@ -48,7 +49,6 @@ export async function GET(request: Request) {
       edges: [...hierarchyEdges, ...explicitEdges],
     });
   } catch (error) {
-    console.error("Failed to load page graph:", error);
-    return NextResponse.json({ error: "Failed to load page graph" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load page graph", error, { status: 500, logMessage: "Failed to load page graph:" });
   }
 }

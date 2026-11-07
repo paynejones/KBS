@@ -3,16 +3,13 @@ import path from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { attachments } from "@/db/schema";
+import { attachmentsDirectory } from "@/lib/attachment-paths";
 import {
   FILE_MIME_TYPES,
   IMAGE_MIME_TYPES,
   MAX_ATTACHMENT_BYTES,
   attachmentUrl,
 } from "@/lib/media";
-
-function attachmentsDirectory() {
-  return process.env.ATTACHMENTS_DIR || path.join(process.cwd(), "data", "attachments");
-}
 
 function attachmentPath(id: string) {
   return path.join(attachmentsDirectory(), id);

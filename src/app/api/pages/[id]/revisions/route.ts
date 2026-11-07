@@ -3,12 +3,13 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { pageRevisions, pages } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
 const restoreSchema = z.object({ revisionId: z.string().uuid() });
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) {
     return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
@@ -27,8 +28,7 @@ export async function GET(_request: Request, context: Context) {
 
     return NextResponse.json(revisions);
   } catch (error) {
-    console.error("Failed to fetch page revisions:", error);
-    return NextResponse.json({ error: "Failed to fetch page revisions" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to fetch page revisions", error, { status: 500, logMessage: "Failed to fetch page revisions:" });
   }
 }
 
@@ -84,7 +84,6 @@ export async function POST(request: Request, context: Context) {
     }
     return NextResponse.json(restoredPage.page);
   } catch (error) {
-    console.error("Failed to restore page revision:", error);
-    return NextResponse.json({ error: "Failed to restore page revision" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to restore page revision", error, { status: 500, logMessage: "Failed to restore page revision:" });
   }
 }

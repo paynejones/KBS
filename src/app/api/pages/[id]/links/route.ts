@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { pageLinks, pages } from "@/db/schema";
 import { backlinkContexts } from "@/lib/backlinks";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
@@ -12,7 +13,7 @@ const linkSchema = z.object({
   origin: z.enum(["inline", "manual"]).optional(),
 });
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) {
     return NextResponse.json({ error: "Invalid page ID" }, { status: 400 });
@@ -54,8 +55,7 @@ export async function GET(_request: Request, context: Context) {
 
     return NextResponse.json({ links, backlinks });
   } catch (error) {
-    console.error("Failed to load page links:", error);
-    return NextResponse.json({ error: "Failed to load page links" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load page links", error, { status: 500, logMessage: "Failed to load page links:" });
   }
 }
 
@@ -100,8 +100,7 @@ export async function POST(request: Request, context: Context) {
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
-    console.error("Failed to link pages:", error);
-    return NextResponse.json({ error: "Failed to link pages" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to link pages", error, { status: 500, logMessage: "Failed to link pages:" });
   }
 }
 
@@ -127,7 +126,6 @@ export async function DELETE(request: Request, context: Context) {
       );
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to unlink pages:", error);
-    return NextResponse.json({ error: "Failed to unlink pages" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to unlink pages", error, { status: 500, logMessage: "Failed to unlink pages:" });
   }
 }

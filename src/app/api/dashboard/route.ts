@@ -98,7 +98,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ views, widgets });
   } catch (error) {
-    console.error("Failed to load dashboard widgets:", error);
-    return NextResponse.json({ error: "Failed to load dashboard widgets" }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load dashboard widgets", error, { status: 500, logMessage: "Failed to load dashboard widgets:" });
   }
 }
+
+import { apiErrorResponse } from "@/lib/api-log";

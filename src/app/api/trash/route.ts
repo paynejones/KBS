@@ -3,6 +3,7 @@ import { desc, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
 import { descendantCount, trashedRoots } from "@/lib/trash";
+import { apiErrorResponse } from "@/lib/api-log";
 
 type TrashItem = {
   id: string;
@@ -13,7 +14,7 @@ type TrashItem = {
   descendantCount: number;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const [trashed, hierarchy] = await Promise.all([
       db
@@ -43,7 +44,6 @@ export async function GET() {
 
     return NextResponse.json({ items, totalTrashed: trashed.length });
   } catch (error) {
-    console.error("Failed to load trash:", error);
-    return NextResponse.json({ error: "Failed to load trash." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to load trash.", error, { status: 500, logMessage: "Failed to load trash:" });
   }
 }

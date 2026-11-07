@@ -1,99 +1,11 @@
 import { NextResponse } from "next/server";
-import { db } from "@/db";
-import {
-  attachments,
-  databaseProperties,
-  databaseRecordRelations,
-  databaseRecords,
-  databases,
-  databaseTemplates,
-  databaseViews,
-  pageLinks,
-  pageRevisions,
-  pageTags,
-  pageTemplates,
-  pages,
-  tags,
-} from "@/db/schema";
-import { attachmentUrl } from "@/lib/media";
+import { buildWorkspaceExport } from "@/lib/workspace-export";
+import { apiErrorResponse } from "@/lib/api-log";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const [
-      pageRows,
-      revisionRows,
-      tagRows,
-      pageTagRows,
-      linkRows,
-      databaseRows,
-      propertyRows,
-      viewRows,
-      recordRows,
-      templateRows,
-      pageTemplateRows,
-      relationRows,
-      attachmentRows,
-    ] = await Promise.all([
-      db.select().from(pages),
-      db.select().from(pageRevisions),
-      db.select().from(tags),
-      db.select().from(pageTags),
-      db.select().from(pageLinks),
-      db.select().from(databases),
-      db.select().from(databaseProperties),
-      db.select().from(databaseViews),
-      db.select().from(databaseRecords),
-      db.select().from(databaseTemplates),
-      db.select().from(pageTemplates),
-      db.select().from(databaseRecordRelations),
-      db.select().from(attachments),
-    ]);
-
     const exportedAt = new Date();
-    const payload = {
-      format: "kbs-export",
-      version: 1,
-      exportedAt: exportedAt.toISOString(),
-      counts: {
-        pages: pageRows.length,
-        trashedPages: pageRows.filter((page) => page.deletedAt !== null).length,
-        pageRevisions: revisionRows.length,
-        tags: tagRows.length,
-        pageTags: pageTagRows.length,
-        pageLinks: linkRows.length,
-        databases: databaseRows.length,
-        databaseProperties: propertyRows.length,
-        databaseViews: viewRows.length,
-        databaseRecords: recordRows.length,
-        databaseTemplates: templateRows.length,
-        pageTemplates: pageTemplateRows.length,
-        databaseRecordRelations: relationRows.length,
-        attachments: attachmentRows.length,
-      },
-      pages: pageRows,
-      pageRevisions: revisionRows,
-      tags: tagRows,
-      pageTags: pageTagRows,
-      pageLinks: linkRows,
-      databases: databaseRows,
-      databaseProperties: propertyRows,
-      databaseViews: viewRows,
-      databaseRecords: recordRows,
-      databaseTemplates: templateRows,
-      pageTemplates: pageTemplateRows,
-      databaseRecordRelations: relationRows,
-      attachments: attachmentRows.map((row) => ({
-        id: row.id,
-        filename: row.filename,
-        mimeType: row.mimeType,
-        size: row.size,
-        createdAt: row.createdAt,
-        url: attachmentUrl(row.id),
-      })),
-      attachmentsNote:
-        "Attachment bytes are not embedded in this file. Back up the attachments directory (ATTACHMENTS_DIR or data/attachments) with it.",
-    };
-
+    const payload = await buildWorkspaceExport(exportedAt);
     const filename = `kbs-export-${exportedAt.toISOString().slice(0, 10)}.json`;
 
     return NextResponse.json(payload, {
@@ -103,7 +15,6 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error("Failed to export workspace:", error);
-    return NextResponse.json({ error: "Failed to export the workspace." }, { status: 500 });
+    return apiErrorResponse(request, "Failed to export the workspace.", error, { status: 500, logMessage: "Failed to export workspace:" });
   }
 }
