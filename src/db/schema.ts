@@ -13,6 +13,16 @@ import {
   boolean,
 } from "drizzle-orm/pg-core";
 
+// Metadata read from a captured link's page. Stored alongside the source URL
+// so the inbox can show a real preview without re-fetching on every load.
+export type LinkPreviewMetadata = {
+  title: string | null;
+  description: string | null;
+  siteName: string | null;
+  imageUrl: string | null;
+  faviconUrl: string | null;
+};
+
 export const pages = pgTable(
   "pages",
   {
@@ -28,6 +38,10 @@ export const pages = pgTable(
     isInbox: boolean("is_inbox").notNull().default(false),
     sourceUrl: text("source_url"),
     capturedAt: timestamp("captured_at", { withTimezone: true }),
+
+    // Null when the captured URL could not be read: offline, non-HTML, or a
+    // target the server refuses to fetch.
+    linkPreview: jsonb("link_preview").$type<LinkPreviewMetadata | null>(),
 
     // Soft delete. Trashed pages keep their rows so they can be restored
     // with their revisions, tags, and links intact.

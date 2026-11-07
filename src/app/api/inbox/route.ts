@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
+import { fetchLinkPreview } from "@/lib/link-preview";
 
 const captureSchema = z.object({
   title: z.string().trim().max(200).optional(),
@@ -34,7 +35,8 @@ export async function POST(request: Request) {
   }
 
   const sourceUrl = parsed.data.sourceUrl || null;
-  const derivedTitle = parsed.data.title || (sourceUrl ? new URL(sourceUrl).hostname : "Quick note");
+  const preview = sourceUrl ? await fetchLinkPreview(sourceUrl) : null;
+  const derivedTitle = parsed.data.title || preview?.title || (sourceUrl ? new URL(sourceUrl).hostname : "Quick note");
   const content = parsed.data.content ?? "";
   const contentJson = content
     ? { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] }
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
       contentJson,
       isInbox: true,
       sourceUrl,
+      linkPreview: preview,
       capturedAt: new Date(),
     }).returning();
     return NextResponse.json(item, { status: 201 });

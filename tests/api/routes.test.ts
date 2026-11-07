@@ -297,15 +297,51 @@ describe("inbox API", () => {
     assert.equal(item.contentJson.content[0]?.content[0]?.text, "Captured thought");
   });
 
-  it("derives a title from the source URL host", async () => {
-    const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
-      sourceUrl: "https://example.com/read-later",
-    }));
+  it("derives a title from the source URL host when the page cannot be read", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    try {
+      const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+        sourceUrl: "https://example.com/read-later",
+      }));
 
-    assert.equal(response.status, 201);
-    const item = await body<PageRow & { sourceUrl: string }>(response);
-    assert.equal(item.title, "example.com");
-    assert.equal(item.sourceUrl, "https://example.com/read-later");
+      assert.equal(response.status, 201);
+      const item = await body<PageRow & { sourceUrl: string; linkPreview: unknown }>(response);
+      assert.equal(item.title, "example.com");
+      assert.equal(item.sourceUrl, "https://example.com/read-later");
+      assert.equal(item.linkPreview, null, "an unreadable page leaves no preview");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("stores link metadata read from the captured page", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(`<html><head>
+      <meta property="og:title" content="Episode 4 recap" />
+      <meta property="og:description" content="What we watched this week." />
+      <meta property="og:site_name" content="Example Reads" />
+      <meta property="og:image" content="https://example.com/cover.jpg" />
+      <link rel="icon" href="/favicon.png" />
+    </head></html>`, { status: 200, headers: { "content-type": "text/html" } });
+    try {
+      const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+        sourceUrl: "http://93.184.216.34/episode-4",
+      }));
+
+      assert.equal(response.status, 201);
+      const item = await body<{
+        title: string;
+        linkPreview: { title: string; description: string; siteName: string; imageUrl: string; faviconUrl: string };
+      }>(response);
+      assert.equal(item.title, "Episode 4 recap", "the page title names the capture");
+      assert.equal(item.linkPreview.description, "What we watched this week.");
+      assert.equal(item.linkPreview.siteName, "Example Reads");
+      assert.equal(item.linkPreview.imageUrl, "https://example.com/cover.jpg");
+      assert.equal(item.linkPreview.faviconUrl, "http://93.184.216.34/favicon.png");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("lists inbox items only and removes them when organized", async () => {

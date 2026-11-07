@@ -7,11 +7,19 @@ import { ArrowRight, ExternalLink, Inbox as InboxIcon, Link2, Plus } from "lucid
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 
+type LinkPreview = {
+  title: string | null;
+  description: string | null;
+  siteName: string | null;
+  imageUrl: string | null;
+  faviconUrl: string | null;
+};
 type InboxItem = {
   id: string;
   title: string;
   content: string;
   sourceUrl: string | null;
+  linkPreview: LinkPreview | null;
   capturedAt: string | null;
   createdAt: string;
 };
@@ -187,14 +195,34 @@ export default function InboxPage() {
                   {item.content && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.content}</p>}
                   {item.sourceUrl && (() => {
                     const source = linkSource(item.sourceUrl);
+                    const preview = item.linkPreview;
                     return (
-                      <div className="mt-4 flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground"><ExternalLink size={16} aria-hidden="true" /></span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{item.title || source.host}</p>
-                          <p className="truncate text-xs text-muted-foreground">{source.host}{source.path}</p>
+                      <div className="mt-4 overflow-hidden rounded-lg border bg-muted/20">
+                        {preview?.imageUrl && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={preview.imageUrl}
+                            alt=""
+                            className="h-40 w-full border-b bg-background object-cover"
+                            onError={(event) => { event.currentTarget.hidden = true; }}
+                          />
+                        )}
+                        <div className="flex items-start gap-3 p-3">
+                          <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-background text-muted-foreground">
+                            {preview?.faviconUrl
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={preview.faviconUrl} alt="" className="size-5" onError={(event) => { event.currentTarget.hidden = true; }} />
+                              : <ExternalLink size={16} aria-hidden="true" />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{item.title || preview?.title || source.host}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {preview?.siteName ? `${preview.siteName} · ` : ""}{source.host}{source.path}
+                            </p>
+                            {preview?.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{preview.description}</p>}
+                          </div>
+                          <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open ${source.host} in a new tab`} className="shrink-0 rounded-md px-2.5 py-1.5 text-sm font-medium text-primary hover:bg-accent">Open link</a>
                         </div>
-                        <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open ${source.host} in a new tab`} className="shrink-0 rounded-md px-2.5 py-1.5 text-sm font-medium text-primary hover:bg-accent">Open link</a>
                       </div>
                     );
                   })()}
