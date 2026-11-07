@@ -15,6 +15,21 @@ export const FILE_MIME_TYPES = [
   "application/pdf",
 ] as const;
 
+/** A file captured into the inbox, stored beside the page that references it. */
+export type CapturedAttachment = {
+  id: string;
+  url: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+};
+
+export function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export type FilePropertyValue = {
   attachmentId: string | null;
   url: string;

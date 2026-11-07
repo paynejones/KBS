@@ -17,10 +17,12 @@
 /blob-report/
 /tests/.tmp-attachments-*
 /tests/.browser-test-database.json
+/tests/.browser-auth-state.json
 
 # next.js
 /.next/
 /.next-browser-test/
+/.next-preview-ui/
 /out/
 
 # production

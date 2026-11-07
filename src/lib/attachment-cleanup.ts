@@ -18,8 +18,8 @@ function addIds(target: Set<string>, value: unknown) {
 }
 
 /**
- * Every attachment id still referenced by page content, page covers, page
- * revisions, database record values, or database record templates.
+ * Every attachment id still referenced by page content, page covers, captured
+ * inbox files, page revisions, database record values, or database templates.
  *
  * Revisions are included on purpose: deleting a file that only an older
  * revision uses would break restoring that revision.
@@ -31,6 +31,7 @@ export async function referencedAttachmentIdSet(): Promise<Set<string>> {
         content: pages.content,
         contentJson: pages.contentJson,
         coverImageUrl: pages.coverImageUrl,
+        captureAttachment: pages.captureAttachment,
       })
       .from(pages),
     db
@@ -45,6 +46,7 @@ export async function referencedAttachmentIdSet(): Promise<Set<string>> {
     addIds(ids, row.content);
     addIds(ids, row.contentJson);
     addIds(ids, row.coverImageUrl);
+    addIds(ids, row.captureAttachment);
   }
   for (const row of revisionRows) {
     addIds(ids, row.content);

@@ -18,6 +18,7 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Let the inbox keep a file, not just its address. Captures now accept one image or PDF up to the attachment limit: the file is stored through the existing attachment route, the inbox card shows an image preview or a named file row with its size and an open action, and the capture becomes a normal page whose body embeds the image or links the file. Moving the capture into Pages or a database keeps the file with it, and the orphan scan counts the capture as a reference so cleaning up unused files never deletes it.
 - Let a saved link keep the passage you meant to remember. Capturing a URL now accepts optional selected text, stored on the page beside its source and shown as a quote above the link's preview in the inbox. The quote stays with the item when it is moved into Pages and is shown again above the body when that page is opened, where it can be corrected or removed in place.
 - Connected pages and database records in both directions. A page's connections panel lists the records it is linked to, a record shows the pages linked to it, and either side can add or remove the same connection, which is stored once and disappears when either end is deleted. The new Unconnected view lists active pages with no parent, children, tags, page links, or record links, and records with no relations or page links, so unconnected material can be found and either connected or removed.
 - Let the inline link control target pages, not just web addresses. Typing a title in the Link panel lists matching pages, arrow keys and Enter choose one, picking a page writes a `/pages/<id>` link and records the connection so backlinks see it, and reopening a page link shows the page's title instead of its path.
@@ -113,7 +114,7 @@ Make it easy to save something now and organize it later.
 - [x] Render saved links as compact previews that show the title and source and open the original URL directly.
 - [x] Store a saved link's title, address, description, site name, preview image, and favicon.
 - [x] Store optional selected text alongside a saved link, so a quote stays attached to its source and shows above that link's preview in the inbox.
-- Add file, image, and PDF capture now that attachment storage and previews are in place.
+- [x] Add file, image, and PDF capture now that attachment storage and previews are in place.
 - Consider a browser extension as a later companion to the core inbox, not a prerequisite.
 
 ### 5. Make relationships useful across the system

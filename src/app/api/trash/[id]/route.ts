@@ -31,6 +31,7 @@ export async function DELETE(request: Request, context: Context) {
           content: pages.content,
           contentJson: pages.contentJson,
           coverImageUrl: pages.coverImageUrl,
+          captureAttachment: pages.captureAttachment,
         })
         .from(pages)
         .where(inArray(pages.id, ids));
@@ -42,6 +43,9 @@ export async function DELETE(request: Request, context: Context) {
           candidates.add(attachmentId);
         }
         for (const attachmentId of attachmentIdsInText(row.coverImageUrl)) candidates.add(attachmentId);
+        for (const attachmentId of attachmentIdsInText(JSON.stringify(row.captureAttachment))) {
+          candidates.add(attachmentId);
+        }
       }
 
       // Revisions, tags, links, and embed references cascade or detach here.

@@ -382,11 +382,11 @@ describe("page quote API", () => {
 });
 
 describe("inbox API", () => {
-  it("requires a title, note, or URL", async () => {
+  it("requires a title, note, link, or file", async () => {
     const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {}));
 
     assert.equal(response.status, 400);
-    assert.equal((await body(response)).error, "Add a title, note, or URL to capture.");
+    assert.equal((await body(response)).error, "Add a title, note, link, or file to capture.");
   });
 
   it("rejects non-HTTP source URLs", async () => {
@@ -411,6 +411,45 @@ describe("inbox API", () => {
     assert.equal(item.contentJson.type, "doc");
     assert.equal(item.contentJson.content[0]?.type, "paragraph");
     assert.equal(item.contentJson.content[0]?.content[0]?.text, "Captured thought");
+  });
+
+  it("keeps an uploaded PDF with the capture", async () => {
+    const upload = await api.attachments.POST(formRequest(
+      "/api/attachments",
+      uploadForm(new File([new Uint8Array([37, 80, 68, 70])], "syllabus.pdf", { type: "application/pdf" })),
+    ));
+    assert.equal(upload.status, 201);
+    const stored = await body<{ id: string; url: string }>(upload);
+
+    const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+      attachmentId: stored.id,
+    }));
+
+    assert.equal(response.status, 201);
+    const item = await body<PageRow & {
+      captureAttachment: { id: string; url: string; filename: string; mimeType: string; size: number } | null;
+      contentJson: { content: { type: string; content?: { text: string; marks?: { type: string; attrs: { href: string } }[] }[] }[] };
+    }>(response);
+    assert.equal(item.title, "syllabus", "the file name titles the capture");
+    assert.equal(item.content, "syllabus.pdf");
+    assert.deepEqual(item.captureAttachment, {
+      id: stored.id,
+      url: stored.url,
+      filename: "syllabus.pdf",
+      mimeType: "application/pdf",
+      size: 4,
+    });
+    const link = item.contentJson.content[0]?.content?.[0];
+    assert.equal(link?.text, "syllabus.pdf");
+    assert.equal(link?.marks?.[0]?.attrs.href, stored.url);
+  });
+
+  it("rejects an attachment id that was never uploaded", async () => {
+    const response = await api.inbox.POST(jsonRequest("/api/inbox", "POST", {
+      attachmentId: MISSING_ID,
+    }));
+
+    assert.equal(response.status, 400);
   });
 
   it("stores optional selected text with a saved link", async () => {
@@ -454,7 +493,7 @@ describe("inbox API", () => {
     }));
 
     assert.equal(response.status, 400);
-    assert.equal((await body(response)).error, "Add a title, note, or URL to capture.");
+    assert.equal((await body(response)).error, "Add a title, note, link, or file to capture.");
   });
 
   it("derives a title from the source URL host when the page cannot be read", async () => {

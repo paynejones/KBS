@@ -134,6 +134,13 @@
       "when": 1794089210968,
       "tag": "0018_zippy_stingray",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794091072932,
+      "tag": "0019_capture_attachment",
+      "breakpoints": true
     }
   ]
 }

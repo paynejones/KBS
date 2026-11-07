@@ -2,6 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { createTestDatabase } from "../tests/api/db-harness";
 import {
+  BROWSER_TEST_PASSWORD,
+  BROWSER_TEST_PORT,
+  BROWSER_TEST_SECRET,
+} from "../tests/browser/auth";
+import {
   dropRecordedTestDatabase,
   forgetTestDatabase,
   readTestDatabaseState,
@@ -9,7 +14,7 @@ import {
 } from "../tests/browser/test-database-state";
 
 const hostname = "127.0.0.1";
-const port = process.env.PLAYWRIGHT_PORT?.trim() || "3100";
+const port = BROWSER_TEST_PORT;
 
 let database: Awaited<ReturnType<typeof createTestDatabase>> | null = null;
 let server: ChildProcess | null = null;
@@ -69,6 +74,10 @@ async function main() {
     ATTACHMENTS_DIR: database.attachmentsDir,
     NEXT_DIST_DIR: ".next-browser-test",
     NEXT_TELEMETRY_DISABLED: "1",
+    // `next start` is a production server, and production fails closed without
+    // sign-in configured. The suite signs in with these throwaway credentials.
+    KBS_AUTH_PASSWORD: BROWSER_TEST_PASSWORD,
+    KBS_AUTH_SECRET: BROWSER_TEST_SECRET,
   };
 
   server = spawn(process.execPath, [nextBin, "build", "--webpack"], {

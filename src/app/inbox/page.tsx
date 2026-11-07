@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ExternalLink, Inbox as InboxIcon, Link2, Plus } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { CaptureFilePicker } from "@/components/capture-file-picker";
+import { InboxAttachmentPreview } from "@/components/inbox-attachment";
 import { Button } from "@/components/ui/button";
+import { validateCaptureFile } from "@/lib/inbox-capture";
+import { uploadAttachment, type CapturedAttachment } from "@/lib/media";
 
 type LinkPreview = {
   title: string | null;
@@ -21,6 +25,7 @@ type InboxItem = {
   sourceUrl: string | null;
   selectedText: string | null;
   linkPreview: LinkPreview | null;
+  captureAttachment: CapturedAttachment | null;
   capturedAt: string | null;
   createdAt: string;
 };
@@ -44,8 +49,10 @@ export default function InboxPage() {
   const [content, setContent] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [selectedText, setSelectedText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -93,11 +100,23 @@ export default function InboxPage() {
     return () => { cancelled = true; };
   }, []);
 
+  function chooseFile(next: File) {
+    const message = validateCaptureFile(next);
+    setError(message ?? "");
+    setFile(message ? null : next);
+  }
+
   async function capture(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError("");
     try {
+      let attachmentId: string | undefined;
+      if (file) {
+        setUploading(true);
+        const uploaded = await uploadAttachment(file);
+        attachmentId = uploaded.id;
+      }
       const response = await fetch("/api/inbox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -106,6 +125,7 @@ export default function InboxPage() {
           content,
           sourceUrl,
           selectedText: sourceUrl.trim() ? selectedText : undefined,
+          attachmentId,
         }),
       });
       const data = await response.json();
@@ -115,9 +135,11 @@ export default function InboxPage() {
       setContent("");
       setSourceUrl("");
       setSelectedText("");
+      setFile(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save this capture.");
     } finally {
+      setUploading(false);
       setSaving(false);
     }
   }
@@ -161,7 +183,7 @@ export default function InboxPage() {
             <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><InboxIcon size={20} /></span>
             <div>
               <h1 className="text-3xl font-semibold tracking-tight">Capture inbox</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Save a thought or link now. Sort it into your pages when you’re ready.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Save a thought, a link, or a file now. Sort it into your pages when you’re ready.</p>
             </div>
           </div>
         </header>
@@ -177,10 +199,11 @@ export default function InboxPage() {
               <span className="sr-only">Source URL</span>
               <input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="Paste a link (optional)" className="min-w-0 flex-1 bg-transparent py-2 text-foreground outline-none placeholder:text-muted-foreground" />
             </label>
-            <Button type="submit" disabled={saving || (!title.trim() && !content.trim() && !sourceUrl.trim())}>
-              <Plus size={16} /> {saving ? "Saving…" : "Capture"}
+            <Button type="submit" disabled={saving || (!title.trim() && !content.trim() && !sourceUrl.trim() && !file)}>
+              <Plus size={16} /> {uploading ? "Uploading…" : saving ? "Saving…" : "Capture"}
             </Button>
           </div>
+          <CaptureFilePicker file={file} onSelect={chooseFile} onClear={() => setFile(null)} disabled={saving} />
           {sourceUrl.trim() && (
             <>
               <label className="sr-only" htmlFor="capture-selected-text">Selected text</label>
@@ -207,6 +230,7 @@ export default function InboxPage() {
                 <div className="min-w-0 flex-1">
                   <h3 className="break-words font-medium">{item.title || "Quick note"}</h3>
                   {item.content && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.content}</p>}
+                  {item.captureAttachment && <InboxAttachmentPreview attachment={item.captureAttachment} />}
                   {item.sourceUrl && item.selectedText && (
                     <blockquote className="mt-3 border-l-2 border-primary/40 pl-3 text-sm italic text-muted-foreground">
                       <p className="whitespace-pre-wrap break-words">{item.selectedText}</p>
@@ -253,7 +277,7 @@ export default function InboxPage() {
                 </div>
               </div>
             </article>
-          )) : <div className="rounded-xl border border-dashed bg-card p-9 text-center"><InboxIcon className="mx-auto text-muted-foreground" size={24} /><p className="mt-3 font-medium">Your inbox is clear</p><p className="mt-1 text-sm text-muted-foreground">New notes and saved links will show up here.</p></div>}
+          )) : <div className="rounded-xl border border-dashed bg-card p-9 text-center"><InboxIcon className="mx-auto text-muted-foreground" size={24} /><p className="mt-3 font-medium">Your inbox is clear</p><p className="mt-1 text-sm text-muted-foreground">New notes, saved links, and files will show up here.</p></div>}
         </section>
       </div>
     </AppShell>

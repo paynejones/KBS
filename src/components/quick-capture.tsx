@@ -2,7 +2,10 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { Inbox, Link2, Plus, X } from "lucide-react";
+import { CaptureFilePicker } from "@/components/capture-file-picker";
 import { Button } from "@/components/ui/button";
+import { validateCaptureFile } from "@/lib/inbox-capture";
+import { uploadAttachment } from "@/lib/media";
 
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
@@ -10,7 +13,9 @@ export function QuickCapture() {
   const [content, setContent] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [selectedText, setSelectedText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
@@ -38,11 +43,23 @@ export function QuickCapture() {
     setSuccess(false);
   }
 
+  function chooseFile(next: File) {
+    const message = validateCaptureFile(next);
+    setError(message ?? "");
+    setFile(message ? null : next);
+  }
+
   async function capture(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError("");
     try {
+      let attachmentId: string | undefined;
+      if (file) {
+        setUploading(true);
+        const uploaded = await uploadAttachment(file);
+        attachmentId = uploaded.id;
+      }
       const response = await fetch("/api/inbox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -51,6 +68,7 @@ export function QuickCapture() {
           content,
           sourceUrl,
           selectedText: sourceUrl.trim() ? selectedText : undefined,
+          attachmentId,
         }),
       });
       const data = await response.json();
@@ -59,11 +77,13 @@ export function QuickCapture() {
       setContent("");
       setSourceUrl("");
       setSelectedText("");
+      setFile(null);
       setSuccess(true);
       window.dispatchEvent(new Event("inbox-updated"));
     } catch (captureError) {
       setError(captureError instanceof Error ? captureError.message : "Could not save this capture.");
     } finally {
+      setUploading(false);
       setSaving(false);
     }
   }
@@ -107,6 +127,7 @@ export function QuickCapture() {
                   <span className="sr-only">Source URL</span>
                   <input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="Paste a link (optional)" className="min-w-0 flex-1 bg-transparent py-2 text-foreground outline-none placeholder:text-muted-foreground" />
                 </label>
+                <CaptureFilePicker file={file} onSelect={chooseFile} onClear={() => setFile(null)} disabled={saving} />
                 {sourceUrl.trim() && (
                   <>
                     <label className="sr-only" htmlFor="quick-capture-selected">Selected text</label>
@@ -116,7 +137,7 @@ export function QuickCapture() {
                 {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
                 <div className="flex items-center justify-between gap-3 border-t pt-3">
                   <span className="text-xs text-muted-foreground">Saved to your inbox</span>
-                  <Button type="submit" disabled={saving || (!title.trim() && !content.trim() && !sourceUrl.trim())}><Plus size={16} />{saving ? "Saving…" : "Capture"}</Button>
+                  <Button type="submit" disabled={saving || (!title.trim() && !content.trim() && !sourceUrl.trim() && !file)}><Plus size={16} />{uploading ? "Uploading…" : saving ? "Saving…" : "Capture"}</Button>
                 </div>
               </form>
             )}

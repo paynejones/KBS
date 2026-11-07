@@ -1,4 +1,5 @@
 
+import type { CapturedAttachment } from "@/lib/media";
 import {
   pgTable,
   text,
@@ -45,6 +46,10 @@ export const pages = pgTable(
     // Null when the captured URL could not be read: offline, non-HTML, or a
     // target the server refuses to fetch.
     linkPreview: jsonb("link_preview").$type<LinkPreviewMetadata | null>(),
+
+    // The file saved with an inbox capture. The URL travels with it so the
+    // usual reference scan keeps the bytes while this page exists.
+    captureAttachment: jsonb("capture_attachment").$type<CapturedAttachment | null>(),
 
     // Soft delete. Trashed pages keep their rows so they can be restored
     // with their revisions, tags, and links intact.

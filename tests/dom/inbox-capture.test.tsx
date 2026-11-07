@@ -52,6 +52,50 @@ test("a capture sends the selected text with its link", async () => {
   assert.ok(await screen.findByText("Saved to your inbox."));
 });
 
+test("a captured file is uploaded before the inbox item is saved", async () => {
+  const attachmentId = "33333333-3333-4333-8333-333333333333";
+  const calls = stubFetch((call) => call.url === "/api/attachments"
+    ? json({ id: attachmentId, url: `/api/attachments/${attachmentId}`, filename: "syllabus.pdf", mimeType: "application/pdf", size: 3 }, 201)
+    : json({ id: "page-3" }, 201));
+  await openCapture();
+
+  const file = new File([new Uint8Array([1, 2, 3])], "syllabus.pdf", { type: "application/pdf" });
+  fireEvent.change(screen.getByLabelText("Attach an image or PDF"), { target: { files: [file] } });
+  assert.equal(screen.getByText("syllabus.pdf", { selector: "span" }).textContent, "syllabus.pdf");
+
+  const capture = screen.getByRole("button", { name: "Capture" });
+  assert.equal((capture as HTMLButtonElement).disabled, false, "a file alone is enough to capture");
+
+  await act(async () => {
+    fireEvent.click(capture);
+  });
+
+  const upload = calls.find((call) => call.url === "/api/attachments");
+  assert.equal(upload?.method, "POST");
+  const post = calls.find((call) => call.url === "/api/inbox");
+  assert.equal(post?.method, "POST");
+  assert.deepEqual(post?.body, {
+    title: "",
+    content: "",
+    sourceUrl: "",
+    attachmentId,
+  });
+  assert.ok(await screen.findByText("Saved to your inbox."));
+});
+
+test("a file type the attachment route rejects never reaches the upload", async () => {
+  const calls = stubFetch(() => json({ id: "page-4" }, 201));
+  await openCapture();
+
+  const file = new File([new Uint8Array([1, 2, 3])], "notes.txt", { type: "text/plain" });
+  fireEvent.change(screen.getByLabelText("Attach an image or PDF"), { target: { files: [file] } });
+
+  assert.ok(screen.getByRole("alert").textContent?.includes("Choose an image or a PDF."));
+  assert.equal(screen.queryByLabelText("Remove attached file"), null, "the rejected file is not kept");
+  assert.equal((screen.getByRole("button", { name: "Capture" }) as HTMLButtonElement).disabled, true);
+  assert.equal(calls.length, 0);
+});
+
 test("a note captured without a link leaves the quote out of the request", async () => {
   const calls = stubFetch(() => json({ id: "page-2" }, 201));
   await openCapture();
