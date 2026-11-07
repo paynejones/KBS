@@ -8,11 +8,12 @@ import {
   ilike,
   isNull,
   max,
+  notExists,
   or,
 } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { pages, pageTags, pageTemplates, tags } from "@/db/schema";
+import { databaseRecords, pages, pageTags, pageTemplates, tags } from "@/db/schema";
 
 const createPageSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
@@ -31,6 +32,9 @@ export async function GET(request: Request) {
     const tagId = searchParams.get("tagId");
     const favoritesOnly = searchParams.get("favorite") === "true";
     const includeInbox = searchParams.get("includeInbox") === "true";
+    // Record pages stay out of navigation and the page browser by default.
+    // Direct page routes still open them, and pickers can opt back in.
+    const includeRecordPages = searchParams.get("includeRecordPages") === "true";
 
     if (tagId && !z.string().uuid().safeParse(tagId).success) {
       return NextResponse.json({ error: "Invalid tag ID." }, { status: 400 });
@@ -44,6 +48,14 @@ export async function GET(request: Request) {
           isNull(pages.deletedAt),
           favoritesOnly ? eq(pages.isFavorite, true) : undefined,
           !includeInbox ? eq(pages.isInbox, false) : undefined,
+          !includeRecordPages
+            ? notExists(
+                db
+                  .select({ id: databaseRecords.id })
+                  .from(databaseRecords)
+                  .where(eq(databaseRecords.pageId, pages.id))
+              )
+            : undefined,
           query
             ? or(
                 ilike(pages.title, `%${query}%`),

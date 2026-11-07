@@ -23,11 +23,13 @@ type CalendarRecord = {
 };
 
 export function DatabaseCalendar({
+  databaseId,
   properties,
   records,
   datePropertyId,
   onDatePropertyChange,
 }: {
+  databaseId: string;
   properties: CalendarProperty[];
   records: CalendarRecord[];
   datePropertyId: string;
@@ -104,7 +106,7 @@ export function DatabaseCalendar({
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[640px]">
+        <div className="min-w-[560px]">
           <div className="grid grid-cols-7 gap-1 pb-1 text-center text-xs font-medium text-muted-foreground">
             {WEEKDAY_LABELS.map((label) => <span key={label}>{label}</span>)}
           </div>
@@ -127,13 +129,9 @@ export function DatabaseCalendar({
                   <ul className="mt-1 space-y-1">
                     {dayRecords.slice(0, 3).map((record) => (
                       <li key={record.id} className="truncate" title={record.title || "Untitled"}>
-                        {record.pageId ? (
-                          <Link href={`/pages/${record.pageId}`} className="block truncate rounded bg-primary/10 px-1 py-0.5 text-primary hover:underline">
-                            {record.title || "Untitled"}
-                          </Link>
-                        ) : (
-                          <span className="block truncate rounded bg-muted px-1 py-0.5">{record.title || "Untitled"}</span>
-                        )}
+                        <Link href={`/databases/${databaseId}/records/${record.id}`} className="block truncate rounded bg-primary/10 px-1 py-0.5 text-primary hover:underline">
+                          {record.title || "Untitled"}
+                        </Link>
                       </li>
                     ))}
                   </ul>
@@ -155,13 +153,9 @@ export function DatabaseCalendar({
           <ul className="mt-2 flex flex-wrap gap-2 text-xs">
             {undated.slice(0, 8).map((record) => (
               <li key={record.id}>
-                {record.pageId ? (
-                  <Link href={`/pages/${record.pageId}`} className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 hover:border-primary/30">
-                    {record.title || "Untitled"} <ArrowRight size={12} />
-                  </Link>
-                ) : (
-                  <span className="inline-block rounded-md border bg-background px-2 py-1">{record.title || "Untitled"}</span>
-                )}
+                <Link href={`/databases/${databaseId}/records/${record.id}`} className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 hover:border-primary/30">
+                  {record.title || "Untitled"} <ArrowRight size={12} />
+                </Link>
               </li>
             ))}
             {undated.length > 8 && <li className="self-center text-muted-foreground">+{undated.length - 8} more</li>}

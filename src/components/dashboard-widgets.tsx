@@ -239,13 +239,9 @@ export function DashboardWidgets() {
 
                       return (
                         <li key={record.id} className="min-w-0">
-                          {record.pageId ? (
-                            <Link href={`/pages/${record.pageId}`} className="block truncate text-sm font-medium hover:text-primary hover:underline">
-                              {record.title || "Untitled"}
-                            </Link>
-                          ) : (
-                            <span className="block truncate text-sm font-medium">{record.title || "Untitled"}</span>
-                          )}
+                          <Link href={`/databases/${item.view.databaseId}/records/${record.id}`} className="block truncate text-sm font-medium hover:text-primary hover:underline">
+                            {record.title || "Untitled"}
+                          </Link>
                           {meta.length > 0 && (
                             <p className="truncate text-xs text-muted-foreground">{meta.join(" · ")}</p>
                           )}

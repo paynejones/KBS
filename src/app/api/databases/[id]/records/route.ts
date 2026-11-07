@@ -1,8 +1,8 @@
-import { and, eq, max } from "drizzle-orm";
+import { and, eq, isNull, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { databases, databaseRecords, databaseTemplates } from "@/db/schema";
+import { databases, databaseRecords, databaseTemplates, pages } from "@/db/schema";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
@@ -27,13 +27,27 @@ export async function POST(request: Request, context: Context) {
       if (!foundTemplate) return NextResponse.json({ error: "Template not found" }, { status: 404 });
       template = foundTemplate;
     }
-    const [maxOrder] = await db.select({ value: max(databaseRecords.sortOrder) }).from(databaseRecords).where(eq(databaseRecords.databaseId, id));
-    const [record] = await db.insert(databaseRecords).values({
-      databaseId: id,
-      title: parsed.data.title ?? template?.title ?? "Untitled",
-      values: template?.values ?? {},
-      sortOrder: (maxOrder?.value ?? -1) + 1,
-    }).returning();
+    const title = parsed.data.title ?? template?.title ?? "Untitled";
+    // Every record owns a full page so its properties and content live together.
+    // Creating both in one transaction avoids records without a page.
+    const record = await db.transaction(async (tx) => {
+      const [maxOrder] = await tx.select({ value: max(databaseRecords.sortOrder) })
+        .from(databaseRecords).where(eq(databaseRecords.databaseId, id));
+      const [pageOrder] = await tx.select({ value: max(pages.sortOrder) })
+        .from(pages).where(isNull(pages.parentId));
+      const [page] = await tx.insert(pages).values({
+        title,
+        sortOrder: (pageOrder?.value ?? -1) + 1,
+      }).returning({ id: pages.id });
+      const [created] = await tx.insert(databaseRecords).values({
+        databaseId: id,
+        pageId: page.id,
+        title,
+        values: template?.values ?? {},
+        sortOrder: (maxOrder?.value ?? -1) + 1,
+      }).returning();
+      return created;
+    });
     return NextResponse.json({ ...record, relations: {} }, { status: 201 });
   } catch (error) {
     console.error("Failed to create database record:", error);

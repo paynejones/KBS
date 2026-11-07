@@ -171,7 +171,7 @@ function editorMenuPlacement(anchor: { x: number; y: number }) {
   );
 }
 
-export function PageEditor({ id }: { id: string }) {
+export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: boolean }) {
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<SaveStatus>("loading");
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
@@ -430,11 +430,9 @@ export function PageEditor({ id }: { id: string }) {
   }
 
   useEffect(() => {
-  let cancelled = false;
-
-  async function loadPages() {
+  let cancelled = false;    async function loadPages() {
     try {
-      const response = await fetch("/api/pages");
+      const response = await fetch("/api/pages?includeRecordPages=true");
 
       if (!response.ok) {
         throw new Error("Unable to load pages.");
@@ -910,21 +908,25 @@ while (foundDescendant) {
 
   return (
     <div className="mx-auto max-w-4xl space-y-7">
-      <div className="flex min-w-0 flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-        {icon && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
-        <input
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            setStatus("dirty");
-          }}
-          onBlur={() => {
-            recordRecentPage({ id, title: title.trim() || "Untitled" });
-            void savePage({ title: title.trim() || "Untitled" });
-          }}
-          aria-label="Page title"
-          className="w-full min-w-0 bg-transparent text-3xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/50 sm:text-4xl"
-        />
+      <div className="flex min-w-0 flex-col gap-4 border-b pb-5 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+        {!hideTitle && (
+          <>
+            {icon && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
+            <input
+              value={title}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                setStatus("dirty");
+              }}
+              onBlur={() => {
+                recordRecentPage({ id, title: title.trim() || "Untitled" });
+                void savePage({ title: title.trim() || "Untitled" });
+              }}
+              aria-label="Page title"
+              className="w-full min-w-0 bg-transparent text-3xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/50 sm:text-4xl lg:flex-1"
+            />
+          </>
+        )}
 
         <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
           <Button

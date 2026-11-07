@@ -17,6 +17,7 @@ type ApiModules = {
   links: typeof import("../../src/app/api/pages/[id]/links/route");
   tags: typeof import("../../src/app/api/tags/route");
   graph: typeof import("../../src/app/api/graph/route");
+  records: typeof import("../../src/app/api/databases/[id]/records/route");
   inbox: typeof import("../../src/app/api/inbox/route");
   inboxItem: typeof import("../../src/app/api/inbox/[id]/route");
   attachments: typeof import("../../src/app/api/attachments/route");
@@ -25,6 +26,9 @@ type ApiModules = {
   databases: typeof import("../../src/app/api/databases/route");
   database: typeof import("../../src/app/api/databases/[id]/route");
   properties: typeof import("../../src/app/api/databases/[id]/properties/route");
+  views: typeof import("../../src/app/api/databases/[id]/views/route");
+  view: typeof import("../../src/app/api/databases/[id]/views/[viewId]/route");
+  viewUsage: typeof import("../../src/app/api/databases/[id]/views/[viewId]/usage/route");
   templates: typeof import("../../src/app/api/databases/[id]/templates/route");
   template: typeof import("../../src/app/api/databases/[id]/templates/[templateId]/route");
   pageTemplatesList: typeof import("../../src/app/api/page-templates/route");
@@ -109,6 +113,7 @@ before(async () => {
     links,
     tags,
     graph,
+    records,
     inbox,
     inboxItem,
     attachments,
@@ -117,6 +122,9 @@ before(async () => {
     databases,
     database,
     properties,
+    views,
+    view,
+    viewUsage,
     templates,
     template,
     pageTemplatesList,
@@ -131,6 +139,7 @@ before(async () => {
     import("../../src/app/api/pages/[id]/links/route"),
     import("../../src/app/api/tags/route"),
     import("../../src/app/api/graph/route"),
+    import("../../src/app/api/databases/[id]/records/route"),
     import("../../src/app/api/inbox/route"),
     import("../../src/app/api/inbox/[id]/route"),
     import("../../src/app/api/attachments/route"),
@@ -139,13 +148,16 @@ before(async () => {
     import("../../src/app/api/databases/route"),
     import("../../src/app/api/databases/[id]/route"),
     import("../../src/app/api/databases/[id]/properties/route"),
+    import("../../src/app/api/databases/[id]/views/route"),
+    import("../../src/app/api/databases/[id]/views/[viewId]/route"),
+    import("../../src/app/api/databases/[id]/views/[viewId]/usage/route"),
     import("../../src/app/api/databases/[id]/templates/route"),
     import("../../src/app/api/databases/[id]/templates/[templateId]/route"),
     import("../../src/app/api/page-templates/route"),
     import("../../src/app/api/page-templates/[id]/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, templates, template, pageTemplatesList, pageTemplate };
+  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, templates, template, pageTemplatesList, pageTemplate };
 });
 
 after(async () => {
@@ -637,7 +649,7 @@ describe("graph API", () => {
     assert.equal(linked.status, 201);
 
     const graph = await body<{ nodes: { id: string }[]; edges: { source: string; target: string; type: string }[] }>(
-      await api.graph.GET(),
+      await api.graph.GET(jsonRequest("/api/graph", "GET")),
     );
     assert.ok(graph.nodes.some((node) => node.id === parent.id));
     assert.ok(graph.nodes.some((node) => node.id === child.id));
@@ -648,14 +660,48 @@ describe("graph API", () => {
       "explicit page links become graph edges");
 
     await api.page.DELETE(jsonRequest(`/api/pages/${child.id}`, "DELETE"), routeContext({ id: child.id }));
-    const afterTrash = await body<{ nodes: { id: string }[]; edges: { target: string }[] }>(await api.graph.GET());
+    const afterTrash = await body<{ nodes: { id: string }[]; edges: { target: string }[] }>(await api.graph.GET(jsonRequest("/api/graph", "GET")));
     assert.ok(!afterTrash.nodes.some((node) => node.id === child.id), "trashed pages leave the graph");
     assert.ok(!afterTrash.edges.some((edge) => edge.target === child.id));
 
     await api.page.DELETE(jsonRequest(`/api/pages/${target.id}`, "DELETE"), routeContext({ id: target.id }));
-    const afterTargetTrash = await body<{ edges: { target: string }[] }>(await api.graph.GET());
+    const afterTargetTrash = await body<{ edges: { target: string }[] }>(await api.graph.GET(jsonRequest("/api/graph", "GET")));
     assert.ok(!afterTargetTrash.edges.some((edge) => edge.target === target.id),
       "links to trashed pages are hidden");
+  });
+
+  it("can omit record pages from the workspace graph", async () => {
+    const database = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
+      name: "Graph record pages",
+    })));
+    const created = await api.records.POST(
+      jsonRequest(`/api/databases/${database.id}/records`, "POST", { title: "Graph record page" }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(created.status, 201);
+    const record = await body<{ pageId: string }>(created);
+    const source = await createPage({ title: "Graph record source" });
+    await api.links.POST(
+      jsonRequest(`/api/pages/${source.id}/links`, "POST", { targetPageId: record.pageId }),
+      routeContext({ id: source.id }),
+    );
+
+    const all = await body<{
+      nodes: { id: string; isRecordPage: boolean }[];
+      edges: { source: string; target: string }[];
+    }>(await api.graph.GET(jsonRequest("/api/graph", "GET")));
+    assert.ok(all.nodes.some((node) => node.id === record.pageId && node.isRecordPage),
+      "record pages remain available to consumers that need the marker");
+    assert.ok(all.edges.some((edge) => edge.source === source.id && edge.target === record.pageId));
+
+    const filtered = await body<{
+      nodes: { id: string }[];
+      edges: { source: string; target: string }[];
+    }>(await api.graph.GET(jsonRequest("/api/graph?excludeRecordPages=true", "GET")));
+    assert.ok(!filtered.nodes.some((node) => node.id === record.pageId),
+      "record pages leave the workspace graph");
+    assert.ok(!filtered.edges.some((edge) => edge.source === record.pageId || edge.target === record.pageId),
+      "edges touching record pages are removed too");
   });
 });
 
@@ -918,6 +964,152 @@ describe("database metadata API", () => {
       routeContext({ id: "nope", templateId: "nope" }),
     );
     assert.equal(invalid.status, 400);
+  });
+
+  it("deletes a view only from its own database and keeps the last view", async () => {
+    const owner = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
+      name: "View owner",
+    })));
+    const other = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
+      name: "View other",
+    })));
+    const recordResponse = await api.records.POST(
+      jsonRequest(`/api/databases/${owner.id}/records`, "POST", { title: "Keep me" }),
+      routeContext({ id: owner.id }),
+    );
+    assert.equal(recordResponse.status, 201, "the record fixture should be created");
+
+    const created = await api.views.POST(
+      jsonRequest(`/api/databases/${owner.id}/views`, "POST", {
+        name: "Calendar",
+        type: "calendar",
+        config: { datePropertyId: "date" },
+      }),
+      routeContext({ id: owner.id }),
+    );
+    assert.equal(created.status, 201, "the second view fixture should be created");
+    const calendar = await body<{ id: string }>(created);
+
+    const wrongDatabase = await api.view.DELETE(
+      jsonRequest(`/api/databases/${other.id}/views/${calendar.id}`, "DELETE"),
+      routeContext({ id: other.id, viewId: calendar.id }),
+    );
+    assert.equal(wrongDatabase.status, 404, "views are scoped to their database");
+
+    const deleted = await api.view.DELETE(
+      jsonRequest(`/api/databases/${owner.id}/views/${calendar.id}`, "DELETE"),
+      routeContext({ id: owner.id, viewId: calendar.id }),
+    );
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await body(deleted), { success: true });
+
+    const ownerData = await body<{ views: { id: string }[]; records: { title: string }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${owner.id}`, "GET"), routeContext({ id: owner.id })),
+    );
+    assert.equal(ownerData.views.length, 1);
+    assert.ok(!ownerData.views.some((view) => view.id === calendar.id));
+    assert.ok(ownerData.records.some((record) => record.title === "Keep me"), "deleting a view must not delete records");
+
+    const lastView = ownerData.views[0];
+    const refused = await api.view.DELETE(
+      jsonRequest(`/api/databases/${owner.id}/views/${lastView.id}`, "DELETE"),
+      routeContext({ id: owner.id, viewId: lastView.id }),
+    );
+    assert.equal(refused.status, 409);
+    assert.match(String((await body(refused)).error), /at least one view/);
+
+    const stillThere = await body<{ views: { id: string }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${owner.id}`, "GET"), routeContext({ id: owner.id })),
+    );
+    assert.deepEqual(stillThere.views.map((view) => view.id), [lastView.id]);
+
+    const invalid = await api.view.DELETE(
+      jsonRequest("/api/databases/nope/views/nope", "DELETE"),
+      routeContext({ id: "nope", viewId: "nope" }),
+    );
+    assert.equal(invalid.status, 400);
+
+    const missing = await api.view.DELETE(
+      jsonRequest(`/api/databases/${owner.id}/views/${MISSING_ID}`, "DELETE"),
+      routeContext({ id: owner.id, viewId: MISSING_ID }),
+    );
+    assert.equal(missing.status, 404);
+  });
+
+  it("reports only live pages that explicitly embed a view", async () => {
+    const owner = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
+      name: "Usage owner",
+    })));
+    const other = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
+      name: "Usage other",
+    })));
+    const calendar = await body<{ id: string }>(await api.views.POST(
+      jsonRequest(`/api/databases/${owner.id}/views`, "POST", {
+        name: "Calendar",
+        type: "calendar",
+        config: { datePropertyId: "date" },
+      }),
+      routeContext({ id: owner.id }),
+    ));
+    const ownerData = await body<{ views: { id: string; type: string }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${owner.id}`, "GET"), routeContext({ id: owner.id })),
+    );
+    const tableView = ownerData.views.find((view) => view.type === "table");
+    assert.ok(tableView, "a table view fixture should exist");
+
+    const embeddingPage = await createPage({ title: "Embedded notes" });
+    const otherPage = await createPage({ title: "Other view notes" });
+    const embedDocument = (databaseId: string, viewId: string) => ({
+      type: "doc",
+      content: [{
+        type: "bulletList",
+        content: [{
+          type: "listItem",
+          content: [{ type: "databaseEmbed", attrs: { databaseId, viewId } }],
+        }],
+      }],
+    });
+
+    assert.equal((await api.page.PATCH(
+      jsonRequest(`/api/pages/${embeddingPage.id}`, "PATCH", { contentJson: embedDocument(owner.id, calendar.id) }),
+      routeContext({ id: embeddingPage.id }),
+    )).status, 200);
+    assert.equal((await api.page.PATCH(
+      jsonRequest(`/api/pages/${otherPage.id}`, "PATCH", { contentJson: embedDocument(owner.id, tableView.id) }),
+      routeContext({ id: otherPage.id }),
+    )).status, 200);
+
+    const usage = await api.viewUsage.GET(
+      jsonRequest(`/api/databases/${owner.id}/views/${calendar.id}/usage`, "GET"),
+      routeContext({ id: owner.id, viewId: calendar.id }),
+    );
+    assert.equal(usage.status, 200);
+    assert.deepEqual(await body(usage), {
+      pages: [{ id: embeddingPage.id, title: "Embedded notes" }],
+    });
+
+    await api.page.DELETE(
+      jsonRequest(`/api/pages/${embeddingPage.id}`, "DELETE"),
+      routeContext({ id: embeddingPage.id }),
+    );
+    const afterTrash = await api.viewUsage.GET(
+      jsonRequest(`/api/databases/${owner.id}/views/${calendar.id}/usage`, "GET"),
+      routeContext({ id: owner.id, viewId: calendar.id }),
+    );
+    assert.deepEqual(await body(afterTrash), { pages: [] });
+
+    assert.equal((await api.viewUsage.GET(
+      jsonRequest(`/api/databases/${other.id}/views/${calendar.id}/usage`, "GET"),
+      routeContext({ id: other.id, viewId: calendar.id }),
+    )).status, 404);
+    assert.equal((await api.viewUsage.GET(
+      jsonRequest("/api/databases/nope/views/nope/usage", "GET"),
+      routeContext({ id: "nope", viewId: "nope" }),
+    )).status, 400);
+    assert.equal((await api.viewUsage.GET(
+      jsonRequest(`/api/databases/${owner.id}/views/${MISSING_ID}/usage`, "GET"),
+      routeContext({ id: owner.id, viewId: MISSING_ID }),
+    )).status, 404);
   });
 });
 

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, isNull, max } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { pageRevisions, pages } from "@/db/schema";
+import { databaseRecords, pageRevisions, pages } from "@/db/schema";
 import { isAllowedMediaUrl } from "@/lib/media";
 import { collectSubtreeIds } from "@/lib/trash";
 
@@ -219,6 +219,15 @@ export async function PATCH(request: Request, context: Context) {
       })
       .where(eq(pages.id, id))
       .returning();
+
+    // A record's page keeps the record title in step so the full record view
+    // and the standalone page never disagree.
+    if (parsed.data.title !== undefined && parsed.data.title !== existingPage.title) {
+      await tx
+        .update(databaseRecords)
+        .set({ title: parsed.data.title, updatedAt: new Date() })
+        .where(eq(databaseRecords.pageId, id));
+    }
 
     return updatedPage;
   });

@@ -132,7 +132,7 @@ export function GraphWorkspace() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/graph")
+    void fetch("/api/graph?excludeRecordPages=true")
       .then(async (response) => {
         if (!response.ok) throw new Error("Unable to load the page graph.");
         return await response.json() as GraphData;

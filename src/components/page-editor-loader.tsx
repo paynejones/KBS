@@ -13,6 +13,6 @@ const PageEditor = dynamic(
   },
 );
 
-export function PageEditorLoader({ id }: { id: string }) {
-  return <PageEditor id={id} />;
+export function PageEditorLoader({ id, hideTitle = false }: { id: string; hideTitle?: boolean }) {
+  return <PageEditor id={id} hideTitle={hideTitle} />;
 }

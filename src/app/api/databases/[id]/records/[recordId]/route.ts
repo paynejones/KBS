@@ -1,8 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { databaseProperties, databaseRecordRelations, databaseRecords, pages } from "@/db/schema";
+import { databaseProperties, databaseRecordRelations, databaseRecords, databases, pages } from "@/db/schema";
 import { missingAttachmentIds } from "@/lib/attachment-store";
 import { referencedAttachmentIds, validateDatabaseRecordValues } from "@/lib/database-values";
 
@@ -14,6 +14,67 @@ const recordSchema = z.object({
   relations: z.record(z.string().uuid(), z.array(z.string().uuid())).optional(),
 }).refine((data) => Object.keys(data).length > 0);
 
+export async function GET(_request: Request, context: Context) {
+  const { id, recordId } = await context.params;
+  if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(recordId).success) {
+    return NextResponse.json({ error: "Invalid record ID" }, { status: 400 });
+  }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [record] = await tx.select().from(databaseRecords)
+        .where(and(eq(databaseRecords.id, recordId), eq(databaseRecords.databaseId, id)))
+        .limit(1);
+      if (!record) return { error: "Record not found", status: 404 as const };
+      const [database] = await tx.select({ id: databases.id, name: databases.name })
+        .from(databases).where(eq(databases.id, id)).limit(1);
+      if (!database) return { error: "Database not found", status: 404 as const };
+
+      // Older records can predate linked pages. Opening one creates the page so
+      // every record presents properties and content together.
+      let pageId = record.pageId;
+      const [linkedPage] = pageId
+        ? await tx.select({ id: pages.id }).from(pages)
+            .where(and(eq(pages.id, pageId), isNull(pages.deletedAt))).limit(1)
+        : [];
+      if (!linkedPage) {
+        const [pageOrder] = await tx.select({ value: max(pages.sortOrder) })
+          .from(pages).where(isNull(pages.parentId));
+        const [page] = await tx.insert(pages).values({
+          title: record.title,
+          sortOrder: (pageOrder?.value ?? -1) + 1,
+        }).returning({ id: pages.id });
+        pageId = page.id;
+        await tx.update(databaseRecords).set({ pageId, updatedAt: new Date() })
+          .where(eq(databaseRecords.id, recordId));
+      }
+
+      const properties = await tx.select().from(databaseProperties)
+        .where(eq(databaseProperties.databaseId, id)).orderBy(asc(databaseProperties.sortOrder));
+      const relationRows = await tx.select().from(databaseRecordRelations)
+        .where(eq(databaseRecordRelations.sourceRecordId, recordId));
+      const relations: Record<string, string[]> = {};
+      for (const relation of relationRows) {
+        relations[relation.propertyId] = [
+          ...(relations[relation.propertyId] ?? []),
+          relation.targetRecordId,
+        ];
+      }
+      return { record: { ...record, pageId }, properties, relations, database };
+    });
+
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json({
+      ...result.record,
+      relations: result.relations,
+      properties: result.properties,
+      database: result.database,
+    });
+  } catch (error) {
+    console.error("Failed to load database record:", error);
+    return NextResponse.json({ error: "Failed to load database record" }, { status: 500 });
+  }
+}
+
 export async function PATCH(request: Request, context: Context) {
   const { id, recordId } = await context.params;
   if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(recordId).success) {
@@ -22,7 +83,7 @@ export async function PATCH(request: Request, context: Context) {
   const parsed = recordSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid record update" }, { status: 400 });
   try {
-    const [existingRecord] = await db.select({ id: databaseRecords.id })
+    const [existingRecord] = await db.select({ id: databaseRecords.id, pageId: databaseRecords.pageId })
       .from(databaseRecords)
       .where(and(eq(databaseRecords.id, recordId), eq(databaseRecords.databaseId, id)))
       .limit(1);
@@ -83,6 +144,12 @@ export async function PATCH(request: Request, context: Context) {
         await tx.update(databaseRecords)
           .set({ ...recordFields, updatedAt: new Date() })
           .where(and(eq(databaseRecords.id, recordId), eq(databaseRecords.databaseId, id)));
+      }
+      // The record is the title source for its full page.
+      if (recordFields.title !== undefined && existingRecord.pageId) {
+        await tx.update(pages)
+          .set({ title: recordFields.title, updatedAt: new Date() })
+          .where(eq(pages.id, existingRecord.pageId));
       }
       for (const relation of validatedRelations) {
         await tx.delete(databaseRecordRelations).where(and(

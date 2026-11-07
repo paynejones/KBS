@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, CopyPlus, Download, Plus, Trash2 } from "lucide-react";
+import { ArrowUpRight, ChevronDown, CopyPlus, Download, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { DatabaseCalendar } from "@/components/database-calendar";
 import { DatabaseViewControls } from "@/components/database-view-controls";
@@ -17,6 +17,7 @@ import {
   type ViewSort,
 } from "@/lib/database-view";
 import { evaluateFormula, formatFormulaValue, parseFormula } from "@/lib/database-formula";
+import { getDashboardWidgetsSnapshot } from "@/lib/dashboard";
 
 type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup" | "formula";
 type Property = { id: string; name: string; type: PropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string } };
@@ -82,7 +83,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     try {
       const [response, pagesResponse, databasesResponse] = await Promise.all([
         fetch(`/api/databases/${id}`),
-        fetch("/api/pages"),
+        fetch("/api/pages?includeRecordPages=true"),
         fetch("/api/databases"),
       ]);
       if (!response.ok) throw new Error(response.status === 404 ? "Database not found." : "Could not load database.");
@@ -467,6 +468,50 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
+  async function deleteView(view: DatabaseView) {
+    if (!database || database.views.length <= 1) return;
+    setBusy(true);
+    setError("");
+    try {
+      const usageResponse = await fetch(`/api/databases/${id}/views/${view.id}/usage`);
+      if (!usageResponse.ok) {
+        throw new Error("Could not check where this view is used. The view was not deleted.");
+      }
+      const usage = (await usageResponse.json()) as { pages?: { id: string; title: string }[] };
+      const pageTitles = (usage.pages ?? []).map((page) => page.title.trim() || "Untitled");
+      const dashboardPinned = getDashboardWidgetsSnapshot().some((widget) => widget.viewId === view.id);
+      const usedBy = [
+        ...pageTitles.map((title) => `Page “${title}”`),
+        ...(dashboardPinned ? ["Dashboard pin"] : []),
+      ];
+      const usageSummary = usedBy.length
+        ? `Used by:\n${usedBy.map((entry) => `• ${entry}`).join("\n")}\n\nThose references may need updating after deletion.`
+        : "Not embedded in any pages and not pinned to the dashboard.";
+      const message = `Delete the “${view.name}” view?\n\nRecords stay in the database.\n\n${usageSummary}`;
+      if (!window.confirm(message)) return;
+
+      const response = await fetch(`/api/databases/${id}/views/${view.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as { error?: unknown } | null;
+        throw new Error(typeof result?.error === "string" ? result.error : "Could not delete view.");
+      }
+      const remaining = database.views.filter((candidate) => candidate.id !== view.id);
+      setDatabase((current) => current ? {
+        ...current,
+        views: current.views.filter((candidate) => candidate.id !== view.id),
+      } : current);
+      if (!activeViewId || activeViewId === view.id) {
+        const nextView = remaining.find((candidate) => candidate.type === "table") ?? remaining[0];
+        if (nextView) selectView(nextView);
+      }
+      setViewSaveError("");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete view.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteDatabase() {
     if (!database || !window.confirm(`Delete “${database.name}” and all its records?`)) return;
     setBusy(true);
@@ -601,7 +646,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     <AppShell>
       <div className="space-y-7">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 sm:min-w-96">
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground">DATABASE / {(activeView?.type ?? "table").toLocaleUpperCase()}</p>
             <input
               aria-label="Database name"
@@ -638,6 +683,25 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
                 >
                   <Download size={15} aria-hidden="true" /> Export JSON
+                </button>
+                <div className="my-1 border-t" role="separator" />
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    if (activeView) void deleteView(activeView);
+                  }}
+                  disabled={busy || !activeView || database.views.length <= 1}
+                  title={
+                    !activeView
+                      ? "No view selected"
+                      : database.views.length <= 1
+                        ? "A database must keep at least one view"
+                        : `Delete the “${activeView.name}” view`
+                  }
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  <Trash2 size={15} aria-hidden="true" /> Delete view
                 </button>
                 <button
                   type="button"
@@ -837,6 +901,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
 
         {activeView?.type === "calendar" ? (
           <DatabaseCalendar
+            databaseId={id}
             properties={database.properties}
             records={visibleRecords}
             datePropertyId={dateViewPropertyId}
@@ -853,7 +918,9 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               return (
                 <article key={record.id} className="flex min-h-44 flex-col rounded-lg border bg-card p-4 shadow-sm">
                   <div className="flex items-start gap-2">
-                    <h2 className="min-w-0 flex-1 break-words text-base font-semibold">{record.title}</h2>
+                    <h2 className="min-w-0 flex-1 break-words text-base font-semibold">
+                      <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
+                    </h2>
                     <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
                     <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteRecord(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
                   </div>
@@ -910,7 +977,9 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         {columnRecords.map((record) => (
                           <article key={record.id} className="space-y-2 rounded-md border bg-background p-3 shadow-sm">
                             <div className="flex items-start gap-2">
-                              <h3 className="min-w-0 flex-1 break-words text-sm font-medium">{record.title}</h3>
+                              <h3 className="min-w-0 flex-1 break-words text-sm font-medium">
+                                <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
+                              </h3>
                               <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={14} /></Button>
                               <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteRecord(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={14} /></Button>
                             </div>
@@ -954,14 +1023,24 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               {visibleRecords.map((record) => (
                 <tr key={record.id} className="border-b last:border-0">
                   <td className="sticky left-0 z-[1] bg-background p-1">
-                    <input
-                      aria-label="Record name"
-                      defaultValue={record.title}
-                      key={`${record.id}:${record.title}`}
-                      onBlur={(event) => void updateRecord(record, { title: event.currentTarget.value.trim() || "Untitled" })}
-                      onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-                      className="w-full rounded px-2 py-1.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
+                    <div className="flex items-center gap-1">
+                      <input
+                        aria-label="Record name"
+                        defaultValue={record.title}
+                        key={`${record.id}:${record.title}`}
+                        onBlur={(event) => void updateRecord(record, { title: event.currentTarget.value.trim() || "Untitled" })}
+                        onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+                        className="min-w-0 flex-1 rounded px-2 py-1.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                      <Link
+                        href={`/databases/${id}/records/${record.id}`}
+                        aria-label={`Open ${record.title} as a full page`}
+                        title="Open record"
+                        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <ArrowUpRight size={14} />
+                      </Link>
+                    </div>
                   </td>
                   {database.properties.map((property) => (
                     <td key={property.id} className="p-1">

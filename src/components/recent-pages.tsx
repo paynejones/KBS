@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { ArrowRight, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,36 @@ export function RecentPages() {
     getRecentPagesSnapshot,
     getEmptyRecentPagesSnapshot,
   );
+  const [recordPageIds, setRecordPageIds] = useState<Set<string>>(() => new Set());
+  const hasRecents = recents.length > 0;
 
-  if (recents.length === 0) return null;
+  useEffect(() => {
+    if (!hasRecents) return;
+    let cancelled = false;
+
+    async function loadRecordPageIds() {
+      try {
+        const response = await fetch("/api/graph");
+        if (!response.ok) return;
+        const data: { nodes: { id: string; isRecordPage?: boolean }[] } = await response.json();
+        if (cancelled) return;
+        setRecordPageIds(
+          new Set(data.nodes.filter((node) => node.isRecordPage).map((node) => node.id)),
+        );
+      } catch {
+        // Recents are a convenience: if the marker is unavailable, show them.
+      }
+    }
+
+    void loadRecordPageIds();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasRecents]);
+
+  const visibleRecents = recents.filter((page) => !recordPageIds.has(page.id));
+
+  if (visibleRecents.length === 0) return null;
 
   return (
     <section className="space-y-4" aria-labelledby="jump-back-in-heading">
@@ -36,7 +64,7 @@ export function RecentPages() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {recents.slice(0, 4).map((page) => (
+        {visibleRecents.slice(0, 4).map((page) => (
           <Link
             key={page.id}
             href={`/pages/${page.id}`}

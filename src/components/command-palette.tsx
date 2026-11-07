@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { formatRecentTime, loadRecentPages, type RecentPage } from "@/lib/recents";
 
-type PageOption = { id: string; title: string; isFavorite: boolean };
+type PageOption = { id: string; title: string; isFavorite: boolean; isRecordPage?: boolean };
 type DatabaseOption = { id: string; name: string };
 type PageTemplateOption = { id: string; name: string; title: string; icon: string | null };
 type SearchRecord = { id: string; title: string; databaseId: string; databaseName: string };
@@ -52,6 +52,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [pages, setPages] = useState<PageOption[]>([]);
+  const [recordPageIds, setRecordPageIds] = useState<Set<string>>(new Set());
   const [databases, setDatabases] = useState<DatabaseOption[]>([]);
   const [templates, setTemplates] = useState<PageTemplateOption[]>([]);
   const [recents, setRecents] = useState<RecentPage[]>([]);
@@ -126,7 +127,11 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
         const templateData: PageTemplateOption[] =
           templatesResponse?.ok ? await templatesResponse.json() : [];
         if (cancelled) return;
-        setPages(graphData.nodes);
+        const hiddenPageIds = new Set(
+          graphData.nodes.filter((page) => page.isRecordPage).map((page) => page.id),
+        );
+        setRecordPageIds(hiddenPageIds);
+        setPages(graphData.nodes.filter((page) => !page.isRecordPage));
         setDatabases(databaseData);
         setTemplates(templateData);
         setError("");
@@ -296,7 +301,8 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
 
   const pageById = new Map(pages.map((page) => [page.id, page]));
   const currentPage = currentPageId ? pageById.get(currentPageId) : undefined;
-  const recentIds = new Set(recents.map((entry) => entry.id));
+  const visibleRecents = recents.filter((entry) => !recordPageIds.has(entry.id));
+  const recentIds = new Set(visibleRecents.map((entry) => entry.id));
   const favoritePages = pages.filter(
     (page) => page.isFavorite && !recentIds.has(page.id),
   );
@@ -401,7 +407,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
     run: () => void createPageFromTemplate(template.id),
   }));
 
-  const recentItems: PaletteItem[] = recents.map((entry) => ({
+  const recentItems: PaletteItem[] = visibleRecents.map((entry) => ({
     key: `recent-${entry.id}`,
     label: pageById.get(entry.id)?.title || entry.title || "Untitled",
     detail: formatRecentTime(entry.visitedAt),
@@ -453,7 +459,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
       }
     }
     for (const page of activeResults.pages) {
-      if (alreadyShown.has(page.id)) continue;
+      if (alreadyShown.has(page.id) || recordPageIds.has(page.id)) continue;
       searchItems.push({
         key: `search-page-${page.id}`,
         label: page.title || "Untitled",
@@ -470,7 +476,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
         detail: `Record · ${record.databaseName}`,
         group: "Search results",
         icon: <Database size={16} />,
-        run: () => go(`/databases/${record.databaseId}`),
+        run: () => go(`/databases/${record.databaseId}/records/${record.id}`),
       });
     }
   }
