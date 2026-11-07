@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, LayoutDashboard, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { statusToneClass } from "@/lib/status-tone";
 import {
   addWidget,
   DASHBOARD_WIDGET_LIMIT,
@@ -51,43 +52,6 @@ function formatDate(value: unknown): string {
   const date = new Date(`${text.slice(0, 10)}T00:00:00`);
   if (Number.isNaN(date.getTime())) return text;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-/**
- * Status is colour: the same select values used by a database view render as a
- * pill, so a short record list scans without reading every word.
- */
-const STATUS_TONES: { pattern: RegExp; className: string }[] = [
-  {
-    pattern: /^(done|complete|completed|read|finished|shipped|paid)$/i,
-    className:
-      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
-  },
-  {
-    pattern: /(in progress|in review|doing|active|reading|watching|playing|started)/i,
-    className:
-      "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300",
-  },
-  {
-    pattern: /(blocked|waiting|on hold|paused|stuck)/i,
-    className:
-      "bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300",
-  },
-  {
-    pattern: /(to review|needs review|overdue|dropped|abandoned)/i,
-    className: "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300",
-  },
-  {
-    pattern: /(planned|backlog|todo|queued|idea|someday|not started)/i,
-    className: "bg-muted text-muted-foreground",
-  },
-];
-
-function statusTone(value: string): string {
-  return (
-    STATUS_TONES.find((tone) => tone.pattern.test(value))?.className ??
-    "bg-muted text-muted-foreground"
-  );
 }
 
 export function DashboardWidgets() {
@@ -355,7 +319,7 @@ export function DashboardWidgets() {
                           </Link>
                           {statusValue && (
                             <span
-                              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${statusTone(statusValue)}`}
+                              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${statusToneClass(statusValue)}`}
                             >
                               <span className="size-1 rounded-full bg-current" />
                               {statusValue}

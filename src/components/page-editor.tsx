@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
 import { PageTags } from "@/components/page-tags";
 import { PageLinks } from "@/components/page-links";
+import { PageRail } from "@/components/page-rail";
 import { tiptapToMarkdown } from "@/lib/markdown";
 import { readRecoverablePageDraft, type PageDraft } from "@/lib/page-draft";
 import { recordRecentPage } from "@/lib/recents";
@@ -34,6 +35,7 @@ type PageData = {
   icon: string | null;
   coverImageUrl: string | null;
   updatedAt: string;
+  createdAt?: string;
 };
 
 type SaveStatus = "loading" | "dirty" | "saving" | "saved" | "error";
@@ -145,6 +147,26 @@ type PageOption = { id: string; title: string; parentId: string | null };
 
 const EDITOR_MENU_SIZE = { width: 320, height: 320 };
 
+function collectOutline(target: Editor) {
+  const outline: { level: number; text: string }[] = [];
+
+  target.state.doc.descendants((node) => {
+    if (node.type.name === "heading" && node.textContent.trim()) {
+      outline.push({
+        level: typeof node.attrs.level === "number" ? node.attrs.level : 1,
+        text: node.textContent.trim(),
+      });
+    }
+  });
+
+  return outline;
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
 const SAVE_TONE_CLASSES: Record<SaveStatusView["tone"], string> = {
   muted: "text-muted-foreground",
   active: "text-muted-foreground",
@@ -182,6 +204,9 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [recoveredDraft, setRecoveredDraft] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<PageDraft | null>(null);
+  const [headings, setHeadings] = useState<{ level: number; text: string }[]>([]);
+  const [wordCount, setWordCount] = useState(0);
+  const [createdAt, setCreatedAt] = useState("");
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveInProgress = useRef(false);
@@ -481,6 +506,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
         setIcon(page.icon ?? "");
         setCoverImageUrl(page.coverImageUrl ?? "");
         setCoverImageError(null);
+        setCreatedAt(page.createdAt ?? "");
         const serverContentJson = page.contentJson?.type
           ? page.contentJson as Parameters<NonNullable<typeof editor>["commands"]["setContent"]>[0]
           : page.content || "";
@@ -505,6 +531,10 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
         editor?.commands.setContent(
           contentToLoad,
         );
+        if (editor) {
+          setHeadings(collectOutline(editor));
+          setWordCount(countWords(editor.getText()));
+        }
         setLoaded(true);
         recordRecentPage({ id, title: page.title });
         setLastSavedAt(Date.parse(page.updatedAt) || Date.now());
@@ -622,6 +652,8 @@ useEffect(() => {
   }
 
   const handleUpdate = () => {
+    setHeadings(collectOutline(editor));
+    setWordCount(countWords(editor.getText()));
     const revision = draftRevision.current + 1;
     latestContent.current = {
       content: editor.getText(),
@@ -696,6 +728,11 @@ function recoverLocalDraft() {
   setRecoveredDraft(true);
   editor.commands.setContent(pendingDraft.contentJson as Parameters<typeof editor.commands.setContent>[0]);
   setPendingDraft(null);
+}
+
+function scrollToHeading(index: number) {
+  const nodes = editor?.view.dom.querySelectorAll("h1, h2, h3");
+  nodes?.[index]?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function discardLocalDraft() {
@@ -907,11 +944,13 @@ while (foundDescendant) {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-7">
+    <div className="mx-auto max-w-6xl">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_11rem] xl:grid-cols-[minmax(0,1fr)_12rem]">
+        <div className="min-w-0 space-y-6">
       <div className="flex min-w-0 flex-col gap-4 border-b pb-5 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
         {!hideTitle && (
           <>
-            {icon && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
+            {icon && !coverImageUrl && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
             <input
               value={title}
               onChange={(e) => {
@@ -961,12 +1000,20 @@ while (foundDescendant) {
       </div>
       <div className="space-y-3">
         {coverImageUrl && coverImageError !== "invalid" && (
-          <div className="overflow-hidden rounded-xl border bg-muted/30">
+          <div className="relative overflow-hidden rounded-xl border bg-muted/30">
             <MediaImage
               src={coverImageUrl}
               alt={title ? `${title} cover` : "Page cover"}
-              className="h-40 w-full object-cover sm:h-52"
+              className="h-36 w-full object-cover sm:h-44"
             />
+            {icon && (
+              <span
+                aria-hidden="true"
+                className="absolute bottom-3 left-5 flex size-11 items-center justify-center rounded-xl border bg-background text-2xl shadow-sm"
+              >
+                {icon}
+              </span>
+            )}
           </div>
         )}
         {coverImageError === "invalid" && (
@@ -1231,6 +1278,21 @@ while (foundDescendant) {
             ))}
           </div>
         )}
+      </div>
+        </div>
+
+        <PageRail
+          pageId={id}
+          headings={headings}
+          wordCount={wordCount}
+          createdAt={createdAt}
+          parentId={parentId}
+          parentTitle={
+            allPages.find((page) => page.id === parentId)?.title ?? null
+          }
+          isFavorite={isFavorite}
+          onSelectHeading={scrollToHeading}
+        />
       </div>
     </div>
   );

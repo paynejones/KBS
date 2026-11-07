@@ -298,11 +298,13 @@ export default function Home() {
               </div>
 
               <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                {resumePages.map((page) => (
+                {resumePages.map((page, index) => (
                   <Link
                     key={page.id}
                     href={`/pages/${page.id}`}
-                    className="group flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-3.5 transition-colors hover:border-brand/40 hover:shadow-sm"
+                    className={`group min-w-0 flex-col gap-2 rounded-xl border bg-card p-3.5 transition-colors hover:border-brand/40 hover:shadow-sm ${
+                      index > 0 ? "hidden sm:flex" : "flex"
+                    }`}
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand">

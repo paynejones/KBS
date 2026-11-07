@@ -10,7 +10,6 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   Clock,
   Database,
   FileText,
@@ -411,7 +410,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
     key: `recent-${entry.id}`,
     label: pageById.get(entry.id)?.title || entry.title || "Untitled",
     detail: formatRecentTime(entry.visitedAt),
-    group: "Jump back in",
+    group: "Recent",
     icon: <Clock size={16} />,
     run: () => go(`/pages/${entry.id}`),
   }));
@@ -554,7 +553,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
             role="dialog"
             aria-modal="true"
             aria-label="Command palette"
-            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"
+            className="flex w-full max-w-xl flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"
           >
             <div className="flex items-center gap-3 border-b px-4">
               <Search size={18} className="shrink-0 text-muted-foreground" />
@@ -579,7 +578,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
                   setNotice("");
                 }}
                 onKeyDown={handleInputKeyDown}
-                placeholder="Search, jump to a page, or run a command…"
+                placeholder="Search pages, databases, or type a command"
                 className="h-14 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
               />
               <button
@@ -629,7 +628,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
                 return (
                   <div key={item.key}>
                     {showGroup && (
-                      <h2 className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <h2 className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                         {item.group}
                       </h2>
                     )}
@@ -643,11 +642,19 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
                       }}
                       onMouseEnter={() => setActiveIndex(index)}
                       onClick={() => item.run()}
-                      className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left ${
-                        index === safeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent"
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                        index === safeIndex
+                          ? "bg-brand-soft text-brand-foreground"
+                          : "hover:bg-accent"
                       }`}
                     >
-                      <span className="shrink-0 text-muted-foreground">{item.icon}</span>
+                      <span
+                        className={`shrink-0 ${
+                          index === safeIndex ? "text-brand" : "text-muted-foreground"
+                        }`}
+                      >
+                        {item.icon}
+                      </span>
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {item.label}
                       </span>
@@ -657,7 +664,9 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
                         </span>
                       )}
                       {index === safeIndex && (
-                        <ArrowRight size={14} className="shrink-0 text-muted-foreground" />
+                        <span className="shrink-0 rounded border border-brand/30 px-1 text-[10px] text-brand-foreground">
+                          ↵
+                        </span>
                       )}
                     </button>
                   </div>
@@ -666,8 +675,12 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2 text-[11px] text-muted-foreground">
-              <span>↑↓ to move · Enter to open · Esc to close</span>
-              <span>Page text and database records are searched as you type</span>
+              <span className="flex items-center gap-3">
+                <span>↑↓ navigate</span>
+                <span>↵ open</span>
+                <span>esc close</span>
+              </span>
+              <span>KBS search</span>
             </div>
           </section>
         </div>

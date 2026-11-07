@@ -28,6 +28,7 @@ import {
 } from "@/lib/database-view";
 import { evaluateFormula, formatFormulaValue, parseFormula } from "@/lib/database-formula";
 import { getDashboardWidgetsSnapshot } from "@/lib/dashboard";
+import { DateCell, SelectCell } from "@/components/database-cell-editors";
 
 type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup" | "formula";
 type Property = { id: string; name: string; type: PropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string } };
@@ -708,6 +709,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
               className="mt-2 w-full bg-transparent text-3xl font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-4xl"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {database.records.length}{" "}
+              {database.records.length === 1 ? "record" : "records"} ·{" "}
+              {database.properties.length}{" "}
+              {database.properties.length === 1 ? "property" : "properties"}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <details className="relative">
@@ -773,23 +780,28 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b pb-4">
+        <div className="flex flex-wrap items-center gap-1 border-b">
           {database.views.map((view) => (
-            <Button
+            <button
               key={view.id}
               type="button"
-              size="sm"
-              variant={activeViewId === view.id ? "secondary" : "ghost"}
               onClick={() => selectView(view)}
+              className={`-mb-px border-b-2 px-2.5 py-2 text-xs transition-colors ${
+                activeViewId === view.id
+                  ? "border-brand font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
             >
               {view.name}
-            </Button>
+            </button>
           ))}
           <details className="relative">
-            <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <summary
+              aria-label="Add view"
+              title="Add view"
+              className="ml-1 flex cursor-pointer list-none items-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
+            >
               <Plus size={14} aria-hidden="true" />
-              New view
-              <ChevronDown size={13} aria-hidden="true" />
             </summary>
             <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border bg-popover p-1 shadow-lg">
               <button
@@ -1061,20 +1073,20 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">This board needs a Select property. Add one, then create a new board view.</p>
           )
         ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[640px] border-collapse text-sm">
+        <div className="overflow-x-auto rounded-xl border">
+          <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead>
               <tr className="border-b bg-muted/40 text-left">
-                <th className="sticky left-0 z-10 min-w-56 bg-muted/40 px-3 py-2 font-medium">Name</th>
-                {database.properties.map((property) => <th key={property.id} className="min-w-48 px-3 py-2 font-medium">{property.name}</th>)}
-                <th className="min-w-56 px-3 py-2 font-medium">Linked page</th>
-                <th className="w-10 px-2 py-2"><span className="sr-only">Actions</span></th>
+                <th className="sticky left-0 z-10 min-w-56 border-r bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">Name</th>
+                {database.properties.map((property) => <th key={property.id} className="min-w-44 px-3 py-2 text-xs font-medium text-muted-foreground">{property.name}</th>)}
+                <th className="min-w-52 px-3 py-2 text-xs font-medium text-muted-foreground">Linked page</th>
+                <th className="w-16 px-2 py-2"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
               {visibleRecords.map((record) => (
-                <tr key={record.id} className="border-b last:border-0">
-                  <td className="sticky left-0 z-[1] bg-background p-1">
+                <tr key={record.id} className="group border-b last:border-0">
+                  <td className="sticky left-0 z-[1] border-r bg-background p-1 group-hover:bg-muted/30">
                     <div className="flex items-center gap-1">
                       <input
                         aria-label="Record name"
@@ -1123,16 +1135,17 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                           className="ml-3 size-4 accent-primary"
                         />
                       ) : property.type === "select" ? (
-                        <select
-                          aria-label={`${property.name} for ${record.title}`}
-                          defaultValue={String(record.values[property.id] ?? "")}
-                          key={`${record.id}:${property.id}:${String(record.values[property.id] ?? "")}`}
-                          onBlur={(event) => void updateRecord(record, { values: { ...record.values, [property.id]: event.currentTarget.value } })}
-                          className="w-full rounded border-0 bg-transparent px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          <option value="">Choose…</option>
-                          {(property.options?.choices ?? []).map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-                        </select>
+                        <SelectCell
+                          label={property.name}
+                          recordTitle={record.title}
+                          value={String(record.values[property.id] ?? "")}
+                          choices={property.options?.choices ?? []}
+                          onChange={(choice) =>
+                            void updateRecord(record, {
+                              values: { ...record.values, [property.id]: choice },
+                            })
+                          }
+                        />
                       ) : property.type === "multi_select" ? (
                         <select
                           multiple
@@ -1144,9 +1157,20 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         >
                           {(property.options?.choices ?? []).map((choice) => <option key={choice} value={choice}>{choice}</option>)}
                         </select>
+                      ) : property.type === "date" ? (
+                        <DateCell
+                          label={property.name}
+                          recordTitle={record.title}
+                          value={String(record.values[property.id] ?? "")}
+                          onChange={(next) =>
+                            void updateRecord(record, {
+                              values: { ...record.values, [property.id]: next },
+                            })
+                          }
+                        />
                       ) : (
                         <input
-                          type={property.type === "number" ? "number" : property.type === "date" ? "date" : property.type === "url" ? "url" : "text"}
+                          type={property.type === "number" ? "number" : property.type === "url" ? "url" : "text"}
                           aria-label={`${property.name} for ${record.title}`}
                           defaultValue={String(record.values[property.id] ?? "")}
                           key={`${record.id}:${property.id}:${String(record.values[property.id] ?? "")}`}
@@ -1156,7 +1180,9 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                             void updateRecord(record, { values: { ...record.values, [property.id]: value } });
                           }}
                           onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-                          className="w-full rounded px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className={`w-full rounded px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                            property.type === "number" ? "text-right tabular-nums" : ""
+                          }`}
                         />
                       )}
                     </td>
@@ -1177,19 +1203,32 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                     </div>
                   </td>
                   <td className="px-1">
-                    <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
-                    <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteRecord(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
+                    <div className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
+                      <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteRecord(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
+                    </div>
                   </td>
                 </tr>
               ))}
               {visibleRecords.length === 0 && (
                 <tr><td colSpan={database.properties.length + 3} className="px-4 py-10 text-center text-muted-foreground">No records yet. Add a record to get started.</td></tr>
               )}
+              <tr>
+                <td colSpan={database.properties.length + 3} className="p-0">
+                  <button
+                    type="button"
+                    onClick={() => void addRecord()}
+                    disabled={busy}
+                    className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
+                  >
+                    <Plus size={12} aria-hidden="true" /> New record
+                  </button>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
         )}
-        {database.records.length > 0 && <Button type="button" variant="ghost" size="sm" onClick={() => void addRecord()} disabled={busy}><Plus size={15} /> Add record</Button>}
       </div>
 
       <AlertDialog open={Boolean(viewPendingDelete)} onOpenChange={(open) => { if (!open) closeViewDeleteDialog(); }}>
