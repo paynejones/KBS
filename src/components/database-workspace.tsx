@@ -9,6 +9,16 @@ import { DatabaseCalendar } from "@/components/database-calendar";
 import { DatabaseViewControls } from "@/components/database-view-controls";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   applyView,
   parseViewFilters,
   parseViewSorts,
@@ -29,6 +39,11 @@ type RelationTargetData = { properties: Property[]; records: RelatedRecordOption
 type DatabaseView = { id: string; name: string; type: string; config: Record<string, unknown> };
 type DatabaseTemplate = { id: string; name: string; title: string; values: Record<string, unknown> };
 type DatabaseData = { id: string; name: string; properties: Property[]; records: RecordRow[]; views: DatabaseView[]; templates: DatabaseTemplate[] };
+type ViewUsage = {
+  pages: { id: string; title: string }[];
+  templates: { id: string; name: string }[];
+  dashboardPinned: boolean;
+};
 
 function viewControlsFromConfig(config: Record<string, unknown> | undefined) {
   return {
@@ -78,6 +93,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [viewSaveError, setViewSaveError] = useState("");
   const [activeViewId, setActiveViewId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [viewPendingDelete, setViewPendingDelete] = useState<DatabaseView | null>(null);
+  const [viewUsage, setViewUsage] = useState<ViewUsage | null>(null);
+  const [viewUsageLoading, setViewUsageLoading] = useState(false);
+  const [viewUsageError, setViewUsageError] = useState("");
+  const [viewDeleteBusy, setViewDeleteBusy] = useState(false);
+  const [viewDeleteError, setViewDeleteError] = useState("");
 
   const loadDatabase = useCallback(async () => {
     try {
@@ -468,28 +489,57 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
-  async function deleteView(view: DatabaseView) {
+  function closeViewDeleteDialog() {
+    if (viewDeleteBusy) return;
+    setViewPendingDelete(null);
+    setViewUsage(null);
+    setViewUsageLoading(false);
+    setViewUsageError("");
+    setViewDeleteError("");
+  }
+
+  async function openViewDeleteDialog(view: DatabaseView) {
     if (!database || database.views.length <= 1) return;
-    setBusy(true);
-    setError("");
+    setViewPendingDelete(view);
+    setViewUsage(null);
+    setViewUsageLoading(true);
+    setViewUsageError("");
+    setViewDeleteError("");
     try {
       const usageResponse = await fetch(`/api/databases/${id}/views/${view.id}/usage`);
       if (!usageResponse.ok) {
         throw new Error("Could not check where this view is used. The view was not deleted.");
       }
-      const usage = (await usageResponse.json()) as { pages?: { id: string; title: string }[] };
-      const pageTitles = (usage.pages ?? []).map((page) => page.title.trim() || "Untitled");
-      const dashboardPinned = getDashboardWidgetsSnapshot().some((widget) => widget.viewId === view.id);
-      const usedBy = [
-        ...pageTitles.map((title) => `Page “${title}”`),
-        ...(dashboardPinned ? ["Dashboard pin"] : []),
-      ];
-      const usageSummary = usedBy.length
-        ? `Used by:\n${usedBy.map((entry) => `• ${entry}`).join("\n")}\n\nThose references may need updating after deletion.`
-        : "Not embedded in any pages and not pinned to the dashboard.";
-      const message = `Delete the “${view.name}” view?\n\nRecords stay in the database.\n\n${usageSummary}`;
-      if (!window.confirm(message)) return;
+      const usage = (await usageResponse.json()) as {
+        pages?: { id: string; title: string }[];
+        templates?: { id: string; name: string }[];
+      };
+      const pages = (usage.pages ?? []).map((page) => ({
+        id: page.id,
+        title: page.title.trim() || "Untitled",
+      }));
+      const templates = (usage.templates ?? []).map((template) => ({
+        id: template.id,
+        name: template.name.trim() || "Untitled template",
+      }));
+      setViewUsage({
+        pages,
+        templates,
+        dashboardPinned: getDashboardWidgetsSnapshot().some((widget) => widget.viewId === view.id),
+      });
+    } catch (usageError) {
+      setViewUsageError(usageError instanceof Error ? usageError.message : "Could not check where this view is used. The view was not deleted.");
+    } finally {
+      setViewUsageLoading(false);
+    }
+  }
 
+  async function confirmDeleteView() {
+    const view = viewPendingDelete;
+    if (!view || !database || viewDeleteBusy || viewUsageLoading || viewUsageError || !viewUsage) return;
+    setViewDeleteBusy(true);
+    setViewDeleteError("");
+    try {
       const response = await fetch(`/api/databases/${id}/views/${view.id}`, { method: "DELETE" });
       if (!response.ok) {
         const result = (await response.json().catch(() => null)) as { error?: unknown } | null;
@@ -504,11 +554,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         const nextView = remaining.find((candidate) => candidate.type === "table") ?? remaining[0];
         if (nextView) selectView(nextView);
       }
+      setViewPendingDelete(null);
+      setViewUsage(null);
       setViewSaveError("");
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Could not delete view.");
+      setViewDeleteError(deleteError instanceof Error ? deleteError.message : "Could not delete view.");
     } finally {
-      setBusy(false);
+      setViewDeleteBusy(false);
     }
   }
 
@@ -689,7 +741,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
-                    if (activeView) void deleteView(activeView);
+                    if (activeView) void openViewDeleteDialog(activeView);
                   }}
                   disabled={busy || !activeView || database.views.length <= 1}
                   title={
@@ -1139,6 +1191,98 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         )}
         {database.records.length > 0 && <Button type="button" variant="ghost" size="sm" onClick={() => void addRecord()} disabled={busy}><Plus size={15} /> Add record</Button>}
       </div>
+
+      <AlertDialog open={Boolean(viewPendingDelete)} onOpenChange={(open) => { if (!open) closeViewDeleteDialog(); }}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{viewPendingDelete?.name ?? "view"}” view?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Records and property values stay in the database. Only this saved view will be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-3 text-sm">
+            {viewUsageLoading && <p role="status" className="text-muted-foreground">Checking where this view is used…</p>}
+            {viewUsageError && <p role="alert" className="text-destructive">{viewUsageError}</p>}
+            {viewUsage && (
+              <>
+                {viewUsage.pages.length > 0 && (
+                  <div>
+                    <p className="font-medium">Pages using this view</p>
+                    <ul className="mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-1">
+                      {viewUsage.pages.map((page) => (
+                        <li key={page.id}>
+                          <Link
+                            href={`/pages/${page.id}`}
+                            onClick={closeViewDeleteDialog}
+                            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-primary hover:bg-accent hover:underline"
+                          >
+                            <span className="min-w-0 break-words">{page.title}</span>
+                            <ArrowUpRight size={13} className="shrink-0" aria-hidden="true" />
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {viewUsage.templates.length > 0 && (
+                  <div>
+                    <p className="font-medium">Page templates using this view</p>
+                    <ul className="mt-1.5 max-h-32 space-y-1 overflow-y-auto pr-1">
+                      {viewUsage.templates.map((template) => (
+                        <li key={template.id}>
+                          <Link
+                            href={`/pages#template-${template.id}`}
+                            onClick={closeViewDeleteDialog}
+                            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-primary hover:bg-accent hover:underline"
+                          >
+                            <span className="min-w-0 break-words">Template “{template.name}”</span>
+                            <ArrowUpRight size={13} className="shrink-0" aria-hidden="true" />
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {viewUsage.dashboardPinned && (
+                  <div>
+                    <p className="font-medium">Dashboard</p>
+                    <Link
+                      href="/"
+                      onClick={closeViewDeleteDialog}
+                      className="mt-1.5 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-primary hover:bg-accent hover:underline"
+                    >
+                      Pinned widget on the dashboard
+                      <ArrowUpRight size={13} className="shrink-0" aria-hidden="true" />
+                    </Link>
+                  </div>
+                )}
+                {viewUsage.pages.length === 0 && viewUsage.templates.length === 0 && !viewUsage.dashboardPinned && (
+                  <p className="rounded-md bg-muted/60 px-3 py-2 text-muted-foreground">
+                    This view is not embedded in any pages or templates, or pinned to the dashboard.
+                  </p>
+                )}
+                {(viewUsage.pages.length > 0 || viewUsage.templates.length > 0 || viewUsage.dashboardPinned) && (
+                  <p className="text-xs text-muted-foreground">These references may need updating after deletion.</p>
+                )}
+              </>
+            )}
+            {viewDeleteError && <p role="alert" className="text-destructive">{viewDeleteError}</p>}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={viewDeleteBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void confirmDeleteView()}
+              disabled={viewDeleteBusy || viewUsageLoading || !viewUsage || Boolean(viewUsageError)}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+              {viewDeleteBusy ? "Deleting…" : "Delete view"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

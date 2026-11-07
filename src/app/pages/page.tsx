@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { markdownFileToPage } from "@/lib/markdown-import";
 import { starterPageTemplates } from "@/lib/page-templates";
+import { revealTemplateFromHash } from "@/lib/page-template-deep-link";
 
 type PageSummary = {
   id: string;
@@ -51,6 +52,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
+  const templatesDetailsRef = useRef<HTMLDetailsElement>(null);
   const [templates, setTemplates] = useState<PageTemplate[]>([]);
   const [templateBusy, setTemplateBusy] = useState(false);
   const [templateMessage, setTemplateMessage] = useState("");
@@ -106,6 +108,18 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!templates.length) return;
+    const frame = window.requestAnimationFrame(() => {
+      revealTemplateFromHash(
+        window.location.hash,
+        (templateId) => document.getElementById(`template-${templateId}`),
+        templatesDetailsRef.current,
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [templates]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -432,7 +446,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
         </div>
 
         {!favoritesOnly && (
-          <details className="group rounded-xl border bg-card">
+          <details ref={templatesDetailsRef} className="group rounded-xl border bg-card">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
               <span>
                 <span className="block font-medium">Page templates</span>
@@ -465,7 +479,8 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                 templates.map((template) => (
                   <div
                     key={template.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+                    id={`template-${template.id}`}
+                    className="flex scroll-mt-24 flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">

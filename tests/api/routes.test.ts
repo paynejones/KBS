@@ -1036,7 +1036,7 @@ describe("database metadata API", () => {
     assert.equal(missing.status, 404);
   });
 
-  it("reports only live pages that explicitly embed a view", async () => {
+  it("reports live pages that use a view, including first-view fallbacks", async () => {
     const owner = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
       name: "Usage owner",
     })));
@@ -1059,7 +1059,9 @@ describe("database metadata API", () => {
 
     const embeddingPage = await createPage({ title: "Embedded notes" });
     const otherPage = await createPage({ title: "Other view notes" });
-    const embedDocument = (databaseId: string, viewId: string) => ({
+    const fallbackPage = await createPage({ title: "Fallback notes" });
+    const stalePage = await createPage({ title: "Stale view notes" });
+    const embedDocument = (databaseId: string, viewId: string | null) => ({
       type: "doc",
       content: [{
         type: "bulletList",
@@ -1078,6 +1080,48 @@ describe("database metadata API", () => {
       jsonRequest(`/api/pages/${otherPage.id}`, "PATCH", { contentJson: embedDocument(owner.id, tableView.id) }),
       routeContext({ id: otherPage.id }),
     )).status, 200);
+    assert.equal((await api.page.PATCH(
+      jsonRequest(`/api/pages/${fallbackPage.id}`, "PATCH", { contentJson: embedDocument(owner.id, null) }),
+      routeContext({ id: fallbackPage.id }),
+    )).status, 200);
+    assert.equal((await api.page.PATCH(
+      jsonRequest(`/api/pages/${stalePage.id}`, "PATCH", { contentJson: embedDocument(owner.id, MISSING_ID) }),
+      routeContext({ id: stalePage.id }),
+    )).status, 200);
+
+    const createTemplate = async (name: string, viewId: string | null) => {
+      const response = await api.pageTemplatesList.POST(jsonRequest("/api/page-templates", "POST", {
+        name,
+        contentJson: embedDocument(owner.id, viewId),
+      }));
+      assert.equal(response.status, 201, "the template fixture should be created");
+      return await body<{ id: string; name: string }>(response);
+    };
+    const calendarTemplate = await createTemplate("Calendar template", calendar.id);
+    const tableTemplate = await createTemplate("Table template", tableView.id);
+    const fallbackTemplate = await createTemplate("Fallback template", null);
+
+    const tableUsage = await api.viewUsage.GET(
+      jsonRequest(`/api/databases/${owner.id}/views/${tableView.id}/usage`, "GET"),
+      routeContext({ id: owner.id, viewId: tableView.id }),
+    );
+    assert.equal(tableUsage.status, 200);
+    const tableUsagePages = await body<{ pages: { title: string }[]; templates: { id: string; name: string }[] }>(tableUsage);
+    assert.deepEqual(
+      tableUsagePages.pages.map((page) => page.title).sort(),
+      ["Fallback notes", "Other view notes", "Stale view notes"],
+      "the first view is used by missing and stale embed selections",
+    );
+    assert.deepEqual(
+      tableUsagePages.templates
+        .map((template) => ({ id: template.id, name: template.name }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+      [
+        { id: fallbackTemplate.id, name: "Fallback template" },
+        { id: tableTemplate.id, name: "Table template" },
+      ],
+      "templates also use the first-view fallback",
+    );
 
     const usage = await api.viewUsage.GET(
       jsonRequest(`/api/databases/${owner.id}/views/${calendar.id}/usage`, "GET"),
@@ -1086,6 +1130,7 @@ describe("database metadata API", () => {
     assert.equal(usage.status, 200);
     assert.deepEqual(await body(usage), {
       pages: [{ id: embeddingPage.id, title: "Embedded notes" }],
+      templates: [{ id: calendarTemplate.id, name: "Calendar template" }],
     });
 
     await api.page.DELETE(
@@ -1096,7 +1141,10 @@ describe("database metadata API", () => {
       jsonRequest(`/api/databases/${owner.id}/views/${calendar.id}/usage`, "GET"),
       routeContext({ id: owner.id, viewId: calendar.id }),
     );
-    assert.deepEqual(await body(afterTrash), { pages: [] });
+    assert.deepEqual(await body(afterTrash), {
+      pages: [],
+      templates: [{ id: calendarTemplate.id, name: "Calendar template" }],
+    });
 
     assert.equal((await api.viewUsage.GET(
       jsonRequest(`/api/databases/${other.id}/views/${calendar.id}/usage`, "GET"),
