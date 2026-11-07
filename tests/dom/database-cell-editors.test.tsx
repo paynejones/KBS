@@ -104,7 +104,7 @@ test("select cell offers no clear action while empty", () => {
   assert.equal(screen.queryByRole("button", { name: "Clear" }), null);
 });
 
-test("select cell closes on Escape, outside click, scroll and a second click", () => {
+test("select cell closes on Escape, outside click and a second click, and follows scrolling", () => {
   render(
     <SelectCell
       label="Status"
@@ -128,9 +128,10 @@ test("select cell closes on Escape, outside click, scroll and a second click", (
 
   open();
   fireEvent.scroll(window);
-  assert.equal(screen.queryByRole("listbox"), null, "scrolling the table closes");
+  assert.ok(screen.getByRole("listbox"), "scrolling re-anchors instead of closing");
+  fireEvent.resize(window);
+  assert.ok(screen.getByRole("listbox"), "resizing re-anchors instead of closing");
 
-  open();
   open();
   assert.equal(screen.queryByRole("listbox"), null, "the trigger toggles");
 });

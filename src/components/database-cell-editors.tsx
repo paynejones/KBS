@@ -5,11 +5,11 @@ import type { FocusEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Check } from "lucide-react";
 import { statusToneClass } from "@/lib/status-tone";
 
-type PopoverPosition = { top: number; left: number };
+type AnchorRect = { top: number; bottom: number; left: number; right: number };
 type OpenMode = "selected" | "last";
 
-const POPOVER_WIDTH = 184;
-const POPOVER_HEIGHT = 232;
+const VIEWPORT_MARGIN = 8;
+const ANCHOR_GAP = 4;
 
 function focusableOptions(
   refs: { current: (HTMLButtonElement | null)[] },
@@ -20,33 +20,95 @@ function focusableOptions(
 }
 
 /**
+ * Places the picker under its cell, flipping it above when there is no room
+ * below and keeping it inside the viewport. The size comes from the rendered
+ * popover, because the date picker and a long choice list are very different
+ * heights.
+ */
+function placePopover(
+  anchor: AnchorRect,
+  size: { width: number; height: number },
+): { top: number; left: number } {
+  let top = anchor.bottom + ANCHOR_GAP;
+
+  if (top + size.height > window.innerHeight - VIEWPORT_MARGIN) {
+    const above = anchor.top - ANCHOR_GAP - size.height;
+    top =
+      above >= VIEWPORT_MARGIN
+        ? above
+        : Math.max(VIEWPORT_MARGIN, window.innerHeight - VIEWPORT_MARGIN - size.height);
+  }
+
+  let left = anchor.left;
+  if (left + size.width > window.innerWidth - VIEWPORT_MARGIN) {
+    left = anchor.right - size.width;
+  }
+  left = Math.max(
+    VIEWPORT_MARGIN,
+    Math.min(left, window.innerWidth - VIEWPORT_MARGIN - size.width),
+  );
+
+  return { top, left };
+}
+
+/**
+ * Places the rendered popover against the cell's current position and makes it
+ * visible. The cell is measured now rather than when it was clicked: focusing a
+ * cell or its field can scroll the page before React's effects run, and stale
+ * coordinates put the picker in the wrong place. Returns false when the cell
+ * has left the viewport.
+ */
+function applyPlacement(button: HTMLButtonElement, node: HTMLElement): boolean {
+  const rect = button.getBoundingClientRect();
+  const offscreen =
+    rect.bottom < 0 ||
+    rect.top > window.innerHeight ||
+    rect.right < 0 ||
+    rect.left > window.innerWidth;
+
+  if (offscreen) return false;
+
+  const placement = placePopover(
+    { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+    node.getBoundingClientRect(),
+  );
+
+  node.style.top = `${placement.top}px`;
+  node.style.left = `${placement.left}px`;
+  node.style.visibility = "visible";
+  return true;
+}
+
+/**
  * Table cells live inside a horizontal scroll container, so the picker is
- * positioned fixed against the viewport instead of the cell. Scrolling or
- * resizing closes it rather than leaving it behind.
+ * positioned fixed against the viewport instead of the cell. It follows the
+ * cell while the page scrolls and closes once the cell leaves the viewport.
  */
 function useCellPopover() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<PopoverPosition | null>(null);
+  const anchorRef = useRef<AnchorRect | null>(null);
+  const [anchor, setAnchor] = useState<AnchorRect | null>(null);
+
+  function setOpenAnchor(next: AnchorRect | null) {
+    anchorRef.current = next;
+    setAnchor(next);
+  }
 
   function open() {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    setPosition({
-      top: Math.max(
-        8,
-        Math.min(rect.bottom + 4, window.innerHeight - POPOVER_HEIGHT),
-      ),
-      left: Math.max(
-        8,
-        Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - 8),
-      ),
+    setOpenAnchor({
+      top: rect.top,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
     });
   }
 
   function close() {
-    setPosition(null);
+    setOpenAnchor(null);
   }
 
   /**
@@ -54,7 +116,7 @@ function useCellPopover() {
    * keyboard users are never dropped at the top of the page.
    */
   function closeAndRestoreFocus() {
-    setPosition(null);
+    setOpenAnchor(null);
     buttonRef.current?.focus();
   }
 
@@ -67,13 +129,26 @@ function useCellPopover() {
     ) {
       return;
     }
-    setPosition(null);
+    setOpenAnchor(null);
   }
 
+  // The popover renders hidden, then this measures it and places it. Writing
+  // the position straight to the node keeps the first painted frame from
+  // showing at the wrong place.
   useEffect(() => {
-    if (!position) return;
+    if (!anchor) return;
 
+    const button = buttonRef.current;
+    const node = popoverRef.current;
+    if (!button || !node) return;
+
+    applyPlacement(button, node);
+  }, [anchor]);
+
+  useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
+      if (!anchorRef.current) return;
+
       const target = event.target as Node;
       if (
         popoverRef.current?.contains(target) ||
@@ -81,18 +156,29 @@ function useCellPopover() {
       ) {
         return;
       }
-      setPosition(null);
+      setOpenAnchor(null);
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setPosition(null);
-        buttonRef.current?.focus();
-      }
+      if (event.key !== "Escape" || !anchorRef.current) return;
+
+      setOpenAnchor(null);
+      buttonRef.current?.focus();
     }
 
+    /**
+     * Scrolling keeps the picker attached to its cell instead of dismissing it.
+     * Focusing a field can scroll the page by a few pixels, which used to read
+     * as "the user scrolled away" and closed the picker as it opened.
+     */
     function handleViewportChange() {
-      setPosition(null);
+      if (!anchorRef.current) return;
+
+      const button = buttonRef.current;
+      const node = popoverRef.current;
+      if (button && node && applyPlacement(button, node)) return;
+
+      setOpenAnchor(null);
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
@@ -106,17 +192,17 @@ function useCellPopover() {
       window.removeEventListener("scroll", handleViewportChange, true);
       window.removeEventListener("resize", handleViewportChange);
     };
-  }, [position]);
+  }, []);
 
   return {
     buttonRef,
     popoverRef,
-    position,
+    anchor,
     open,
     close,
     closeAndRestoreFocus,
     handleBlur,
-    isOpen: position !== null,
+    isOpen: anchor !== null,
   };
 }
 
@@ -128,6 +214,18 @@ function formatCellDate(value: string): string {
   if (Number.isNaN(date.getTime())) return text;
 
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function popoverStyle(anchor: AnchorRect) {
+  return {
+    // Pinned inline as well as by class, because the picker's placement is
+    // meaningless if the `fixed` utility is ever missing from the stylesheet.
+    position: "fixed" as const,
+    top: anchor.bottom + ANCHOR_GAP,
+    left: anchor.left,
+    zIndex: 50,
+    visibility: "hidden" as const,
+  };
 }
 
 export function SelectCell({
@@ -146,7 +244,7 @@ export function SelectCell({
   const {
     buttonRef,
     popoverRef,
-    position,
+    anchor,
     open,
     close,
     closeAndRestoreFocus,
@@ -168,7 +266,7 @@ export function SelectCell({
   // Move focus into the menu as soon as it opens, so the whole list is
   // reachable with the arrow keys and nothing is announced into the void.
   useEffect(() => {
-    if (!position) return;
+    if (!anchor) return;
 
     const options = focusableOptions(optionRefs);
     if (options.length === 0) return;
@@ -179,8 +277,8 @@ export function SelectCell({
     }
 
     const selectedIndex = choicesRef.current.indexOf(valueRef.current);
-    (options[selectedIndex] ?? options[0]).focus();
-  }, [position]);
+    (options[selectedIndex] ?? options[0]).focus({ preventScroll: true });
+  }, [anchor]);
 
   function handlePopoverKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const options = focusableOptions(optionRefs);
@@ -253,7 +351,9 @@ export function SelectCell({
 
           if (isOpen) {
             const options = focusableOptions(optionRefs);
-            (event.key === "ArrowUp" ? options[options.length - 1] : options[0])?.focus();
+            (event.key === "ArrowUp" ? options[options.length - 1] : options[0])?.focus({
+              preventScroll: true,
+            });
           } else {
             open();
           }
@@ -273,44 +373,44 @@ export function SelectCell({
         )}
       </button>
 
-      {position && (
+      {anchor && (
         <div
           ref={popoverRef}
           onKeyDown={handlePopoverKeyDown}
           onBlur={handleBlur}
           className="fixed z-50 w-[184px] overflow-hidden rounded-lg border bg-popover p-1 shadow-lg"
-          style={{ top: position.top, left: position.left }}
+          style={popoverStyle(anchor)}
         >
           <div id={listId} role="listbox" aria-label={`${label} choices`}>
             {choices.map((choice, index) => (
-            <button
-              key={choice}
-              ref={(node) => {
-                optionRefs.current[index] = node;
-              }}
-              type="button"
-              role="option"
-              aria-selected={choice === value}
-              tabIndex={-1}
-              onClick={() => {
-                onChange(choice);
-                closeAndRestoreFocus();
-              }}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${statusToneClass(choice)}`}
+              <button
+                key={choice}
+                ref={(node) => {
+                  optionRefs.current[index] = node;
+                }}
+                type="button"
+                role="option"
+                aria-selected={choice === value}
+                tabIndex={-1}
+                onClick={() => {
+                  onChange(choice);
+                  closeAndRestoreFocus();
+                }}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="size-1 rounded-full bg-current" />
-                {choice}
-              </span>
-              {choice === value && (
-                <Check
-                  size={12}
-                  aria-hidden="true"
-                  className="ml-auto shrink-0 text-brand"
-                />
-              )}
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${statusToneClass(choice)}`}
+                >
+                  <span className="size-1 rounded-full bg-current" />
+                  {choice}
+                </span>
+                {choice === value && (
+                  <Check
+                    size={12}
+                    aria-hidden="true"
+                    className="ml-auto shrink-0 text-brand"
+                  />
+                )}
               </button>
             ))}
           </div>
@@ -346,7 +446,7 @@ export function DateCell({
   const {
     buttonRef,
     popoverRef,
-    position,
+    anchor,
     open,
     close,
     closeAndRestoreFocus,
@@ -361,9 +461,9 @@ export function DateCell({
   // runs before the popover refs exist and so looked like focus leaving the
   // cell — closing the picker the moment it opened.
   useEffect(() => {
-    if (!position) return;
-    inputRef.current?.focus();
-  }, [position]);
+    if (!anchor) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [anchor]);
 
   return (
     <>
@@ -386,7 +486,7 @@ export function DateCell({
         {display || <span className="text-muted-foreground">Set date</span>}
       </button>
 
-      {position && (
+      {anchor && (
         <div
           ref={popoverRef}
           id={dialogId}
@@ -394,7 +494,7 @@ export function DateCell({
           aria-label={`${label} picker`}
           onBlur={handleBlur}
           className="fixed z-50 w-56 rounded-lg border bg-popover p-2 shadow-lg"
-          style={{ top: position.top, left: position.left }}
+          style={popoverStyle(anchor)}
         >
           <input
             ref={inputRef}

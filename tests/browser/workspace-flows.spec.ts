@@ -185,15 +185,18 @@ test("pins and removes a dashboard widget", async ({ page, request }) => {
   const token = `dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const database = await createDatabase(request, `${token} database`);
   const record = await createRecord(request, database.id, `${token} record`);
+  // The home page renders the pinned-views section only for a workspace that
+  // already has at least one page.
+  const fixture = await createPage(request, { title: `${token} page` });
 
   try {
     await page.goto("/");
     const picker = page.locator("#dashboard-widget-picker");
     await expect(picker).toBeEnabled();
     await picker.selectOption({ label: `${database.name} — All records` });
-    const addWidget = page.getByRole("button", { name: "Add widget" });
-    await expect(addWidget).toBeEnabled();
-    await addWidget.click();
+    const pin = page.getByRole("button", { name: "Pin" });
+    await expect(pin).toBeEnabled();
+    await pin.click();
 
     await expect(page.getByRole("heading", { name: "All records" })).toBeVisible();
     await expect(page.getByRole("link", { name: record.title, exact: true })).toBeVisible();
@@ -204,6 +207,7 @@ test("pins and removes a dashboard widget", async ({ page, request }) => {
     await expect(page.getByRole("heading", { name: "All records" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: record.title, exact: true })).toHaveCount(0);
   } finally {
+    await purgePage(request, fixture.id);
     await cleanupDatabase(request, database.id);
   }
 });
@@ -221,7 +225,9 @@ test("adds a database record and edits its title and number value", async ({ pag
       response.url().endsWith(`/api/databases/${database.id}/records`)
       && response.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "New record" }).click();
+    // The table's inline add row uses this label too; the toolbar button is
+    // first in the document.
+    await page.getByRole("button", { name: "New record" }).first().click();
     const created = await createdResponse;
     assert.equal(created.status(), 201);
     const record = await created.json() as RecordRow;
