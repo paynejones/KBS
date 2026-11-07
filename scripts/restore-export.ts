@@ -116,6 +116,11 @@ async function main() {
           if (table === "pages" && typeof converted === "object" && converted !== null) {
             return { ...(converted as Record<string, unknown>), parent_id: null };
           }
+          // Exports predating the origin column carry no value for it; keep
+          // those rows as deliberate connections rather than failing not-null.
+          if (table === "page_links" && typeof converted === "object" && converted !== null) {
+            return { origin: "manual", ...(converted as Record<string, unknown>) };
+          }
           return converted;
         });
         const inserted = await insertRows(client, table, rows);

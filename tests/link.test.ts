@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeLinkHref } from "../src/lib/link";
+import { normalizeLinkHref, pageIdFromLinkHref } from "../src/lib/link";
+import { diffLinkedPageIds } from "../src/lib/page-link-sync";
 
 test("normalizeLinkHref keeps absolute web addresses and trims whitespace", () => {
   assert.equal(normalizeLinkHref("https://example.com/docs?q=1"), "https://example.com/docs?q=1");
@@ -38,4 +39,26 @@ test("normalizeLinkHref rejects empty and unusable input", () => {
   assert.equal(normalizeLinkHref("   "), null);
   assert.equal(normalizeLinkHref("not a url"), null);
   assert.equal(normalizeLinkHref("https://"), null);
+});
+
+test("diffLinkedPageIds reports page links that came or went", () => {
+  const first = "11111111-1111-4111-8111-111111111111";
+  const second = "22222222-2222-4222-8222-222222222222";
+  assert.deepEqual(diffLinkedPageIds([first, second], [second]), { added: [], removed: [first] });
+  assert.deepEqual(diffLinkedPageIds([first], []), { added: [], removed: [first] });
+  assert.deepEqual(diffLinkedPageIds(new Set<string>(), [first]), { added: [first], removed: [] });
+  assert.deepEqual(diffLinkedPageIds([first, second], [first, second]), { added: [], removed: [] });
+});
+
+test("pageIdFromLinkHref reads only in-app page paths", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  assert.equal(pageIdFromLinkHref(`/pages/${id}`), id);
+  assert.equal(pageIdFromLinkHref(`  /pages/${id}/  `), id);
+  assert.equal(pageIdFromLinkHref(`/pages/${id.toUpperCase()}`), id);
+  assert.equal(pageIdFromLinkHref("https://example.com/pages/11111111-1111-4111-8111-111111111111"), null);
+  assert.equal(pageIdFromLinkHref("/pages/2f1c"), null);
+  assert.equal(pageIdFromLinkHref("/pages/not-a-page-id"), null);
+  assert.equal(pageIdFromLinkHref(""), null);
+  assert.equal(pageIdFromLinkHref(null), null);
+  assert.equal(pageIdFromLinkHref(undefined), null);
 });

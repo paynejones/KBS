@@ -1,0 +1,1 @@
+ALTER TABLE "page_links" ADD COLUMN "origin" text DEFAULT 'manual' NOT NULL;

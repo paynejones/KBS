@@ -756,6 +756,59 @@ describe("graph API", () => {
   });
 });
 
+describe("page link origins API", () => {
+  it("keeps a panel connection when an inline link is cleaned up", async () => {
+    const source = await createPage({ title: "Connection source" });
+    const target = await createPage({ title: "Connection target" });
+
+    const inline = await api.links.POST(
+      jsonRequest(`/api/pages/${source.id}/links`, "POST", { targetPageId: target.id, origin: "inline" }),
+      routeContext({ id: source.id }),
+    );
+    assert.equal(inline.status, 201);
+
+    const promoted = await api.links.POST(
+      jsonRequest(`/api/pages/${source.id}/links`, "POST", { targetPageId: target.id }),
+      routeContext({ id: source.id }),
+    );
+    assert.equal(promoted.status, 201);
+
+    const cleanup = await api.links.DELETE(
+      jsonRequest(`/api/pages/${source.id}/links`, "DELETE", { targetPageId: target.id, origin: "inline" }),
+      routeContext({ id: source.id }),
+    );
+    assert.equal(cleanup.status, 200);
+
+    const remaining = await body<{ links: { id: string }[] }>(
+      await api.links.GET(jsonRequest(`/api/pages/${source.id}/links`, "GET"), routeContext({ id: source.id })),
+    );
+    assert.ok(
+      remaining.links.some((link) => link.id === target.id),
+      "a deliberate panel connection outlives inline-link cleanup",
+    );
+  });
+
+  it("deletes an inline connection when its link is removed", async () => {
+    const source = await createPage({ title: "Inline connection source" });
+    const target = await createPage({ title: "Inline connection target" });
+
+    await api.links.POST(
+      jsonRequest(`/api/pages/${source.id}/links`, "POST", { targetPageId: target.id, origin: "inline" }),
+      routeContext({ id: source.id }),
+    );
+    const removal = await api.links.DELETE(
+      jsonRequest(`/api/pages/${source.id}/links`, "DELETE", { targetPageId: target.id }),
+      routeContext({ id: source.id }),
+    );
+    assert.equal(removal.status, 200);
+
+    const remaining = await body<{ links: { id: string }[] }>(
+      await api.links.GET(jsonRequest(`/api/pages/${source.id}/links`, "GET"), routeContext({ id: source.id })),
+    );
+    assert.ok(!remaining.links.some((link) => link.id === target.id));
+  });
+});
+
 describe("tags API", () => {
   it("lists tags in name order and treats duplicates as the same tag", async () => {
     const created = await api.tags.POST(jsonRequest("/api/tags", "POST", { name: "Zebra tag" }));

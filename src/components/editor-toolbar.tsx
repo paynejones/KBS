@@ -1,23 +1,63 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { normalizeLinkHref } from "@/lib/link";
+import { normalizeLinkHref, pageIdFromLinkHref } from "@/lib/link";
+
+export type LinkablePage = { id: string; title: string };
 
 type EditorToolbarProps = {
   editor: Editor | null;
+  /** The page being edited, used to record a link to the chosen page. */
+  pageId?: string;
+  /** Pages offered by the link panel's title search. */
+  pages?: LinkablePage[];
 };
 
-export function EditorToolbar({ editor }: EditorToolbarProps) {
+const PAGE_MATCH_LIMIT = 6;
+
+/** True when text in the document still links to the page, so its connection stays. */
+function documentLinksPage(editor: Editor, targetPageId: string): boolean {
+  let linked = false;
+  editor.state.doc.descendants((node) => {
+    if (linked) return false;
+    if (node.isText) {
+      linked = node.marks.some(
+        (mark) =>
+          mark.type.name === "link" &&
+          pageIdFromLinkHref(mark.attrs.href as string) === targetPageId,
+      );
+    }
+    return !linked;
+  });
+  return linked;
+}
+
+export function EditorToolbar({ editor, pageId, pages = [] }: EditorToolbarProps) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkActive, setLinkActive] = useState(false);
   const [linkValue, setLinkValue] = useState("");
   const [linkError, setLinkError] = useState("");
+  const [linkPageIndex, setLinkPageIndex] = useState(0);
   const linkInputRef = useRef<HTMLInputElement>(null);
   const linkRangeRef = useRef<{ from: number; to: number } | null>(null);
+
+  const pageMatches = useMemo(() => {
+    const query = linkValue.trim();
+    if (!query || normalizeLinkHref(query)) return [];
+    const needle = query.toLowerCase();
+    return pages
+      .filter(
+        (page) =>
+          page.id !== pageId &&
+          page.title.trim().length > 0 &&
+          page.title.toLowerCase().includes(needle),
+      )
+      .slice(0, PAGE_MATCH_LIMIT);
+  }, [linkValue, pageId, pages]);
 
   useEffect(() => {
     if (linkOpen) linkInputRef.current?.focus();
@@ -31,8 +71,11 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     const { from, to } = activeEditor.state.selection;
     linkRangeRef.current = { from, to };
     const isLink = activeEditor.isActive("link");
+    const href = isLink ? String(activeEditor.getAttributes("link").href ?? "") : "";
+    const linkedPage = pages.find((page) => page.id === pageIdFromLinkHref(href));
     setLinkActive(isLink);
-    setLinkValue(isLink ? String(activeEditor.getAttributes("link").href ?? "") : "");
+    setLinkValue(linkedPage ? linkedPage.title : href);
+    setLinkPageIndex(0);
     setLinkError("");
     setLinkOpen(true);
   }
@@ -43,17 +86,53 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     activeEditor.commands.focus();
   }
 
-  function applyLink() {
-    const range = linkRangeRef.current ?? {
+  function linkRange() {
+    return linkRangeRef.current ?? {
       from: activeEditor.state.selection.from,
       to: activeEditor.state.selection.to,
     };
+  }
+
+  async function deletePageConnection(targetPageId: string) {
+    if (!pageId) return;
+    const response = await fetch(`/api/pages/${pageId}/links`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetPageId, origin: "inline" }),
+    });
+    if (!response.ok) throw new Error("The page connection could not be removed.");
+  }
+
+  /**
+   * Drops the recorded connection for a page link that is going away. Returns
+   * null when there is nothing to do, so callers stay synchronous in that case.
+   * A connection is kept while any other text in the page still links there.
+   */
+  function staleConnectionRelease(
+    previousPageId: string | null,
+    nextPageId: string | null,
+  ): Promise<void> | null {
+    if (!pageId || !previousPageId || previousPageId === nextPageId) return null;
+    if (documentLinksPage(activeEditor, previousPageId)) return null;
+    return deletePageConnection(previousPageId);
+  }
+
+  function connectionError(error: unknown): string {
+    return error instanceof Error
+      ? error.message
+      : "The page connection could not be removed.";
+  }
+
+  async function applyLink() {
+    const range = linkRange();
     const href = normalizeLinkHref(linkValue);
 
     if (!href) {
       setLinkError("Enter a web address, for example https://example.com.");
       return;
     }
+
+    const previousPageId = pageIdFromLinkHref(activeEditor.getAttributes("link").href);
 
     const chain = activeEditor.chain().focus().setTextSelection(range);
     if (range.from === range.to) {
@@ -64,12 +143,92 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
       chain.extendMarkRange("link").setLink({ href }).run();
     }
 
+    const release = staleConnectionRelease(previousPageId, pageIdFromLinkHref(href));
+    if (release) {
+      try {
+        await release;
+      } catch (error) {
+        setLinkError(connectionError(error));
+        return;
+      }
+    }
+
     setLinkOpen(false);
     setLinkError("");
   }
 
-  function removeLink() {
+  async function applyPageLink(page: LinkablePage) {
+    const range = linkRange();
+    const href = `/pages/${page.id}`;
+    const previousPageId = pageIdFromLinkHref(activeEditor.getAttributes("link").href);
+    setLinkError("");
+
+    try {
+      if (pageId) {
+        const response = await fetch(`/api/pages/${pageId}/links`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetPageId: page.id, origin: "inline" }),
+        });
+        if (!response.ok) throw new Error("The page link could not be saved.");
+      }
+    } catch (linkFailure) {
+      setLinkError(
+        linkFailure instanceof Error ? linkFailure.message : "The page link could not be saved.",
+      );
+      return;
+    }
+
+    const chain = activeEditor.chain().focus().setTextSelection(range);
+    if (range.from === range.to) {
+      chain
+        .insertContent({
+          type: "text",
+          text: page.title.trim() || "Untitled",
+          marks: [{ type: "link", attrs: { href } }],
+        })
+        .run();
+    } else {
+      chain.extendMarkRange("link").setLink({ href }).run();
+    }
+
+    const release = staleConnectionRelease(previousPageId, page.id);
+    if (release) {
+      try {
+        await release;
+      } catch (error) {
+        setLinkError(connectionError(error));
+        return;
+      }
+    }
+
+    setLinkOpen(false);
+    setLinkError("");
+  }
+
+  function submitLink() {
+    if (!normalizeLinkHref(linkValue) && pageMatches.length) {
+      void applyPageLink(pageMatches[Math.min(linkPageIndex, pageMatches.length - 1)]);
+      return;
+    }
+    void applyLink();
+  }
+
+  async function removeLink() {
+    const previousPageId = pageIdFromLinkHref(activeEditor.getAttributes("link").href);
     activeEditor.chain().focus().extendMarkRange("link").unsetLink().run();
+
+    const release = staleConnectionRelease(previousPageId, null);
+    if (release) {
+      try {
+        await release;
+      } catch (error) {
+        setLinkError(connectionError(error));
+        setLinkOpen(true);
+        return;
+      }
+    }
+
     setLinkOpen(false);
     setLinkError("");
   }
@@ -171,38 +330,77 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
       {linkOpen && (
         <div role="group" aria-label="Link" className="flex flex-wrap items-center gap-2 max-sm:[&_button]:h-9 max-sm:[&_button]:px-3 max-sm:[&_button]:text-sm">
-          <Input
-            ref={linkInputRef}
-            aria-label="Link URL"
-            aria-invalid={Boolean(linkError)}
-            value={linkValue}
-            placeholder="https://example.com"
-            onChange={(event) => {
-              setLinkValue(event.target.value);
-              setLinkError("");
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                applyLink();
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                closeLinkPanel();
-              }
-            }}
-            inputMode="url"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="go"
-            className="h-10 w-full max-w-xs sm:h-8"
-          />
-          <Button type="button" size="sm" onClick={applyLink}>
+          <div className="w-full max-w-xs space-y-1">
+            <Input
+              ref={linkInputRef}
+              aria-label="Link target"
+              aria-invalid={Boolean(linkError)}
+              aria-autocomplete={pageMatches.length ? "list" : undefined}
+              value={linkValue}
+              placeholder="https://example.com or page title"
+              onChange={(event) => {
+                setLinkValue(event.target.value);
+                setLinkPageIndex(0);
+                setLinkError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" && pageMatches.length) {
+                  event.preventDefault();
+                  setLinkPageIndex((index) => (index + 1) % pageMatches.length);
+                  return;
+                }
+                if (event.key === "ArrowUp" && pageMatches.length) {
+                  event.preventDefault();
+                  setLinkPageIndex(
+                    (index) => (index - 1 + pageMatches.length) % pageMatches.length,
+                  );
+                  return;
+                }
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitLink();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeLinkPanel();
+                }
+              }}
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="go"
+              className="h-10 w-full sm:h-8"
+            />
+            {pageMatches.length > 0 && (
+              <div
+                role="listbox"
+                aria-label="Link to a page"
+                className="overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-sm"
+              >
+                {pageMatches.map((page, index) => (
+                  <button
+                    key={page.id}
+                    type="button"
+                    role="option"
+                    aria-selected={index === linkPageIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setLinkPageIndex(index)}
+                    onClick={() => void applyPageLink(page)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left sm:py-1.5 ${index === linkPageIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+                  >
+                    <span className="truncate text-sm font-medium">{page.title}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">Page</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <Button type="button" size="sm" onClick={submitLink}>
             {linkActive ? "Update link" : "Add link"}
           </Button>
           {linkActive && (
-            <Button type="button" size="sm" variant="outline" onClick={removeLink}>
+            <Button type="button" size="sm" variant="outline" onClick={() => void removeLink()}>
               Remove link
             </Button>
           )}
@@ -215,7 +413,9 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Select text to link it, or apply with nothing selected to insert the address.
+              {pageMatches.length
+                ? "Pick a page below, or use a web address."
+                : "Select text to link it, or apply with nothing selected to insert the address."}
             </p>
           )}
         </div>

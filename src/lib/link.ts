@@ -35,3 +35,15 @@ export function normalizeLinkHref(input: string): string | null {
     return null;
   }
 }
+
+/**
+ * Returns the target page ID when a link points at an in-app page
+ * (`/pages/<id>`), so the link panel can show the page instead of its path.
+ */
+export function pageIdFromLinkHref(input: string | null | undefined): string | null {
+  if (typeof input !== "string") return null;
+  const match = /^\/pages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i.exec(
+    input.trim(),
+  );
+  return match ? match[1].toLowerCase() : null;
+}

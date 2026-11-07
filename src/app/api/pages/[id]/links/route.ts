@@ -7,7 +7,10 @@ import { backlinkContexts } from "@/lib/backlinks";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
-const linkSchema = z.object({ targetPageId: z.string().uuid() });
+const linkSchema = z.object({
+  targetPageId: z.string().uuid(),
+  origin: z.enum(["inline", "manual"]).optional(),
+});
 
 export async function GET(_request: Request, context: Context) {
   const { id } = await context.params;
@@ -79,10 +82,22 @@ export async function POST(request: Request, context: Context) {
       return NextResponse.json({ error: "Target page not found" }, { status: 404 });
     }
 
-    await db
+    const origin = parsed.data.origin ?? "manual";
+    const link = db
       .insert(pageLinks)
-      .values({ sourcePageId: id, targetPageId: target.id })
-      .onConflictDoNothing();
+      .values({ sourcePageId: id, targetPageId: target.id, origin });
+
+    if (origin === "manual") {
+      // A connection chosen in the panel is deliberate, so it keeps outliving
+      // inline links by promoting an existing inline row.
+      await link.onConflictDoUpdate({
+        target: [pageLinks.sourcePageId, pageLinks.targetPageId],
+        set: { origin: "manual" },
+      });
+    } else {
+      await link.onConflictDoNothing();
+    }
+
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
     console.error("Failed to link pages:", error);
@@ -107,6 +122,7 @@ export async function DELETE(request: Request, context: Context) {
         and(
           eq(pageLinks.sourcePageId, id),
           eq(pageLinks.targetPageId, parsed.data.targetPageId),
+          parsed.data.origin ? eq(pageLinks.origin, parsed.data.origin) : undefined,
         ),
       );
     return NextResponse.json({ success: true });

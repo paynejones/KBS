@@ -23,6 +23,7 @@ import { tiptapToMarkdown } from "@/lib/markdown";
 import { readRecoverablePageDraft, type PageDraft } from "@/lib/page-draft";
 import { recordRecentPage } from "@/lib/recents";
 import { clampEditorPopover } from "@/lib/editor-popover";
+import { collectLinkedPageIds, diffLinkedPageIds } from "@/lib/page-link-sync";
 import { describeSaveState, type SaveStatusView } from "@/lib/save-status";
 
 type PageData = {
@@ -200,6 +201,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
   const [statusClock, setStatusClock] = useState(() => Date.now());
   const [error, setError] = useState("");
   const [draftWarning, setDraftWarning] = useState("");
+  const [linkSyncWarning, setLinkSyncWarning] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [recoveredDraft, setRecoveredDraft] = useState(false);
@@ -222,6 +224,8 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
     contentJson: {},
     revision: 0,
   });
+  const linkedPageIds = useRef<Set<string>>(new Set());
+  const relinkBaseline = useRef(false);
   const [parentId, setParentId] = useState<string | null>(null);
   const [allPages, setAllPages] = useState<
     { id: string; title: string; parentId: string | null }[]
@@ -278,6 +282,12 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
     const interval = setInterval(() => setStatusClock(Date.now()), 30_000);
     return () => clearInterval(interval);
   }, [lastSavedAt]);
+
+  useEffect(() => {
+    if (!linkSyncWarning) return;
+    const timer = setTimeout(() => setLinkSyncWarning(""), 8000);
+    return () => clearTimeout(timer);
+  }, [linkSyncWarning]);
 
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: { openOnClick: false, HTMLAttributes: { class: "text-primary underline underline-offset-2" } } }), EditorBlockShortcuts, ImageExtension, TableExtension, TableRowExtension, TableHeaderExtension, TableCellExtension, TaskListExtension, TaskItemExtension, CalloutExtension, ToggleExtension, DatabaseEmbedExtension],
@@ -416,7 +426,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
     const response = await fetch(`/api/pages/${id}/links`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetPageId }),
+      body: JSON.stringify({ targetPageId, origin: "inline" }),
     });
     if (!response.ok) throw new Error("The page link could not be saved.");
   }
@@ -528,10 +538,15 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
         dirty.current = false;
         setRecoveredDraft(false);
         setPendingDraft(recovered);
+        // Content loading is not a link edit, so the update it emits re-baselines
+        // instead of releasing connections for the page that was open before.
+        relinkBaseline.current = true;
         editor?.commands.setContent(
           contentToLoad,
         );
         if (editor) {
+          relinkBaseline.current = false;
+          linkedPageIds.current = collectLinkedPageIds(editor.state.doc);
           setHeadings(collectOutline(editor));
           setWordCount(countWords(editor.getText()));
         }
@@ -651,7 +666,38 @@ useEffect(() => {
     }
   }
 
+  /** Mirrors an inline page link appearing or disappearing into its connection. */
+  async function syncInlineConnection(targetPageId: string, action: "add" | "remove") {
+    try {
+      const response = await fetch(`/api/pages/${id}/links`, {
+        method: action === "add" ? "POST" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPageId, origin: "inline" }),
+      });
+      if (!response.ok) throw new Error("The page connection could not be synced.");
+      setLinkSyncWarning("");
+    } catch (syncError) {
+      // Editing must not be interrupted for a connection that trails behind the
+      // text, so the failure is reported quietly and the text still saves.
+      console.error("Failed to sync an inline page connection:", syncError);
+      setLinkSyncWarning(
+        "A page connection could not be updated, so linked pages may be out of date.",
+      );
+    }
+  }
+
   const handleUpdate = () => {
+    const nextLinkedPageIds = collectLinkedPageIds(editor.state.doc);
+    if (relinkBaseline.current) {
+      relinkBaseline.current = false;
+      linkedPageIds.current = nextLinkedPageIds;
+    } else {
+      const { added, removed } = diffLinkedPageIds(linkedPageIds.current, nextLinkedPageIds);
+      linkedPageIds.current = nextLinkedPageIds;
+      for (const targetPageId of removed) void syncInlineConnection(targetPageId, "remove");
+      for (const targetPageId of added) void syncInlineConnection(targetPageId, "add");
+    }
+
     setHeadings(collectOutline(editor));
     setWordCount(countWords(editor.getText()));
     const revision = draftRevision.current + 1;
@@ -700,7 +746,7 @@ useEffect(() => {
 
     if (dirty.current) void flushSave(true);
   };
-}, [editor, loaded, savePage, draftStorageKey]);
+}, [editor, id, loaded, savePage, draftStorageKey]);
 
 async function retryContentSave() {
   if (!editor) return;
@@ -1037,6 +1083,15 @@ while (foundDescendant) {
         </p>
       )}
       {draftWarning && <p role="status" className="text-xs text-muted-foreground">{draftWarning}</p>}
+      {linkSyncWarning && (
+        <p
+          role="status"
+          aria-live="polite"
+          className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+        >
+          {linkSyncWarning}
+        </p>
+      )}
       <details
         className="group rounded-xl border bg-card"
         onToggle={(event) => {
@@ -1192,7 +1247,7 @@ while (foundDescendant) {
 
       <div className="rounded-xl border bg-card px-4 py-4 sm:px-8 sm:py-7">
         <div className="sticky top-0 z-30 -mx-4 bg-card px-4 pb-1 pt-3 sm:static sm:mx-0 sm:p-0">
-          <EditorToolbar editor={editor} />
+          <EditorToolbar editor={editor} pageId={id} pages={allPages} />
         </div>
         {editor?.isEditable && (
           <DragHandle editor={editor} className="text-muted-foreground">

@@ -178,6 +178,9 @@ export const pageLinks = pgTable(
     targetPageId: uuid("target_page_id")
       .notNull()
       .references(() => pages.id, { onDelete: "cascade" }),
+    // "manual" connections are chosen deliberately in the connections panel and
+    // outlive inline links; "inline" ones are cleaned up with their link.
+    origin: text("origin").notNull().default("manual"),
   },
   (table) => [
     primaryKey({ columns: [table.sourcePageId, table.targetPageId] }),

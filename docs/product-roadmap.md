@@ -18,6 +18,7 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Let the inline link control target pages, not just web addresses. Typing a title in the Link panel lists matching pages, arrow keys and Enter choose one, picking a page writes a `/pages/<id>` link and records the connection so backlinks see it, and reopening a page link shows the page's title instead of its path.
 - Applied the home, navigation, and mobile screens from the UI redesign deck in `docs/mockups/ui-redesign.html`. The home page now leads with a dated greeting and a “Pick up where you left off” card row, then shows a two-column canvas of recent pages and pinned views with colour-coded status pills. The sidebar is tighter with a brand-tinted active destination, the phone layout uses four 48px bottom-bar destinations with a search field in the header and a floating capture button, and the navigation editor opens as a bottom sheet on phones. An indigo `--brand` token per theme keeps interaction colour separate from status colour.
 - Gave database records full pages: creating a record now creates its page in the same transaction, older records get one when opened, and `/databases/[id]/records/[recordId]` shows editable properties above the page editor. Renaming either the record or its page keeps both titles in step, and record pages stay out of the page tree, `/pages` list, command palette page results, the home page's Jump back in list, and the knowledge graph with its center-page picker while remaining directly openable.
 - Made saving legible: the editor now says “Unsaved changes” while an edit is waiting for its debounce, “Saving…” while the request is in flight, and “Saved 2m ago” once it lands, with the exact timestamp on hover and a red “Save failed” alongside the retry action. Leaving the page with pending edits asks for confirmation instead of silently dropping them.
@@ -81,7 +82,8 @@ Add an Obsidian-style connection map that makes page relationships visible and n
 - [x] Provide a workspace graph showing pages as nodes and links as edges.
 - [x] Provide a local graph centered on the open page, with controls for neighborhood depth.
 - [x] Support zoom, pan, drag, node search, and opening a page from its node.
-- [x] Distinguish explicit links from parent/child structure, and optionally show shared tags as a separate relation.
+- [x] Distinguish explicit links from parent/child structure.
+- Optionally show shared tags as a separate relation.
 - Offer useful empty and dense graph states, plus filters for tags, favorites, and page groups.
 - Keep graph navigation usable on smaller screens and offer a list-based alternative.
 
@@ -94,7 +96,7 @@ This is the current top product priority after media: jump, create, and connect 
 - [x] Add wiki-style `[[page name]]` linking with autocomplete and link creation. Links use stable page IDs so renaming a page does not break its destination.
 - [x] Add a quick capture action that creates an inbox page without requiring the user to choose a destination first.
 - [x] Make backlinks easier to scan, with a count and a quoted snippet of the sentence where each inline link appears.
-- Add an inline link control for external URLs and pages, with page-name autocomplete; keep the existing page-connections panel for managing relationships and backlinks.
+- [x] Add an inline link control for external URLs and pages, with page-name autocomplete; keep the existing page-connections panel for managing relationships and backlinks.
 - [x] Add a command palette for creating pages/databases, jumping to favorites and recent pages, and common navigation actions. It owns Ctrl/Cmd+K, replacing the previous search-only overlay.
 - [x] Add recent pages for quick return paths. Visits are stored per browser, surfaced on the home page as “Jump back in” and at the top of the command palette, and kept separate from the server-driven recently-updated list.
 - Extend the palette with more actions, such as saved views or inbox capture, and make recents follow the user across devices if that becomes useful.
@@ -107,7 +109,8 @@ Make it easy to save something now and organize it later.
 - [x] Add a dedicated inbox for quick notes, ideas, and URLs.
 - [x] Let captured items become regular pages or database records without losing their source or capture date.
 - [x] Render saved links as compact previews that show the title and source and open the original URL directly.
-- Store URL title, address, description, and optional selected text for saved links.
+- [x] Store a saved link's title, address, description, site name, preview image, and favicon.
+- Store optional selected text alongside a saved link.
 - Add file, image, and PDF capture now that attachment storage and previews are in place.
 - Consider a browser extension as a later companion to the core inbox, not a prerequisite.
 
@@ -182,7 +185,7 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 ## Suggested sequence
 
 1. Finish the remaining editor polish (focus and selection).
-2. Add an inline link control for external URLs and pages, and store richer metadata for captured URLs.
+2. Store optional selected text with captured URLs; their title, description, site name, preview image, and favicon are already captured.
 3. Add related-item discovery, orphan views, and useful personal dashboard sections.
 4. Add list views and database formulas, then CSV/Markdown import.
 5. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.
