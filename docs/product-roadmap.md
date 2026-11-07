@@ -18,6 +18,7 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Made the editor usable on phones: formatting controls are larger touch targets and the toolbar stays at the top of the screen while scrolling, the slash and page-link menus stay inside the shrunken visible area when the on-screen keyboard is open and scroll internally instead of being cut off, and page-property fields no longer overflow a narrow screen.
 - Made URL captures richer: saving a link now reads the page's Open Graph and Twitter metadata — title, description, site name, preview image, and favicon — and stores it with the capture, so the inbox shows a real preview card instead of a bare hostname. The server only fetches public HTTP(S) addresses, re-checking every redirect, with a byte cap and timeout, and a capture still succeeds when the page is offline or unreadable.
 - Added formula properties: a computed column written as an expression over other properties, such as `round({Episodes watched} / {Episodes total} * 100, 1)`. Formulas read number and rollup values, support arithmetic, parentheses, and `round()`, and are validated on save so a mistyped or missing property reference is rejected rather than rendering a wrong number.
 - Added drag-and-drop block reordering: hovering a block reveals a grip that moves it to a new position, alongside the existing Alt+Shift+↑/↓ keyboard moves.
@@ -45,7 +46,7 @@ KBS does not need broad Notion feature parity. It should be able to represent th
 
 The following gaps are specific to those workflows and should guide the existing priorities below:
 
-- **Media presentation:** page icons, covers, uploaded or linked images/files, and image-backed gallery cards are in place. Remaining polish includes mobile editing, save-state feedback, and later inbox file/PDF capture.
+- **Media presentation:** page icons, covers, uploaded or linked images/files, and image-backed gallery cards are in place. Remaining polish includes save-state feedback and later inbox file/PDF capture.
 - **Page and web links:** keep page links and backlinks, add inline link creation while writing, and make linked pages easier to scan in context. Support saving an external URL with its title, description, source, and optional selected text, with a useful preview and a direct open action.
 - **Home dashboard:** allow configurable widgets for saved database views and useful queues, including tasks due soon, current projects, currently watching/reading/playing, and selected media or hobby views. Include quick actions for common capture and record creation. Widgets must remain views over existing records.
 - **Calendars:** add calendar views for tasks and dated media releases, with useful date filters and named views. A record's release date or a task's due date should be visible from both its database and the home dashboard.
@@ -66,7 +67,8 @@ Writing and shaping a page should feel natural. Media handling is no longer the 
 - [x] Add image and file support that works in page content and database gallery cards; allow remote images as well as uploaded media, with alt text and visible error states.
 - [x] Preserve reliable draft recovery and add an explicit way to recover or discard a recovered draft.
 - [x] Support drag-and-drop or other direct block reordering, with predictable selection and undo behavior. Keyboard block move already exists.
-- Improve editor focus, selection, mobile editing, and save-state feedback.
+- [x] Make the editor usable on phones: touch-sized formatting controls, a toolbar that stays reachable while scrolling, and slash/page-link menus placed inside the visible area above the on-screen keyboard.
+- Improve editor focus, selection, and save-state feedback.
 
 ### 2. Build a connected knowledge graph
 
@@ -174,7 +176,7 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 
 ## Suggested sequence
 
-1. Add page templates and finish the remaining editor polish (block reordering, mobile editing, save-state feedback).
+1. Add page templates and finish the remaining editor polish (save-state feedback).
 2. Add an inline link control for external URLs and pages, and store richer metadata for captured URLs.
 3. Add related-item discovery, orphan views, and useful personal dashboard sections.
 4. Add list views and database formulas, then CSV/Markdown import.

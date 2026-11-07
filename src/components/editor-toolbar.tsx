@@ -80,7 +80,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
       aria-label="Text formatting"
       className="space-y-2 border-b pb-3"
     >
-      <div className="flex touch-pan-x flex-nowrap gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible">
+      <div className="flex touch-pan-x flex-nowrap gap-2 overflow-x-auto py-1 max-sm:[&_button]:h-9 max-sm:[&_button]:px-3 max-sm:[&_button]:text-sm sm:flex-wrap sm:overflow-visible sm:py-0">
         <Button
           variant={editor.isActive("bold") ? "default" : "outline"}
           size="sm"
@@ -170,7 +170,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
       </div>
 
       {linkOpen && (
-        <div role="group" aria-label="Link" className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Link" className="flex flex-wrap items-center gap-2 max-sm:[&_button]:h-9 max-sm:[&_button]:px-3 max-sm:[&_button]:text-sm">
           <Input
             ref={linkInputRef}
             aria-label="Link URL"
@@ -191,7 +191,12 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
                 closeLinkPanel();
               }
             }}
-            className="h-8 w-full max-w-xs"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="go"
+            className="h-10 w-full max-w-xs sm:h-8"
           />
           <Button type="button" size="sm" onClick={applyLink}>
             {linkActive ? "Update link" : "Add link"}

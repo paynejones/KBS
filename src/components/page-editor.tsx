@@ -21,6 +21,7 @@ import { PageLinks } from "@/components/page-links";
 import { tiptapToMarkdown } from "@/lib/markdown";
 import { readRecoverablePageDraft, type PageDraft } from "@/lib/page-draft";
 import { recordRecentPage } from "@/lib/recents";
+import { clampEditorPopover } from "@/lib/editor-popover";
 
 type PageData = {
   id: string;
@@ -140,6 +141,27 @@ const EditorBlockShortcuts = Extension.create({
 type SlashMenuState = { from: number; to: number; query: string; x: number; y: number } | null;
 type WikiMenuState = { from: number; to: number; query: string; x: number; y: number } | null;
 type PageOption = { id: string; title: string; parentId: string | null };
+
+const EDITOR_MENU_SIZE = { width: 320, height: 320 };
+
+function editorMenuPlacement(anchor: { x: number; y: number }) {
+  if (typeof window === "undefined") {
+    return {
+      left: anchor.x,
+      top: anchor.y,
+      width: EDITOR_MENU_SIZE.width,
+      maxHeight: EDITOR_MENU_SIZE.height,
+    };
+  }
+  const viewport = window.visualViewport;
+  return clampEditorPopover(
+    anchor,
+    EDITOR_MENU_SIZE,
+    viewport
+      ? { width: viewport.width, height: viewport.height }
+      : { width: window.innerWidth, height: window.innerHeight },
+  );
+}
 
 export function PageEditor({ id }: { id: string }) {
   const [title, setTitle] = useState("");
@@ -360,6 +382,7 @@ export function PageEditor({ id }: { id: string }) {
 
   async function insertWikiPage(page: PageOption, menu = wikiMenuRef.current) {
     if (!editor || !menu) return;
+    editor.commands.focus();
     try {
       await attachPageLink(page.id);
       editor.chain().focus().deleteRange({ from: menu.from, to: menu.to })
@@ -373,6 +396,7 @@ export function PageEditor({ id }: { id: string }) {
 
   async function createWikiPage(menu = wikiMenuRef.current) {
     if (!editor || !menu?.query.trim()) return;
+    editor.commands.focus();
     const pageTitle = menu.query.trim().slice(0, 200);
     try {
       const response = await fetch("/api/pages", {
@@ -822,6 +846,9 @@ while (foundDescendant) {
   }
 }
 
+  const wikiMenuPlacement = wikiMenu ? editorMenuPlacement(wikiMenu) : null;
+  const slashMenuPlacement = slashMenu ? editorMenuPlacement(slashMenu) : null;
+
   if (status === "loading" && !loaded) {
     return (
       <div role="status" aria-label="Loading page" className="animate-pulse space-y-6">
@@ -922,7 +949,7 @@ while (foundDescendant) {
               Remove cover
             </Button>
           )}
-          <label className="flex min-w-64 flex-1 items-center gap-2 rounded-md border px-3 py-2 text-sm">
+          <label className="flex w-full min-w-0 flex-1 basis-full items-center gap-2 rounded-md border px-3 py-2 text-sm sm:basis-auto sm:min-w-64">
             <span className="shrink-0 text-muted-foreground">Cover URL</span>
             <input
               aria-label="Cover image URL"
@@ -1065,7 +1092,9 @@ while (foundDescendant) {
       )}
 
       <div className="rounded-xl border bg-card px-4 py-4 sm:px-8 sm:py-7">
-        <EditorToolbar editor={editor} />
+        <div className="sticky top-0 z-30 -mx-4 bg-card px-4 pb-1 pt-3 sm:static sm:mx-0 sm:p-0">
+          <EditorToolbar editor={editor} />
+        </div>
         <p className="pb-2 pt-1 text-xs text-muted-foreground">
           Reorder a block: drag the grip beside it, or press Alt+Shift+↑ / ↓
         </p>
@@ -1089,8 +1118,8 @@ while (foundDescendant) {
           <div
             role="listbox"
             aria-label="Link to a page"
-            className="fixed z-50 w-80 overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{ left: Math.min(wikiMenu.x, window.innerWidth - 330), top: wikiMenu.y }}
+            className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: wikiMenuPlacement?.left, top: wikiMenuPlacement?.top, width: wikiMenuPlacement?.width, maxHeight: wikiMenuPlacement?.maxHeight }}
           >
             {matchingWikiPages.map((page, index) => (
               <button
@@ -1101,7 +1130,7 @@ while (foundDescendant) {
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setWikiIndex(index)}
                 onClick={() => void insertWikiPage(page, wikiMenu)}
-                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left ${index === wikiIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left sm:py-2 ${index === wikiIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
               >
                 <span className="truncate text-sm font-medium">{page.title || "Untitled"}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">Page</span>
@@ -1115,7 +1144,7 @@ while (foundDescendant) {
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setWikiIndex(matchingWikiPages.length)}
                 onClick={() => void createWikiPage(wikiMenu)}
-                className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm ${wikiIndex === matchingWikiPages.length ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm sm:py-2 ${wikiIndex === matchingWikiPages.length ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
               >
                 <Plus size={15} /> Create page “{wikiMenu.query.trim().slice(0, 80)}”
               </button>
@@ -1128,8 +1157,8 @@ while (foundDescendant) {
           <div
             role="listbox"
             aria-label="Insert block"
-            className="fixed z-50 w-72 overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{ left: Math.min(slashMenu.x, window.innerWidth - 300), top: slashMenu.y }}
+            className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: slashMenuPlacement?.left, top: slashMenuPlacement?.top, width: slashMenuPlacement?.width, maxHeight: slashMenuPlacement?.maxHeight }}
           >
             {filteredCommands.map((command, index) => (
               <button
@@ -1145,7 +1174,7 @@ while (foundDescendant) {
                   command.run(editor);
                   setSlashMenu(null);
                 }}
-                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left ${index === slashIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left sm:py-2 ${index === slashIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
               >
                 <span className="text-sm font-medium">{command.label}</span>
                 <span className="text-xs text-muted-foreground">{command.detail}</span>
