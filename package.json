@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/reliability.test.ts tests/recents.test.ts tests/trash.test.ts tests/backlinks.test.ts tests/database-view.test.ts tests/calendar.test.ts tests/dashboard.test.ts tests/database-formula.test.ts tests/media.test.ts tests/media-upload.test.ts tests/markdown.test.ts tests/markdown-import.test.ts tests/link.test.ts tests/link-preview.test.ts tests/editor-popover.test.ts tests/page-templates.test.ts tests/dom/media-image.test.tsx tests/dom/theme-picker.test.tsx tests/dom/recent-pages.test.tsx tests/dom/page-links.test.tsx tests/dom/page-tags.test.tsx tests/dom/editor-link.test.tsx tests/dom/editor-drag-handle.test.tsx",
+    "test": "tsx --test tests/reliability.test.ts tests/recents.test.ts tests/trash.test.ts tests/backlinks.test.ts tests/database-view.test.ts tests/calendar.test.ts tests/dashboard.test.ts tests/database-formula.test.ts tests/media.test.ts tests/media-upload.test.ts tests/markdown.test.ts tests/markdown-import.test.ts tests/link.test.ts tests/link-preview.test.ts tests/editor-popover.test.ts tests/save-status.test.ts tests/page-templates.test.ts tests/dom/media-image.test.tsx tests/dom/theme-picker.test.tsx tests/dom/recent-pages.test.tsx tests/dom/page-links.test.tsx tests/dom/page-tags.test.tsx tests/dom/editor-link.test.tsx tests/dom/editor-drag-handle.test.tsx",
     "test:dom": "tsx --test tests/dom/media-image.test.tsx tests/dom/theme-picker.test.tsx tests/dom/recent-pages.test.tsx tests/dom/page-links.test.tsx tests/dom/page-tags.test.tsx tests/dom/editor-link.test.tsx tests/dom/editor-drag-handle.test.tsx",
     "test:api": "tsx --test tests/api/routes.test.ts",
     "test:db": "tsx scripts/test-db-reliability.ts",

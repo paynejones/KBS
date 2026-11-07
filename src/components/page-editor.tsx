@@ -22,6 +22,7 @@ import { tiptapToMarkdown } from "@/lib/markdown";
 import { readRecoverablePageDraft, type PageDraft } from "@/lib/page-draft";
 import { recordRecentPage } from "@/lib/recents";
 import { clampEditorPopover } from "@/lib/editor-popover";
+import { describeSaveState, type SaveStatusView } from "@/lib/save-status";
 
 type PageData = {
   id: string;
@@ -35,7 +36,7 @@ type PageData = {
   updatedAt: string;
 };
 
-type SaveStatus = "loading" | "saved" | "saving" | "error";
+type SaveStatus = "loading" | "dirty" | "saving" | "saved" | "error";
 type PageRevision = { id: string; title: string; content: string; createdAt: string };
 
 type SlashCommand = {
@@ -144,6 +145,13 @@ type PageOption = { id: string; title: string; parentId: string | null };
 
 const EDITOR_MENU_SIZE = { width: 320, height: 320 };
 
+const SAVE_TONE_CLASSES: Record<SaveStatusView["tone"], string> = {
+  muted: "text-muted-foreground",
+  active: "text-muted-foreground",
+  success: "text-emerald-600 dark:text-emerald-400",
+  error: "text-destructive",
+};
+
 function editorMenuPlacement(anchor: { x: number; y: number }) {
   if (typeof window === "undefined") {
     return {
@@ -166,6 +174,8 @@ function editorMenuPlacement(anchor: { x: number; y: number }) {
 export function PageEditor({ id }: { id: string }) {
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<SaveStatus>("loading");
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [statusClock, setStatusClock] = useState(() => Date.now());
   const [error, setError] = useState("");
   const [draftWarning, setDraftWarning] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -237,6 +247,12 @@ export function PageEditor({ id }: { id: string }) {
     wikiMenuOptionCountRef.current = wikiMenuOptionCount;
   }, [matchingWikiPages, canCreateWikiPage, wikiMenuOptionCount]);
 
+
+  useEffect(() => {
+    if (!lastSavedAt) return;
+    const interval = setInterval(() => setStatusClock(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, [lastSavedAt]);
 
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: { openOnClick: false, HTMLAttributes: { class: "text-primary underline underline-offset-2" } } }), EditorBlockShortcuts, ImageExtension, TableExtension, TableRowExtension, TableHeaderExtension, TableCellExtension, TaskListExtension, TaskItemExtension, CalloutExtension, ToggleExtension, DatabaseEmbedExtension],
@@ -493,6 +509,7 @@ export function PageEditor({ id }: { id: string }) {
         );
         setLoaded(true);
         recordRecentPage({ id, title: page.title });
+        setLastSavedAt(Date.parse(page.updatedAt) || Date.now());
         setStatus("saved");
       } catch (e) {
         if (!cancelled) {
@@ -510,6 +527,19 @@ export function PageEditor({ id }: { id: string }) {
       cancelled = true;
     };
   }, [editor, id, loadAttempt, draftStorageKey]);
+
+  useEffect(() => {
+    if (!loaded) return;
+
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirty.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [loaded]);
 
   const savePage = useCallback(
   async (updates: {
@@ -535,7 +565,10 @@ export function PageEditor({ id }: { id: string }) {
         throw new Error("Save failed. Please try again.");
       }
 
-      if (!options.silent) setStatus("saved");
+      if (!options.silent) {
+        setLastSavedAt(Date.now());
+        setStatus("saved");
+      }
       return true;
     } catch (e) {
       if (!options.silent) {
@@ -547,6 +580,10 @@ export function PageEditor({ id }: { id: string }) {
   },
   [id],
 );
+
+const markSaved = useCallback(() => {
+  setLastSavedAt(Date.now());
+}, []);
 
 useEffect(() => {
   if (!editor || !loaded) return;
@@ -596,7 +633,7 @@ useEffect(() => {
     draftRevision.current = revision;
 
     dirty.current = true;
-    setStatus("saving");
+    setStatus("dirty");
     try {
       localStorage.setItem(draftStorageKey, JSON.stringify({
         ...latestContent.current,
@@ -731,6 +768,7 @@ async function restoreRevision(revisionId: string) {
     const page = await response.json() as PageData;
     setTitle(page.title);
     editor?.commands.setContent(page.contentJson as Parameters<typeof editor.commands.setContent>[0]);
+    markSaved();
     setStatus("saved");
     await loadRevisions();
   } catch (historyError) {
@@ -848,6 +886,7 @@ while (foundDescendant) {
 
   const wikiMenuPlacement = wikiMenu ? editorMenuPlacement(wikiMenu) : null;
   const slashMenuPlacement = slashMenu ? editorMenuPlacement(slashMenu) : null;
+  const saveView = describeSaveState(status, lastSavedAt, statusClock);
 
   if (status === "loading" && !loaded) {
     return (
@@ -875,7 +914,10 @@ while (foundDescendant) {
         {icon && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
         <input
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            setStatus("dirty");
+          }}
           onBlur={() => {
             recordRecentPage({ id, title: title.trim() || "Untitled" });
             void savePage({ title: title.trim() || "Untitled" });
@@ -905,11 +947,13 @@ while (foundDescendant) {
           >
             <Star size={18} className={isFavorite ? "fill-current text-amber-500" : ""} />
           </button>
-          <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
-            {status === "saving" && "Saving…"}
-            {status === "saved" && "Saved"}
-            {status === "error" && "Save failed"}
-            {status === "loading" && "Loading…"}
+          <span
+            className={`text-xs ${SAVE_TONE_CLASSES[saveView.tone]}`}
+            role="status"
+            aria-live="polite"
+            title={lastSavedAt ? `Last saved ${new Date(lastSavedAt).toLocaleString()}` : undefined}
+          >
+            {saveView.label}
           </span>
         </div>
       </div>
