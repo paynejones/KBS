@@ -316,3 +316,22 @@ export const databaseRecordRelations = pgTable(
     index("database_record_relations_target_record_id_idx").on(table.targetRecordId),
   ],
 );
+
+// Deliberate connections between a page and a database record. The row is
+// symmetric: the page shows its linked records and the record shows its linked
+// pages, so either side can create or remove the same connection.
+export const pageRecordLinks = pgTable(
+  "page_record_links",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    recordId: uuid("record_id")
+      .notNull()
+      .references(() => databaseRecords.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.pageId, table.recordId] }),
+    index("page_record_links_record_id_idx").on(table.recordId),
+  ],
+);

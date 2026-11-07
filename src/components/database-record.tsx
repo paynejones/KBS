@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUpRight, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { PageEditorLoader } from "@/components/page-editor-loader";
+import { RecordPageLinks } from "@/components/record-links";
 import { Button } from "@/components/ui/button";
 import { evaluateFormula, formatFormulaValue, parseFormula } from "@/lib/database-formula";
 import { parseFilePropertyValue } from "@/lib/media";
@@ -449,6 +450,8 @@ export function DatabaseRecordWorkspace({
             </dl>
           )}
         </section>
+
+        <RecordPageLinks recordId={record.id} />
 
         <section aria-labelledby="record-page-heading" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">

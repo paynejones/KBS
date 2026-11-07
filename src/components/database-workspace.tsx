@@ -105,7 +105,9 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     try {
       const [response, pagesResponse, databasesResponse] = await Promise.all([
         fetch(`/api/databases/${id}`),
-        fetch("/api/pages?includeRecordPages=true"),
+        // Record pages are reached through their record, so they are not
+        // offered as a record's linked page.
+        fetch("/api/pages"),
         fetch("/api/databases"),
       ]);
       if (!response.ok) throw new Error(response.status === 404 ? "Database not found." : "Could not load database.");
@@ -666,6 +668,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   });
   const visibleRecords = applyView(matchingRecords, database.properties, filters, sorts, { valueFor });
 
+  // Record pages are not offered in the page picker, so keep a record's own
+  // page in its options while that page is the current value.
+  const linkedPageOptions = (record: RecordRow) =>
+    record.pageId && !pages.some((page) => page.id === record.pageId)
+      ? [...pages, { id: record.pageId, title: `${record.title || "Untitled"} (this record’s page)` }]
+      : pages;
+
   function exportJson() {
     if (!database) return;
     const filename = `${database.name.replace(/[\\/:*?"<>|]/g, "-") || "database"}.json`;
@@ -688,7 +697,9 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         if (property.type === "formula") return formatFormulaValue(getFormulaValue(record, property));
         return record.values[property.id];
       }),
-      pages.find((page) => page.id === record.pageId)?.title ?? "",
+      record.pageId
+        ? pages.find((page) => page.id === record.pageId)?.title ?? record.title
+        : "",
     ]);
     const csv = [columns, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
     const filename = `${database.name.replace(/[\\/:*?"<>|]/g, "-") || "database"}.csv`;
@@ -1196,7 +1207,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         className="min-w-0 flex-1 rounded border bg-background px-2 py-1.5 text-xs"
                       >
                         <option value="">No linked page</option>
-                        {pages.map((page) => <option key={page.id} value={page.id}>{page.title || "Untitled"}</option>)}
+                        {linkedPageOptions(record).map((page) => <option key={page.id} value={page.id}>{page.title || "Untitled"}</option>)}
                       </select>
                       {record.pageId && <Link href={`/pages/${record.pageId}`} aria-label={`Open linked page for ${record.title}`} title="Open linked page" className="shrink-0 text-primary hover:underline">↗</Link>}
                       {!record.pageId && <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void createPageForRecord(record)} disabled={busy}>Create</Button>}

@@ -11,41 +11,66 @@ const PAGES = [
   { id: "p3", title: "Free page", parentId: null },
 ];
 
+const RECORD = { id: "r1", title: "Record one", databaseId: "d1", databaseName: "Media" };
+
 afterEach(() => {
   restoreFetch();
   cleanup();
 });
 
-test("PageLinks renders linked pages and backlinks with their context", async () => {
-  const calls = stubFetch(() =>
-    json({
+/** Answers the page-links request and the page-records request separately. */
+function stubConnections(
+  pageLinks: { links: { id: string; title: string }[]; backlinks: { id: string; title: string; contexts: string[] }[] },
+  recordLinks: { records: typeof RECORD[]; options: typeof RECORD[] } = { records: [], options: [] },
+) {
+  return stubFetch((call) =>
+    call.url.endsWith("/records") ? json(recordLinks) : json(pageLinks),
+  );
+}
+
+test("PageLinks renders linked pages, backlinks, and linked records", async () => {
+  const calls = stubConnections(
+    {
       links: [{ id: "p2", title: "Other" }],
       backlinks: [{ id: "p3", title: "Source page", contexts: ["Reads with Other in mind."] }],
-    }));
+    },
+    { records: [RECORD], options: [] },
+  );
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
 
   const link = await screen.findByRole("link", { name: "Other" });
   assert.equal(link.getAttribute("href"), "/pages/p2");
   assert.equal(screen.getByRole("link", { name: /Source page/ }).getAttribute("href"), "/pages/p3");
+
+  const recordLink = screen.getByRole("link", { name: "Record one" });
+  assert.equal(
+    recordLink.getAttribute("href"),
+    "/databases/d1/records/r1",
+    "a linked record opens its record page",
+  );
+  assert.ok(screen.getByText("Media"), "the record shows which database it belongs to");
+
   assert.ok(screen.getByText("Reads with Other in mind."));
-  assert.equal(screen.getAllByText("(1)").length, 2, "both columns show a count");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "/api/pages/p1/links");
-  assert.equal(calls[0].method, "GET");
+  assert.equal(screen.getAllByText("(1)").length, 3, "every column shows a count");
+  assert.deepEqual(calls.map((call) => call.url).sort(), [
+    "/api/pages/p1/links",
+    "/api/pages/p1/records",
+  ]);
 });
 
 test("PageLinks shows empty states when nothing is connected", async () => {
-  stubFetch(() => json({ links: [], backlinks: [] }));
+  stubConnections({ links: [], backlinks: [] });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
 
   assert.ok(await screen.findByText("No linked pages yet."));
   assert.ok(screen.getByText("No pages link here yet."));
+  assert.ok(screen.getByText("No linked records yet."));
 });
 
 test("PageLinks only offers pages that are not already linked", async () => {
-  stubFetch(() => json({ links: [{ id: "p2", title: "Other" }], backlinks: [] }));
+  stubConnections({ links: [{ id: "p2", title: "Other" }], backlinks: [] });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
   await screen.findByRole("link", { name: "Other" });
@@ -66,6 +91,7 @@ test("PageLinks only offers pages that are not already linked", async () => {
 test("PageLinks posts a new link and refreshes the list", async () => {
   let links = [{ id: "p2", title: "Other" }];
   const calls = stubFetch((call) => {
+    if (call.url.endsWith("/records")) return json({ records: [], options: [] });
     if (call.method === "POST") {
       links = [...links, { id: "p3", title: "Free page" }];
       return json({ ok: true });
@@ -97,6 +123,7 @@ test("PageLinks posts a new link and refreshes the list", async () => {
 test("PageLinks deletes a link and updates both columns", async () => {
   let links = [{ id: "p2", title: "Other" }];
   const calls = stubFetch((call) => {
+    if (call.url.endsWith("/records")) return json({ records: [], options: [] });
     if (call.method === "DELETE") {
       links = [];
       return json({ ok: true });
@@ -117,18 +144,80 @@ test("PageLinks deletes a link and updates both columns", async () => {
   assert.ok(await screen.findByText("No linked pages yet."));
 });
 
+test("PageLinks links a record and shows it with its database", async () => {
+  let records: (typeof RECORD)[] = [];
+  const calls = stubFetch((call) => {
+    if (call.url === "/api/pages/p1/records") {
+      if (call.method === "POST") {
+        records = [RECORD];
+        return json({ ok: true });
+      }
+      return json({ records, options: records.length ? [] : [RECORD] });
+    }
+    return json({ links: [], backlinks: [] });
+  });
+
+  render(<PageLinks pageId="p1" pages={PAGES} />);
+  await screen.findByText("No linked records yet.");
+
+  fireEvent.change(screen.getByRole("combobox", { name: "Choose a record to link" }), {
+    target: { value: "r1" },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Link record" }));
+  });
+
+  const post = calls.find((call) => call.method === "POST");
+  assert.equal(post?.url, "/api/pages/p1/records");
+  assert.deepEqual(post?.body, { recordId: "r1" });
+  const linked = await screen.findByRole("link", { name: "Record one" });
+  assert.equal(linked.getAttribute("href"), "/databases/d1/records/r1");
+  assert.equal(
+    (screen.getByRole("combobox", { name: "Choose a record to link" }) as HTMLSelectElement).value,
+    "",
+  );
+});
+
+test("PageLinks removes a record link", async () => {
+  let records = [RECORD];
+  const calls = stubFetch((call) => {
+    if (call.url === "/api/pages/p1/records") {
+      if (call.method === "DELETE") {
+        records = [];
+        return json({ ok: true });
+      }
+      return json({ records, options: [] });
+    }
+    return json({ links: [], backlinks: [] });
+  });
+
+  render(<PageLinks pageId="p1" pages={PAGES} />);
+  await screen.findByRole("link", { name: "Record one" });
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Remove link to Record one" }));
+  });
+
+  const deletion = calls.find((call) => call.method === "DELETE");
+  assert.equal(deletion?.url, "/api/pages/p1/records");
+  assert.deepEqual(deletion?.body, { recordId: "r1" });
+  assert.ok(await screen.findByText("No linked records yet."));
+});
+
 test("PageLinks reports a failed load", async () => {
   stubFetch(() => json({ error: "boom" }, 500));
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
 
   const alert = await screen.findByRole("alert");
-  assert.equal(alert.textContent, "Could not load page links.");
+  assert.equal(alert.textContent, "Could not load page connections.");
 });
 
 test("PageLinks reports a failed link creation", async () => {
-  stubFetch((call) =>
-    call.method === "POST" ? json({ error: "boom" }, 500) : json({ links: [], backlinks: [] }));
+  stubFetch((call) => {
+    if (call.url.endsWith("/records")) return json({ records: [], options: [] });
+    return call.method === "POST" ? json({ error: "boom" }, 500) : json({ links: [], backlinks: [] });
+  });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
   await screen.findByText("No linked pages yet.");
@@ -141,4 +230,27 @@ test("PageLinks reports a failed link creation", async () => {
   });
 
   assert.equal((await screen.findByRole("alert")).textContent, "Could not link this page.");
+});
+
+test("PageLinks reports a failed record link", async () => {
+  stubFetch((call) => {
+    if (call.url.endsWith("/records")) {
+      return call.method === "POST"
+        ? json({ error: "boom" }, 500)
+        : json({ records: [], options: [RECORD] });
+    }
+    return json({ links: [], backlinks: [] });
+  });
+
+  render(<PageLinks pageId="p1" pages={PAGES} />);
+  await screen.findByText("No linked records yet.");
+
+  fireEvent.change(screen.getByRole("combobox", { name: "Choose a record to link" }), {
+    target: { value: "r1" },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Link record" }));
+  });
+
+  assert.equal((await screen.findByRole("alert")).textContent, "Could not link this record.");
 });

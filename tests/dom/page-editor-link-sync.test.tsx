@@ -59,7 +59,7 @@ test("PageEditor reports a failed background connection sync without blocking", 
   localStorage.setItem(`kbs:page-draft:${PAGE_ID}`, JSON.stringify(recoveredDraft));
 
   const calls = stubFetch((call) => {
-    if (call.url === "/api/pages?includeRecordPages=true") {
+    if (call.url === "/api/pages") {
       return json([
         { id: PAGE_ID, title: "Draft page", parentId: null },
         { id: TARGET_ID, title: "Roadmap", parentId: null },
@@ -71,6 +71,7 @@ test("PageEditor reports a failed background connection sync without blocking", 
         ? json({ error: "the connection could not be removed" }, 500)
         : json({ links: [], backlinks: [] });
     }
+    if (call.url === `/api/pages/${PAGE_ID}/records`) return json({ records: [], options: [] });
     if (call.url === `/api/pages/${PAGE_ID}`) return json(serverPage);
     if (call.url === `/api/pages/${PAGE_ID}/tags` || call.url === "/api/tags") return json([]);
     return json({ ok: true });
@@ -90,6 +91,11 @@ test("PageEditor reports a failed background connection sync without blocking", 
     deletion?.body,
     { targetPageId: TARGET_ID, origin: "inline" },
     "the editor syncs the connection the recovered draft no longer links",
+  );
+
+  assert.ok(
+    calls.every((call) => !call.url.includes("includeRecordPages")),
+    "page pickers load the filtered list so record pages cannot be chosen",
   );
 
   const notice = await screen.findByText(

@@ -12,12 +12,13 @@ This roadmap describes KBS as a self-hosted personal information system: a place
 
 ## Current foundation
 
-The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, trash with restore and permanent delete, a full workspace JSON export with a restore script, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, gallery, and calendar views, where every record owns a full page that shows its properties and page content together. Views store their own structured filters and multiple sort rules, and any saved view can be pinned as a home dashboard widget. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, rollup, and formula. Databases can be embedded in pages, use record templates, and export as CSV or JSON. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs, reading each captured page's title, description, site name, preview image, and favicon so saved links arrive recognizable.
+The app already includes nested pages, a rich-text editor with slash commands and wiki-style `[[page]]` links, page reordering and moving, favorites, tags, explicit page links and backlinks, a Ctrl/Cmd+K command palette over search and navigation, recent pages, trash with restore and permanent delete, a full workspace JSON export with a restore script, recoverable local drafts with recover/discard, Markdown import/export helpers, page icons and remote or uploaded covers, page revision history, and databases with table, board, gallery, and calendar views, where every record owns a full page that shows its properties and page content together. Views store their own structured filters and multiple sort rules, and any saved view can be pinned as a home dashboard widget. Database properties include text, number, checkbox, date, URL, select, multi-select, file/media, relation, rollup, and formula. Databases can be embedded in pages, use record templates, and export as CSV or JSON. Pages and records can be connected in both directions, and an Unconnected view surfaces pages and records with no links, tags, hierarchy, or relations. A workspace graph shows page links and parent/child structure, including a local neighborhood view. An inbox supports quick capture of notes and URLs, reading each captured page's title, description, site name, preview image, and favicon so saved links arrive recognizable.
 
 This is a code-level inventory, not a claim that every feature has the same polish or breadth as its Notion equivalent.
 
 ## Recently completed
 
+- Connected pages and database records in both directions. A page's connections panel lists the records it is linked to, a record shows the pages linked to it, and either side can add or remove the same connection, which is stored once and disappears when either end is deleted. The new Unconnected view lists active pages with no parent, children, tags, page links, or record links, and records with no relations or page links, so unconnected material can be found and either connected or removed.
 - Let the inline link control target pages, not just web addresses. Typing a title in the Link panel lists matching pages, arrow keys and Enter choose one, picking a page writes a `/pages/<id>` link and records the connection so backlinks see it, and reopening a page link shows the page's title instead of its path.
 - Applied the home, navigation, and mobile screens from the UI redesign deck in `docs/mockups/ui-redesign.html`. The home page now leads with a dated greeting and a “Pick up where you left off” card row, then shows a two-column canvas of recent pages and pinned views with colour-coded status pills. The sidebar is tighter with a brand-tinted active destination, the phone layout uses four 48px bottom-bar destinations with a search field in the header and a floating capture button, and the navigation editor opens as a bottom sheet on phones. An indigo `--brand` token per theme keeps interaction colour separate from status colour.
 - Gave database records full pages: creating a record now creates its page in the same transaction, older records get one when opened, and `/databases/[id]/records/[recordId]` shows editable properties above the page editor. Renaming either the record or its page keeps both titles in step, and record pages stay out of the page tree, `/pages` list, command palette page results, the home page's Jump back in list, and the knowledge graph with its center-page picker while remaining directly openable.
@@ -116,10 +117,10 @@ Make it easy to save something now and organize it later.
 
 ### 5. Make relationships useful across the system
 
-- Let pages link to database records and let records link to pages, projects, tasks, and other records.
+- [x] Let pages link to database records and show the connection from both sides: a page lists its records, a record lists its pages, and either side can add or remove the same connection. Records still reach one another through relation properties.
 - Make relation fields easier to navigate in both directions, with related items visible from the relevant page or record.
 - Add related-page suggestions based on existing explicit links, shared tags, and shared relations. Keep suggestions explainable and optional; defer semantic/AI suggestions.
-- Surface orphaned pages and records that have no meaningful connections.
+- [x] Surface orphaned pages and records that have no meaningful connections. The Unconnected view lists pages with no parent, children, tags, page links, or record links, and records with no relations or page links.
 - Build project summaries and focused views from these relationships before introducing a separate automation layer.
 
 ### 6. Add a personal home dashboard
@@ -186,7 +187,7 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 
 1. Finish the remaining editor polish (focus and selection).
 2. Store optional selected text with captured URLs; their title, description, site name, preview image, and favicon are already captured.
-3. Add related-item discovery, orphan views, and useful personal dashboard sections.
+3. Add related-item discovery and useful personal dashboard sections.
 4. Add list views and database formulas, then CSV/Markdown import.
 5. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.
 6. Add inbox file/PDF capture and personal workflows such as a decision journal, reading list, and focus view.

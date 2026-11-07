@@ -15,6 +15,9 @@ type ApiModules = {
   revisions: typeof import("../../src/app/api/pages/[id]/revisions/route");
   pageTags: typeof import("../../src/app/api/pages/[id]/tags/route");
   links: typeof import("../../src/app/api/pages/[id]/links/route");
+  pageRecords: typeof import("../../src/app/api/pages/[id]/records/route");
+  recordPages: typeof import("../../src/app/api/records/[recordId]/pages/route");
+  connections: typeof import("../../src/app/api/orphans/route");
   tags: typeof import("../../src/app/api/tags/route");
   graph: typeof import("../../src/app/api/graph/route");
   records: typeof import("../../src/app/api/databases/[id]/records/route");
@@ -173,6 +176,9 @@ before(async () => {
     trash,
     trashItem,
     trashRestore,
+    pageRecords,
+    recordPages,
+    connections,
   ] = await Promise.all([
     import("../../src/app/api/pages/route"),
     import("../../src/app/api/pages/[id]/route"),
@@ -206,9 +212,12 @@ before(async () => {
     import("../../src/app/api/trash/route"),
     import("../../src/app/api/trash/[id]/route"),
     import("../../src/app/api/trash/[id]/restore/route"),
+    import("../../src/app/api/pages/[id]/records/route"),
+    import("../../src/app/api/records/[recordId]/pages/route"),
+    import("../../src/app/api/orphans/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore };
+  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
 });
 
 after(async () => {
@@ -806,6 +815,231 @@ describe("page link origins API", () => {
       await api.links.GET(jsonRequest(`/api/pages/${source.id}/links`, "GET"), routeContext({ id: source.id })),
     );
     assert.ok(!remaining.links.some((link) => link.id === target.id));
+  });
+});
+
+describe("page and record connections API", () => {
+  it("shares one connection between the page and the record", async () => {
+    const page = await createPage({ title: "Connection page" });
+    const database = await createDatabase("Connection database");
+    const record = await createDatabaseRecord(database.id, { title: "Connection record" });
+
+    const linked = await api.pageRecords.POST(
+      jsonRequest(`/api/pages/${page.id}/records`, "POST", { recordId: record.id }),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(linked.status, 201);
+
+    const pageView = await body<{
+      records: { id: string; databaseName: string }[];
+      options: { id: string }[];
+    }>(await api.pageRecords.GET(
+      jsonRequest(`/api/pages/${page.id}/records`, "GET"),
+      routeContext({ id: page.id }),
+    ));
+    assert.ok(pageView.records.some((row) => row.id === record.id));
+    assert.equal(
+      pageView.records.find((row) => row.id === record.id)?.databaseName,
+      "Connection database",
+    );
+    assert.ok(!pageView.options.some((row) => row.id === record.id), "a linked record leaves the picker");
+
+    const recordView = await body<{ pages: { id: string }[] }>(await api.recordPages.GET(
+      jsonRequest(`/api/records/${record.id}/pages`, "GET"),
+      routeContext({ recordId: record.id }),
+    ));
+    assert.ok(
+      recordView.pages.some((row) => row.id === page.id),
+      "the record lists the page that linked to it",
+    );
+  });
+
+  it("creates the same connection from the record side and removes it from either side", async () => {
+    const page = await createPage({ title: "Reverse connection page" });
+    const database = await createDatabase("Reverse connection database");
+    const record = await createDatabaseRecord(database.id, { title: "Reverse connection record" });
+
+    const linked = await api.recordPages.POST(
+      jsonRequest(`/api/records/${record.id}/pages`, "POST", { pageId: page.id }),
+      routeContext({ recordId: record.id }),
+    );
+    assert.equal(linked.status, 201);
+
+    const pageView = await body<{ records: { id: string }[] }>(await api.pageRecords.GET(
+      jsonRequest(`/api/pages/${page.id}/records`, "GET"),
+      routeContext({ id: page.id }),
+    ));
+    assert.ok(pageView.records.some((row) => row.id === record.id));
+
+    const duplicate = await api.recordPages.POST(
+      jsonRequest(`/api/records/${record.id}/pages`, "POST", { pageId: page.id }),
+      routeContext({ recordId: record.id }),
+    );
+    assert.equal(duplicate.status, 201);
+    const afterDuplicate = await body<{ records: { id: string }[] }>(await api.pageRecords.GET(
+      jsonRequest(`/api/pages/${page.id}/records`, "GET"),
+      routeContext({ id: page.id }),
+    ));
+    assert.equal(
+      afterDuplicate.records.filter((row) => row.id === record.id).length,
+      1,
+      "linking the same record twice keeps one connection",
+    );
+
+    const removed = await api.pageRecords.DELETE(
+      jsonRequest(`/api/pages/${page.id}/records`, "DELETE", { recordId: record.id }),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(removed.status, 200);
+
+    const recordView = await body<{ pages: { id: string }[] }>(await api.recordPages.GET(
+      jsonRequest(`/api/records/${record.id}/pages`, "GET"),
+      routeContext({ recordId: record.id }),
+    ));
+    assert.ok(!recordView.pages.some((row) => row.id === page.id));
+  });
+
+  it("rejects self-links, unknown targets, and malformed bodies", async () => {
+    const page = await createPage({ title: "Connection validation page" });
+    const database = await createDatabase("Connection validation database");
+    const record = await createDatabaseRecord(database.id, { title: "Connection validation record" });
+
+    const ownPage = await api.pageRecords.POST(
+      jsonRequest(`/api/pages/${record.pageId}/records`, "POST", { recordId: record.id }),
+      routeContext({ id: record.pageId }),
+    );
+    assert.equal(ownPage.status, 400);
+
+    const ownPageFromRecord = await api.recordPages.POST(
+      jsonRequest(`/api/records/${record.id}/pages`, "POST", { pageId: record.pageId }),
+      routeContext({ recordId: record.id }),
+    );
+    assert.equal(ownPageFromRecord.status, 400);
+
+    const missingRecord = await api.pageRecords.POST(
+      jsonRequest(`/api/pages/${page.id}/records`, "POST", { recordId: MISSING_ID }),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(missingRecord.status, 404);
+
+    const missingPage = await api.recordPages.POST(
+      jsonRequest(`/api/records/${record.id}/pages`, "POST", { pageId: MISSING_ID }),
+      routeContext({ recordId: record.id }),
+    );
+    assert.equal(missingPage.status, 404);
+
+    const malformed = await api.pageRecords.POST(
+      jsonRequest(`/api/pages/${page.id}/records`, "POST", { recordId: "nope" }),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(malformed.status, 400);
+
+    const badId = await api.pageRecords.GET(
+      jsonRequest("/api/pages/nope/records", "GET"),
+      routeContext({ id: "nope" }),
+    );
+    assert.equal(badId.status, 400);
+  });
+
+  it("drops a connection when its record is deleted", async () => {
+    const page = await createPage({ title: "Cascade connection page" });
+    const database = await createDatabase("Cascade connection database");
+    const record = await createDatabaseRecord(database.id, { title: "Cascade connection record" });
+    await api.pageRecords.POST(
+      jsonRequest(`/api/pages/${page.id}/records`, "POST", { recordId: record.id }),
+      routeContext({ id: page.id }),
+    );
+
+    await api.record.DELETE(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "DELETE"),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+
+    const pageView = await body<{ records: { id: string }[] }>(await api.pageRecords.GET(
+      jsonRequest(`/api/pages/${page.id}/records`, "GET"),
+      routeContext({ id: page.id }),
+    ));
+    assert.ok(
+      !pageView.records.some((row) => row.id === record.id),
+      "deleting a record removes the connection it owned",
+    );
+  });
+});
+
+describe("orphan view API", () => {
+  it("lists unconnected pages and records, and drops them once connected", async () => {
+    const page = await createPage({ title: "Orphan probe page" });
+    const database = await createDatabase("Orphan probe database");
+    const record = await createDatabaseRecord(database.id, { title: "Orphan probe record" });
+
+    const first = await body<{
+      pages: { id: string }[];
+      records: { id: string; databaseId: string; databaseName: string }[];
+      total: number;
+    }>(await api.connections.GET());
+    assert.ok(first.pages.some((row) => row.id === page.id));
+    assert.ok(
+      !first.pages.some((row) => row.id === record.pageId),
+      "a record's own page is reported as a record, not a page",
+    );
+    const orphanRecord = first.records.find((row) => row.id === record.id);
+    assert.ok(orphanRecord);
+    assert.equal(orphanRecord?.databaseId, database.id);
+    assert.equal(orphanRecord?.databaseName, "Orphan probe database");
+    assert.equal(first.total, first.pages.length + first.records.length);
+
+    await api.pageRecords.POST(
+      jsonRequest(`/api/pages/${page.id}/records`, "POST", { recordId: record.id }),
+      routeContext({ id: page.id }),
+    );
+
+    const afterLink = await body<{ pages: { id: string }[]; records: { id: string }[] }>(
+      await api.connections.GET(),
+    );
+    assert.ok(!afterLink.pages.some((row) => row.id === page.id), "a page with a record link is connected");
+    assert.ok(!afterLink.records.some((row) => row.id === record.id), "a record with a page link is connected");
+  });
+
+  it("treats tags, hierarchy, and relations as connections", async () => {
+    const parent = await createPage({ title: "Connected parent probe" });
+    const child = await createPage({ title: "Connected child probe", parentId: parent.id });
+    const tagged = await createPage({ title: "Connected tag probe" });
+    const tag = await body<{ id: string }>(
+      await api.tags.POST(jsonRequest("/api/tags", "POST", { name: "Orphan probe tag" })),
+    );
+    const assigned = await api.pageTags.POST(
+      jsonRequest(`/api/pages/${tagged.id}/tags`, "POST", { tagId: tag.id }),
+      routeContext({ id: tagged.id }),
+    );
+    assert.equal(assigned.status, 200);
+
+    const database = await createDatabase("Relation probe database");
+    const relation = await createDatabaseProperty(database.id, {
+      name: "Related",
+      type: "relation",
+      options: { relatedDatabaseId: database.id },
+    });
+    const source = await createDatabaseRecord(database.id, { title: "Relation probe source" });
+    const target = await createDatabaseRecord(database.id, { title: "Relation probe target" });
+    const patched = await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${source.id}`, "PATCH", {
+        relations: { [relation.id]: [target.id] },
+      }),
+      routeContext({ id: database.id, recordId: source.id }),
+    );
+    assert.equal(patched.status, 200);
+
+    const scan = await body<{ pages: { id: string }[]; records: { id: string }[] }>(
+      await api.connections.GET(),
+    );
+    const pageIds = new Set(scan.pages.map((row) => row.id));
+    assert.ok(!pageIds.has(parent.id), "a page with a child is connected");
+    assert.ok(!pageIds.has(child.id), "a child page is connected to its parent");
+    assert.ok(!pageIds.has(tagged.id), "a tagged page is connected");
+
+    const recordIds = new Set(scan.records.map((row) => row.id));
+    assert.ok(!recordIds.has(source.id), "a record pointing at another record is connected");
+    assert.ok(!recordIds.has(target.id), "a record targeted by a relation is connected");
   });
 });
 

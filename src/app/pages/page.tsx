@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, SlidersHorizontal, Star, Trash2, Upload } from "lucide-react";
+import { ChevronDown, Link2Off, SlidersHorizontal, Star, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { markdownFileToPage } from "@/lib/markdown-import";
@@ -441,6 +441,13 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                 <Upload size={16} />
               </Button>
               <Button onClick={() => void createPage()}>New page</Button>
+              <Link
+                href="/orphans"
+                className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Link2Off size={15} aria-hidden="true" />
+                Unconnected
+              </Link>
             </div>
           )}
         </div>

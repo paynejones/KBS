@@ -467,7 +467,10 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
   useEffect(() => {
   let cancelled = false;    async function loadPages() {
     try {
-      const response = await fetch("/api/pages?includeRecordPages=true");
+      // The filtered list keeps record pages out of the Move to menu, the
+      // page-link pickers, and [[]] autocomplete: a record page belongs to its
+      // record and is reached through that record, not as a page to file away.
+      const response = await fetch("/api/pages");
 
       if (!response.ok) {
         throw new Error("Unable to load pages.");
