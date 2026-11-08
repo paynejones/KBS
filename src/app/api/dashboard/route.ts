@@ -17,6 +17,13 @@ import {
   type DueBucket,
 } from "@/lib/dashboard-queues";
 import { applyView, parseViewFilters, parseViewSorts } from "@/lib/database-view";
+import {
+  parseTimelineRange,
+  sortTimelineEntries,
+  TIMELINE_ENTRY_LIMIT,
+  timelineWindow,
+  type TimelineEntry,
+} from "@/lib/timeline";
 
 const WIDGET_RECORD_LIMIT = 5;
 const QUEUE_RECORD_LIMIT = 5;
@@ -28,6 +35,8 @@ const MAX_REQUESTED_VIEWS = 6;
  * `widgets` contains filtered, sorted previews for the requested view ids.
  * `databases` feeds the due-date and project pickers, and `tasks`/`projects`
  * turn the chosen databases into two working queues over existing records.
+ * `timeline` (only when requested) merges every database's dated records into
+ * one chronological view.
  */
 export async function GET(request: Request) {
   // Read the URL before the try block: with Cache Components, touching
@@ -53,6 +62,8 @@ export async function GET(request: Request) {
     .map((value) => value.trim())
     .filter(Boolean)
     .slice(0, MAX_EXCLUDED_STATUSES);
+  const timelineRequested = searchParams.get("timeline") === "1";
+  const timelineRange = parseTimelineRange(searchParams.get("timelineDays"));
 
   try {
     const [databaseRows, propertyRows, recordRows, viewRows] = await Promise.all([
@@ -235,7 +246,52 @@ export async function GET(request: Request) {
       };
     })();
 
-    return NextResponse.json({ views, widgets, databases: databaseOptions, tasks, projects });
+    // Every date property can contribute, so the timeline crosses databases
+    // without any per-database setup.
+    const timeline = (() => {
+      if (!timelineRequested) return null;
+      const bounds = timelineWindow(today, timelineRange);
+      if (!bounds) return null;
+
+      const entries: TimelineEntry[] = [];
+      let dateProperties = 0;
+      for (const database of databaseRows) {
+        const datedProperties = (propertiesByDatabase.get(database.id) ?? [])
+          .filter((property) => property.type === "date");
+        dateProperties += datedProperties.length;
+        if (datedProperties.length === 0) continue;
+
+        const records = recordsByDatabase.get(database.id) ?? [];
+        for (const property of datedProperties) {
+          for (const record of records) {
+            const date = dateKey(record.values[property.id]);
+            if (!date || date < bounds.from || date > bounds.to) continue;
+            entries.push({
+              recordId: record.id,
+              title: record.title,
+              databaseId: database.id,
+              databaseName: database.name,
+              propertyId: property.id,
+              propertyName: property.name,
+              date,
+            });
+          }
+        }
+      }
+
+      const sorted = sortTimelineEntries(entries);
+      return {
+        today,
+        range: timelineRange,
+        from: bounds.from,
+        to: bounds.to,
+        dateProperties,
+        entries: sorted.slice(0, TIMELINE_ENTRY_LIMIT),
+        total: sorted.length,
+      };
+    })();
+
+    return NextResponse.json({ views, widgets, databases: databaseOptions, tasks, projects, timeline });
   } catch (error) {
     return apiErrorResponse(request, "Failed to load dashboard widgets", error, { status: 500, logMessage: "Failed to load dashboard widgets:" });
   }

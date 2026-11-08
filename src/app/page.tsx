@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { DashboardQueues } from "@/components/dashboard-queues";
+import { DashboardTimeline } from "@/components/dashboard-timeline";
 import { DashboardWidgets } from "@/components/dashboard-widgets";
 import { RecentPages } from "@/components/recent-pages";
 import { Button } from "@/components/ui/button";
@@ -333,6 +334,8 @@ export default function Home() {
             </section>
 
             <DashboardQueues />
+
+            <DashboardTimeline />
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] lg:items-start">
               <section aria-labelledby="recent-pages-heading" className="min-w-0">

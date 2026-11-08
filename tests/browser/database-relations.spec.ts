@@ -95,10 +95,13 @@ test("assigns and clears a database relation from the record page", async ({ pag
       && response.request().method() === "PATCH",
     );
     await relationTrigger.click();
-    await expect(
-      page.getByRole("listbox", { name: `${relation.name} relation options` }),
-    ).toBeVisible();
-    await page.getByRole("option", { name: targetRecord.title }).click();
+    // The record page also has a "Choose a record to link" select for page
+    // links, so scope the option to this property's own listbox.
+    const relationOptions = page.getByRole("listbox", {
+      name: `${relation.name} relation options`,
+    });
+    await expect(relationOptions).toBeVisible();
+    await relationOptions.getByRole("option", { name: targetRecord.title }).click();
     assert.equal((await assigned).status(), 200);
     await expect.poll(async () => (
       await getRelations(request, ownerDatabase.id, sourceRecord.id)
@@ -196,6 +199,59 @@ test("assigns and clears a database relation from the table view", async ({ page
     const clearedRelation = page.getByLabel(`${relation.name} relations for ${sourceRecord.title}`);
     await expect(clearedRelation.locator("option")).toContainText([targetRecord.title]);
     await expect(clearedRelation.locator("option:checked")).toHaveCount(0);
+  } finally {
+    await cleanup(request, databaseIds, pageIds);
+  }
+});
+
+test("shows the records whose relations point at a record", async ({ page, request }) => {
+  const token = `relation-inbound-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const databaseIds: string[] = [];
+  const pageIds: string[] = [];
+
+  try {
+    const targetDatabase = await createDatabase(request, `${token} target`);
+    databaseIds.push(targetDatabase.id);
+    const ownerDatabase = await createDatabase(request, `${token} owner`);
+    databaseIds.push(ownerDatabase.id);
+
+    const relation = await json<Property>(await request.post(
+      `/api/databases/${ownerDatabase.id}/properties`,
+      {
+        data: {
+          name: "Inspiration",
+          type: "relation",
+          options: { relatedDatabaseId: targetDatabase.id },
+        },
+      },
+    ));
+
+    const targetRecord = await createRecord(request, targetDatabase.id, `${token} target record`);
+    pageIds.push(targetRecord.pageId);
+    const sourceRecord = await createRecord(request, ownerDatabase.id, `${token} source record`);
+    pageIds.push(sourceRecord.pageId);
+
+    const assigned = await request.patch(
+      `/api/databases/${ownerDatabase.id}/records/${sourceRecord.id}`,
+      { data: { relations: { [relation.id]: [targetRecord.id] } } },
+    );
+    assert.ok(assigned.ok(), `assigning the relation returned ${assigned.status()}`);
+
+    await page.goto(`/databases/${targetDatabase.id}/records/${targetRecord.id}`);
+    await expect(page.getByRole("heading", { name: "Linked from" })).toBeVisible();
+
+    const sourceLink = page.getByRole("link", { name: sourceRecord.title });
+    await expect(sourceLink).toBeVisible();
+    await expect(sourceLink).toHaveAttribute(
+      "href",
+      `/databases/${ownerDatabase.id}/records/${sourceRecord.id}`,
+    );
+
+    const sourceItem = page.getByRole("listitem").filter({
+      has: page.getByRole("link", { name: sourceRecord.title }),
+    });
+    await expect(sourceItem).toContainText("Inspiration");
+    await expect(sourceItem).toContainText(ownerDatabase.name);
   } finally {
     await cleanup(request, databaseIds, pageIds);
   }

@@ -18,6 +18,9 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Merged every database's dated records into a home timeline. The section groups entries by day (naming today, tomorrow, and yesterday), keeps the past week visible before a 7-, 30-, or 90-day horizon chosen in place, and shows each record's database and date property beside its title, so tasks, milestones, and dated notes share one chronology without setup.
+- Let a relation be followed from either end. A record's **Linked from** section lists the records whose relation properties point at it, showing each source database and property name and linking straight to the source record, so the far side of a relation is no longer a dead end.
+- Replaced the relation property's multiple-select in record pages with a searchable picker. Linked records show as chips that unlink in place, adding one searches the target database instead of scrolling a list, the list is keyboard navigable, and a link whose record was deleted still shows as a removable chip.
 - Gave database views their own layout controls. The Properties menu beside the view filters shows how many properties a view displays and hides or restores each one without touching the database or its other views; the table, gallery, and embedded database blocks honour the choice, and an untouched view still shows everything. A view can also be duplicated — the copy keeps its type, filters, sorts, grouping, date property, and visible properties, opens immediately, and lands beside its source — and moved left or right, with the whole tab order saved in one request so duplicated and reordered views survive a reload.
 - Turned the home page into a daily landing page with two queues built from existing records. **Due soon** lists records from a chosen database whose date property is overdue or within the next week, sorted by date and flagged by urgency, with an overdue count, finished statuses left out, and an explicit choice of which status property marks a record finished (or no status filter at all); **Current projects** lists records whose status has not left the queue, most recently updated first, and can skip a chosen set of status values instead of relying on the built-in done vocabulary. Both are configured with a database and property picker on the home page, remember the choice per browser like pinned views, explain their empty, unconfigured, and deleted-source states, and remain views over the underlying records rather than copies.
 - Let the inbox keep a file, not just its address. Captures now accept one image or PDF up to the attachment limit: the file is stored through the existing attachment route, the inbox card shows an image preview or a named file row with its size and an open action, and the capture becomes a normal page whose body embeds the image or links the file. Moving the capture into Pages or a database keeps the file with it, and the orphan scan counts the capture as a reference so cleaning up unused files never deletes it.
@@ -55,7 +58,7 @@ KBS does not need broad Notion feature parity. It should be able to represent th
 
 The following gaps are specific to those workflows and should guide the existing priorities below:
 
-- **Media presentation:** page icons, covers, uploaded or linked images/files, and image-backed gallery cards are in place. Remaining polish includes later inbox file/PDF capture.
+- **Media presentation:** page icons, covers, uploaded or linked images/files, and image-backed gallery cards are in place, and inbox captures keep their image or PDF.
 - **Page and web links:** keep page links and backlinks, add inline link creation while writing, and make linked pages easier to scan in context. Support saving an external URL with its title, description, source, and optional selected text, with a useful preview and a direct open action.
 - **Home dashboard:** allow configurable widgets for saved database views and useful queues, including tasks due soon, current projects, currently watching/reading/playing, and selected media or hobby views. Include quick actions for common capture and record creation. Widgets must remain views over existing records.
 - **Calendars:** add calendar views for tasks and dated media releases, with useful date filters and named views. A record's release date or a task's due date should be visible from both its database and the home dashboard.
@@ -122,7 +125,7 @@ Make it easy to save something now and organize it later.
 ### 5. Make relationships useful across the system
 
 - [x] Let pages link to database records and show the connection from both sides: a page lists its records, a record lists its pages, and either side can add or remove the same connection. Records still reach one another through relation properties.
-- Make relation fields easier to navigate in both directions, with related items visible from the relevant page or record.
+- [x] Make relation fields easier to navigate in both directions, with related items visible from the relevant page or record. A record shows its linked records as removable chips and adds one from a searchable list, and a **Linked from** section lists the records whose relation properties point at it, with the database and property that connect them and a link straight to that record.
 - Add related-page suggestions based on existing explicit links, shared tags, and shared relations. Keep suggestions explainable and optional; defer semantic/AI suggestions.
 - [x] Surface orphaned pages and records that have no meaningful connections. The Unconnected view lists pages with no parent, children, tags, page links, or record links, and records with no relations or page links.
 - Build project summaries and focused views from these relationships before introducing a separate automation layer.
@@ -135,21 +138,21 @@ Create a useful landing page from existing KBS data, with simple configurable se
 - [x] Add tasks due soon and current projects queues, each configured from an existing database and property, with the project queue's finished statuses chosen explicitly.
 - [x] Support dashboard sections for saved database views, so any view (including active media queues and release dates) can be pinned from the home page with its own filters and sorts applied.
 - [x] Keep widgets as saved views over existing information rather than creating a second copy of the data.
-- Add a personal timeline for dated notes, milestones, and tasks once date properties and calendar views are reliable.
+- [x] Add a personal timeline for dated notes, milestones, and tasks once date properties and calendar views are reliable. The home page's **Timeline** merges every database's date properties into one chronological list grouped by day, keeps a week of recent history, offers 7-, 30-, and 90-day horizons, and shows each record's database and date property beside its title.
 
 ### 7. Protect and organize personal data
 
 - [x] Add a trash area with restore and permanent-delete actions. Trashing keeps the subtree, tags, links, and revisions intact so a page can be recovered whole.
 - [x] Add page revision history and restore, so mistakes can be undone after the editor undo stack or local draft window is gone.
 - [x] Add full workspace export/backup and a documented restore path, not just per-database exports. The JSON export covers every table; attachment bytes stay in `data/attachments` (or `ATTACHMENTS_DIR`) and the restore path is documented in [backup and restore](backup-and-restore.md).
-- Add scheduled or one-click backups that capture the attachments directory too, and a filesystem scan for files with no attachment row.
+- [x] Add scheduled or one-click backups that capture the attachments directory too, and a filesystem scan for files with no attachment row. `npm run backup` writes a dated folder holding `workspace.json`, every attachment byte, and a checksummed `manifest.json`, verifies each run, supports `--keep`, and is built for cron or Windows Task Scheduler; Trash → Backup exposes **Back up now** and **Check**, and **Remove unused files** deletes uploads nothing references. The schedule itself is configured on the host; see [backup and restore](backup-and-restore.md).
 - Track source and capture date for imported or clipped information (data provenance). Capture date and source URL already exist for inbox items.
 - Add optional local/offline-friendly behavior if the app's deployment model supports it; clearly communicate when edits are local versus saved to the server.
 
 ### 8. Add personal workflows that build on the foundation
 
 - Add saved searches that act as dynamic collections.
-- Add a decision journal template for the decision, rationale, alternatives, expected outcome, and review date.
+- [x] Add a decision journal template for the decision, rationale, alternatives, expected outcome, and review date. It ships as a built-in starter page template beside the project kickoff.
 - Add a reading list workflow that connects saved articles/books, highlights, and notes.
 - Add a focus view that brings a chosen project, its tasks, and its related resources together.
 - Consider knowledge review prompts for stale notes after search, dates, and history are dependable.
@@ -165,7 +168,7 @@ Create a useful landing page from existing KBS data, with simple configurable se
 - [x] Add formula properties; consider person and status properties when identity or team workflows arrive.
 - [x] Use formula, relation, and rollup properties to show simple progress measures such as episodes or chapters completed and project task completion.
 - [x] Improve record editing with a focused page/detail view that keeps properties and page content together.
-- Improve relation selection inside record pages.
+- [x] Improve relation selection inside record pages. A relation property shows linked records as removable chips and links another through a searchable list of the target database's records, with keyboard selection and focus handling.
 - [x] Add database templates that can be applied when creating records, and make template management discoverable.
 - [x] Import a database's CSV export back into it, creating text properties for columns that do not match an existing one.
 - [x] Import Markdown files or folders as pages, keeping headings, lists, quotes, code blocks, and inline marks, uploading embedded images and linked files (images, PDFs, office documents, archives, and other supported types) as attachments, and recreating a picked folder's tree as nested pages.
@@ -200,10 +203,11 @@ Authentication alone is not sufficient: the current deployment notes correctly c
 ## Suggested sequence
 
 1. Finish the remaining editor polish (focus and selection).
-2. Add related-item discovery and useful personal dashboard sections.
-3. Add list views and database formulas, then CSV/Markdown import.
-4. Add scheduled backups that include attachment files, and a filesystem-level orphan scan.
-5. Add inbox file/PDF capture and personal workflows such as a decision journal, reading list, and focus view.
-6. Add multi-user identity, permissions, and collaboration when needed.
+2. Add explainable related-item suggestions from existing links, tags, and relations.
+3. Extend navigation where the daily workflows need it — list and timeline database views, and graph filters plus a list-based alternative on smaller screens.
+4. Add the personal workflows that remain: saved searches, a reading list, and a focus view for a project with its tasks and references.
+5. Add multi-user identity, permissions, and collaboration when needed.
+
+Database formulas, CSV and Markdown import, inbox file capture, one-click and scheduled backups, the decision journal template, and the dashboard timeline have all shipped, so they are no longer steps here. Hosting and launch decisions are tracked in [deployment readiness](deployment-readiness.md).
 
 Revisit the sequence using actual usage: prioritize the improvements that remove friction in capture, finding, connecting, and safely changing knowledge.

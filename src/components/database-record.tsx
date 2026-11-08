@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { FileCell } from "@/components/file-cell";
 import { PageEditorLoader } from "@/components/page-editor-loader";
+import { RecordBacklinks, type RecordBacklink } from "@/components/record-backlinks";
 import { RecordPageLinks } from "@/components/record-links";
 import { RelationCell } from "@/components/relation-cell";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ type RelatedRecord = { id: string; title: string; values: Record<string, unknown
 type RelationTargetData = { properties: Property[]; records: RelatedRecord[] };
 type RecordDetail = RecordRow & {
   properties: Property[];
+  backlinks: RecordBacklink[];
   database: { id: string; name: string };
 };
 
@@ -63,6 +65,7 @@ export function DatabaseRecordWorkspace({
   const [databaseName, setDatabaseName] = useState("");
   const [title, setTitle] = useState("");
   const [relationTargets, setRelationTargets] = useState<Record<string, RelationTargetData>>({});
+  const [backlinks, setBacklinks] = useState<RecordBacklink[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -87,6 +90,7 @@ export function DatabaseRecordWorkspace({
         setProperties(detail.properties);
         setTitle(detail.title);
         setDatabaseName(detail.database.name);
+        setBacklinks(detail.backlinks ?? []);
 
         const relationProperties = detail.properties.filter((property) => {
           if (property.type !== "relation") return false;
@@ -425,6 +429,8 @@ export function DatabaseRecordWorkspace({
             </dl>
           )}
         </section>
+
+        <RecordBacklinks backlinks={backlinks} />
 
         <RecordPageLinks recordId={record.id} />
 

@@ -60,13 +60,56 @@ export async function GET(request: Request, context: Context) {
           relation.targetRecordId,
         ];
       }
-      return { record: { ...record, pageId }, properties, relations, database };
+
+      // Records that point at this one, so a relation can be followed from
+      // either end. A source record can reach it through more than one
+      // property, so property names are grouped per source record.
+      const inboundRows = await tx.select({
+        id: databaseRecords.id,
+        title: databaseRecords.title,
+        databaseId: databases.id,
+        databaseName: databases.name,
+        propertyName: databaseProperties.name,
+      }).from(databaseRecordRelations)
+        .innerJoin(databaseRecords, eq(databaseRecords.id, databaseRecordRelations.sourceRecordId))
+        .innerJoin(databases, eq(databases.id, databaseRecords.databaseId))
+        .innerJoin(databaseProperties, eq(databaseProperties.id, databaseRecordRelations.propertyId))
+        .where(eq(databaseRecordRelations.targetRecordId, recordId));
+      const backlinksById = new Map<string, {
+        id: string;
+        title: string;
+        databaseId: string;
+        databaseName: string;
+        properties: string[];
+      }>();
+      for (const row of inboundRows) {
+        const existing = backlinksById.get(row.id);
+        if (existing) {
+          if (!existing.properties.includes(row.propertyName)) {
+            existing.properties.push(row.propertyName);
+          }
+          continue;
+        }
+        backlinksById.set(row.id, {
+          id: row.id,
+          title: row.title,
+          databaseId: row.databaseId,
+          databaseName: row.databaseName,
+          properties: [row.propertyName],
+        });
+      }
+      const backlinks = [...backlinksById.values()].sort((left, right) =>
+        left.title.localeCompare(right.title, undefined, { sensitivity: "base" }),
+      );
+
+      return { record: { ...record, pageId }, properties, relations, backlinks, database };
     });
 
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json({
       ...result.record,
       relations: result.relations,
+      backlinks: result.backlinks,
       properties: result.properties,
       database: result.database,
     });

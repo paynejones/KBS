@@ -1803,6 +1803,63 @@ describe("database lifecycle API", () => {
 });
 
 describe("database records API", () => {
+  it("lists the records whose relations point at a record", async () => {
+    const owner = await createDatabase("Reverse relation owner");
+    const targetDatabase = await createDatabase("Reverse relation target");
+    const relation = await createDatabaseProperty(owner.id, {
+      name: "Inspiration",
+      type: "relation",
+      options: { relatedDatabaseId: targetDatabase.id },
+    });
+    const source = await createDatabaseRecord(owner.id, { title: "Pointing record" });
+    const unrelated = await createDatabaseRecord(owner.id, { title: "Unrelated record" });
+    const target = await createDatabaseRecord(targetDatabase.id, { title: "Pointed-at record" });
+
+    const assigned = await api.record.PATCH(
+      jsonRequest(`/api/databases/${owner.id}/records/${source.id}`, "PATCH", {
+        relations: { [relation.id]: [target.id] },
+      }),
+      routeContext({ id: owner.id, recordId: source.id }),
+    );
+    assert.equal(assigned.status, 200);
+
+    const response = await api.record.GET(
+      jsonRequest(`/api/databases/${targetDatabase.id}/records/${target.id}`, "GET"),
+      routeContext({ id: targetDatabase.id, recordId: target.id }),
+    );
+    assert.equal(response.status, 200);
+    const detail = await body<{
+      relations: Record<string, string[]>;
+      backlinks: { id: string; title: string; databaseId: string; databaseName: string; properties: string[] }[];
+    }>(response);
+
+    assert.deepEqual(detail.relations, {}, "the target record has no outgoing relations");
+    assert.deepEqual(detail.backlinks, [{
+      id: source.id,
+      title: "Pointing record",
+      databaseId: owner.id,
+      databaseName: "Reverse relation owner",
+      properties: ["Inspiration"],
+    }]);
+    assert.ok(
+      !detail.backlinks.some((row) => row.id === unrelated.id),
+      "a record that does not point here is left out",
+    );
+
+    const cleared = await api.record.PATCH(
+      jsonRequest(`/api/databases/${owner.id}/records/${source.id}`, "PATCH", {
+        relations: { [relation.id]: [] },
+      }),
+      routeContext({ id: owner.id, recordId: source.id }),
+    );
+    assert.equal(cleared.status, 200);
+    const afterClearing = await body<{ backlinks: unknown[] }>(await api.record.GET(
+      jsonRequest(`/api/databases/${targetDatabase.id}/records/${target.id}`, "GET"),
+      routeContext({ id: targetDatabase.id, recordId: target.id }),
+    ));
+    assert.deepEqual(afterClearing.backlinks, [], "removing the relation removes the reverse link");
+  });
+
   it("creates, reads, updates, and deletes a record with its page", async () => {
     const database = await createDatabase("Record CRUD database");
     const score = await createDatabaseProperty(database.id, { name: "Score", type: "number" });
@@ -2261,6 +2318,98 @@ describe("dashboard API", () => {
     assert.ok(listed);
     assert.equal(listed.name, "Picker database");
     assert.ok(listed.properties.some((property) => property.name === "Due" && property.type === "date"));
+  });
+
+  it("builds a timeline from dated records across databases", async () => {
+    const tasks = await createDatabase("Timeline tasks");
+    const releases = await createDatabase("Timeline releases");
+    const due = await createDatabaseProperty(tasks.id, { name: "Due", type: "date" });
+    const release = await createDatabaseProperty(releases.id, { name: "Release", type: "date" });
+
+    async function recordWithDate(
+      databaseId: string,
+      title: string,
+      propertyId: string,
+      date: string,
+    ) {
+      const record = await createDatabaseRecord(databaseId, { title });
+      const updated = await api.record.PATCH(
+        jsonRequest(`/api/databases/${databaseId}/records/${record.id}`, "PATCH", {
+          values: { [propertyId]: date },
+        }),
+        routeContext({ id: databaseId, recordId: record.id }),
+      );
+      assert.equal(updated.status, 200);
+      return record;
+    }
+
+    const today = "2026-05-10";
+    const overdue = await recordWithDate(tasks.id, "Timeline overdue", due.id, "2026-05-04");
+    const upcoming = await recordWithDate(tasks.id, "Timeline upcoming", due.id, "2026-05-14");
+    const releaseSoon = await recordWithDate(releases.id, "Timeline release", release.id, "2026-05-20");
+    const farOut = await recordWithDate(releases.id, "Timeline far out", release.id, "2026-09-01");
+    const undated = await createDatabaseRecord(tasks.id, { title: "Timeline undated" });
+
+    const data = await body<{
+      timeline: {
+        today: string;
+        range: number;
+        from: string;
+        to: string;
+        dateProperties: number;
+        total: number;
+        entries: {
+          recordId: string;
+          title: string;
+          databaseId: string;
+          databaseName: string;
+          propertyId: string;
+          propertyName: string;
+          date: string;
+        }[];
+      } | null;
+    }>(await api.dashboard.GET(new Request(
+      `http://localhost/api/dashboard?timeline=1&timelineDays=30&today=${today}`,
+    )));
+
+    const timeline = data.timeline;
+    assert.ok(timeline);
+    assert.equal(timeline.today, today);
+    assert.equal(timeline.range, 30);
+    assert.equal(timeline.from, "2026-05-03");
+    assert.equal(timeline.to, "2026-06-09");
+    assert.ok(timeline.dateProperties >= 2);
+    assert.deepEqual(
+      timeline.entries.map((row) => row.title),
+      ["Timeline overdue", "Timeline upcoming", "Timeline release"],
+      "entries merge databases and sort by date",
+    );
+    assert.equal(timeline.total, 3);
+    assert.ok(!timeline.entries.some((row) => row.recordId === farOut.id), "dates past the horizon are left out");
+    assert.ok(!timeline.entries.some((row) => row.recordId === undated.id), "undated records are left out");
+
+    const merged = timeline.entries.find((row) => row.recordId === releaseSoon.id);
+    assert.equal(merged?.databaseId, releases.id);
+    assert.equal(merged?.databaseName, "Timeline releases");
+    assert.equal(merged?.propertyName, "Release");
+    assert.equal(timeline.entries.find((row) => row.recordId === upcoming.id)?.databaseName, "Timeline tasks");
+    assert.ok(overdue);
+
+    const narrowed = await body<{ timeline: { entries: { title: string }[]; to: string } }>(
+      await api.dashboard.GET(new Request(
+        `http://localhost/api/dashboard?timeline=1&timelineDays=7&today=${today}`,
+      )),
+    );
+    assert.equal(narrowed.timeline.to, "2026-05-17");
+    assert.deepEqual(
+      narrowed.timeline.entries.map((row) => row.title),
+      ["Timeline overdue", "Timeline upcoming"],
+    );
+
+    const notRequested = await body<{ timeline: unknown }>(
+      await api.dashboard.GET(new Request("http://localhost/api/dashboard")),
+    );
+    assert.equal(notRequested.timeline, null, "the timeline is only computed when asked for");
   });
 
   it("returns due-soon tasks and current projects for the home queues", async () => {
