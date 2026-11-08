@@ -18,6 +18,7 @@ import {
 import { FileCell } from "@/components/file-cell";
 import { PageEditorLoader } from "@/components/page-editor-loader";
 import { RecordPageLinks } from "@/components/record-links";
+import { RelationCell } from "@/components/relation-cell";
 import { Button } from "@/components/ui/button";
 import { formatFormulaValue } from "@/lib/database-formula";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
@@ -217,19 +218,15 @@ export function DatabaseRecordWorkspace({
     if (property.type === "relation") {
       const targets = relationTargets[property.id]?.records ?? [];
       return (
-        <select
-          multiple
-          aria-label={`${property.name} relations`}
+        <RelationCell
+          label={property.name}
           value={record.relations[property.id] ?? []}
-          onChange={(event) =>
-            updateRelations(property, Array.from(event.currentTarget.selectedOptions, (option) => option.value))
-          }
-          className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
-        >
-          {targets.map((target) => (
-            <option key={target.id} value={target.id}>{target.title || "Untitled"}</option>
-          ))}
-        </select>
+          options={targets.map((target) => ({
+            id: target.id,
+            title: target.title || "Untitled",
+          }))}
+          onChange={(next) => updateRelations(property, next)}
+        />
       );
     }
 

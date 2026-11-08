@@ -85,39 +85,45 @@ test("assigns and clears a database relation from the record page", async ({ pag
     await page.goto(`/databases/${ownerDatabase.id}/records/${sourceRecord.id}`);
     await expect(page.getByLabel("Record title")).toHaveValue(sourceRecord.title);
 
-    const relationSelect = page.getByLabel(`${relation.name} relations`);
-    await expect(relationSelect).toBeVisible();
-    await expect(relationSelect.locator("option")).toContainText([targetRecord.title]);
+    const relationTrigger = page.getByRole("button", {
+      name: `Add ${relation.name} relation`,
+    });
+    await expect(relationTrigger).toBeVisible();
 
     const assigned = page.waitForResponse((response) =>
       response.url().endsWith(`/records/${sourceRecord.id}`)
       && response.request().method() === "PATCH",
     );
-    await relationSelect.selectOption([targetRecord.id]);
+    await relationTrigger.click();
+    await expect(
+      page.getByRole("listbox", { name: `${relation.name} relation options` }),
+    ).toBeVisible();
+    await page.getByRole("option", { name: targetRecord.title }).click();
     assert.equal((await assigned).status(), 200);
     await expect.poll(async () => (
       await getRelations(request, ownerDatabase.id, sourceRecord.id)
     )[relation.id] ?? []).toEqual([targetRecord.id]);
 
     await page.reload();
-    const persistedRelation = page.getByLabel(`${relation.name} relations`);
-    await expect(persistedRelation.locator("option")).toContainText([targetRecord.title]);
-    await expect(persistedRelation.locator("option:checked")).toHaveText(targetRecord.title);
+    const removeRelation = page.getByRole("button", {
+      name: `Remove ${targetRecord.title}`,
+    });
+    await expect(removeRelation).toBeVisible();
 
     const cleared = page.waitForResponse((response) =>
       response.url().endsWith(`/records/${sourceRecord.id}`)
       && response.request().method() === "PATCH",
     );
-    await persistedRelation.selectOption([]);
+    await removeRelation.click();
     assert.equal((await cleared).status(), 200);
     await expect.poll(async () => (
       await getRelations(request, ownerDatabase.id, sourceRecord.id)
     )[relation.id] ?? []).toEqual([]);
 
     await page.reload();
-    const clearedRelation = page.getByLabel(`${relation.name} relations`);
-    await expect(clearedRelation.locator("option")).toContainText([targetRecord.title]);
-    await expect(clearedRelation.locator("option:checked")).toHaveCount(0);
+    await expect(page.getByRole("button", {
+      name: `Remove ${targetRecord.title}`,
+    })).toHaveCount(0);
   } finally {
     await cleanup(request, databaseIds, pageIds);
   }
