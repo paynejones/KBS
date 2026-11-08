@@ -1,13 +1,78 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Tag = {
   id: string;
   name: string;
 };
+
+function TagChip({ name, onRemove }: { name: string; onRemove: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const labelRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const label = labelRef.current;
+    if (!label || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      const isTruncated = label.scrollWidth > label.clientWidth + 1;
+      setTruncated(isTruncated);
+      if (!isTruncated) setOpen(false);
+    });
+
+    observer.observe(label);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger
+        disabled={!truncated}
+        render={
+          <span
+            tabIndex={truncated ? 0 : undefined}
+            onPointerDown={(event) => {
+              // Touch has no hover, so a tap toggles the tooltip instead.
+              if (!truncated) return;
+              if (event.pointerType === "mouse") return;
+              if ((event.target as HTMLElement).closest("button")) return;
+              setOpen((value) => !value);
+            }}
+            onFocus={(event) => {
+              if (!truncated || event.target !== event.currentTarget) return;
+              setOpen(true);
+            }}
+            onBlur={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                return;
+              }
+              setOpen(false);
+            }}
+            className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-full border px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        }
+      >
+        <span ref={labelRef} className="min-w-0 truncate">
+          {name}
+        </span>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 text-muted-foreground hover:text-destructive"
+          aria-label={`Remove ${name} tag`}
+        >
+          ×
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{name}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function PageTags({ pageId }: { pageId: string }) {
   const [allTags, setAllTags] = useState<Tag[]>([]);
@@ -16,6 +81,8 @@ export function PageTags({ pageId }: { pageId: string }) {
   const [newTagName, setNewTagName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const tagPickerId = useId();
+  const newTagId = useId();
 
   async function loadTags() {
     try {
@@ -171,68 +238,70 @@ export function PageTags({ pageId }: { pageId: string }) {
           </p>
         ) : (
           assignedTags.map((tag) => (
-            <span
+            <TagChip
               key={tag.id}
-              className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm"
-            >
-              {tag.name}
-              <button
-                type="button"
-                onClick={() => void removeTag(tag.id)}
-                className="text-muted-foreground hover:text-destructive"
-                aria-label={`Remove ${tag.name} tag`}
-              >
-                ×
-              </button>
-            </span>
+              name={tag.name}
+              onRemove={() => void removeTag(tag.id)}
+            />
           ))
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <select
-          value={selectedTagId}
-          onChange={(event) => setSelectedTagId(event.target.value)}
-          className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
-        >
-          <option value="">Choose an existing tag...</option>
-          {availableTags.map((tag) => (
-            <option key={tag.id} value={tag.id}>
-              {tag.name}
-            </option>
-          ))}
-        </select>
+      <div className="space-y-1.5">
+        <label htmlFor={tagPickerId} className="block text-sm text-muted-foreground">
+          Add an existing tag to this page
+        </label>
+        <div className="flex flex-col gap-2 min-[360px]:flex-row">
+          <select
+            id={tagPickerId}
+            value={selectedTagId}
+            onChange={(event) => setSelectedTagId(event.target.value)}
+            className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Choose an existing tag...</option>
+            {availableTags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
 
-        <Button
-          type="button"
-          variant="outline"
-          disabled={!selectedTagId}
-          onClick={async () => {
-            try {
-              setError("");
-              await assignTag(selectedTagId);
-              setSelectedTagId("");
-            } catch {
-              setError("Could not assign tag.");
-            }
-          }}
-        >
-          Add tag
-        </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!selectedTagId}
+            onClick={async () => {
+              try {
+                setError("");
+                await assignTag(selectedTagId);
+                setSelectedTagId("");
+              } catch {
+                setError("Could not assign tag.");
+              }
+            }}
+          >
+            Add tag
+          </Button>
+        </div>
       </div>
 
-      <form onSubmit={createTag} className="flex flex-wrap gap-2">
-        <input
-          value={newTagName}
-          onChange={(event) => setNewTagName(event.target.value)}
-          placeholder="Create a new tag..."
-          maxLength={50}
-          className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
-        />
+      <form onSubmit={createTag} className="space-y-1.5">
+        <label htmlFor={newTagId} className="block text-sm text-muted-foreground">
+          Create a new tag
+        </label>
+        <div className="flex flex-col gap-2 min-[360px]:flex-row">
+          <input
+            id={newTagId}
+            value={newTagName}
+            onChange={(event) => setNewTagName(event.target.value)}
+            maxLength={50}
+            className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+          />
 
-        <Button type="submit" variant="outline" disabled={!newTagName.trim()}>
-          Create tag
-        </Button>
+          <Button type="submit" variant="outline" disabled={!newTagName.trim()}>
+            Create tag
+          </Button>
+        </div>
       </form>
 
       {error && (

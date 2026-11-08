@@ -433,7 +433,7 @@ function clearDragState() {
                     cancelRenaming();
                   }
                 }}
-                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={isSaving}
               />
             ) : (

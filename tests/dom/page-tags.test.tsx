@@ -22,7 +22,7 @@ test("PageTags shows assigned tags and offers only unassigned ones", async () =>
 
   assert.ok(await screen.findByRole("button", { name: "Remove Work tag" }));
   assert.equal(screen.queryByText("No tags assigned."), null);
-  const select = screen.getByRole("combobox") as HTMLSelectElement;
+  const select = screen.getByRole("combobox", { name: "Add an existing tag to this page" }) as HTMLSelectElement;
   assert.deepEqual(
     Array.from(select.options).map((option) => option.textContent),
     ["Choose an existing tag...", "Ideas"],
@@ -58,7 +58,7 @@ test("PageTags creates a tag and assigns it to the page", async () => {
   render(<PageTags pageId="p1" />);
   await screen.findByText("No tags assigned.");
 
-  const input = screen.getByPlaceholderText("Create a new tag...");
+  const input = screen.getByLabelText("Create a new tag");
   fireEvent.change(input, { target: { value: "  Reading  " } });
   await act(async () => {
     fireEvent.submit(input.closest("form")!);
@@ -73,7 +73,7 @@ test("PageTags creates a tag and assigns it to the page", async () => {
     { tagId: "t2" },
   );
   assert.ok(await screen.findByRole("button", { name: "Remove Reading tag" }));
-  assert.equal((screen.getByPlaceholderText("Create a new tag...") as HTMLInputElement).value, "");
+  assert.equal((screen.getByLabelText("Create a new tag") as HTMLInputElement).value, "");
 });
 
 test("PageTags assigns an existing tag from the picker", async () => {
@@ -89,7 +89,7 @@ test("PageTags assigns an existing tag from the picker", async () => {
   render(<PageTags pageId="p1" />);
   await screen.findByText("No tags assigned.");
 
-  const select = screen.getByRole("combobox");
+  const select = screen.getByRole("combobox", { name: "Add an existing tag to this page" });
   assert.equal((screen.getByRole("button", { name: "Add tag" }) as HTMLButtonElement).disabled, true);
   fireEvent.change(select, { target: { value: "t1" } });
   assert.equal((screen.getByRole("button", { name: "Add tag" }) as HTMLButtonElement).disabled, false);
@@ -142,12 +142,12 @@ test("PageTags reports a failed tag creation", async () => {
   render(<PageTags pageId="p1" />);
   await screen.findByText("No tags assigned.");
 
-  const input = screen.getByPlaceholderText("Create a new tag...");
+  const input = screen.getByLabelText("Create a new tag");
   fireEvent.change(input, { target: { value: "Reading" } });
   await act(async () => {
     fireEvent.submit(input.closest("form")!);
   });
 
   assert.equal((await screen.findByRole("alert")).textContent, "Could not create or assign tag.");
-  assert.equal((screen.getByPlaceholderText("Create a new tag...") as HTMLInputElement).value, "Reading");
+  assert.equal((screen.getByLabelText("Create a new tag") as HTMLInputElement).value, "Reading");
 });

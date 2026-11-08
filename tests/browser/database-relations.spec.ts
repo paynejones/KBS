@@ -86,7 +86,7 @@ test("assigns and clears a database relation from the record page", async ({ pag
     await expect(page.getByLabel("Record title")).toHaveValue(sourceRecord.title);
 
     const relationTrigger = page.getByRole("button", {
-      name: `Add ${relation.name} relation`,
+      name: `${relation.name} relation: add a record`,
     });
     await expect(relationTrigger).toBeVisible();
 
@@ -95,10 +95,10 @@ test("assigns and clears a database relation from the record page", async ({ pag
       && response.request().method() === "PATCH",
     );
     await relationTrigger.click();
-    // The record page also has a "Choose a record to link" select for page
-    // links, so scope the option to this property's own listbox.
+    // The record page also has a "Link a record to this page"
+    // select, so scope the option to this property's own listbox.
     const relationOptions = page.getByRole("listbox", {
-      name: `${relation.name} relation options`,
+      name: `${relation.name} relation: available records`,
     });
     await expect(relationOptions).toBeVisible();
     await relationOptions.getByRole("option", { name: targetRecord.title }).click();

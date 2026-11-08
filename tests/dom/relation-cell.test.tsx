@@ -42,7 +42,7 @@ test("relation cell opens a searchable list of records that are not linked yet",
     />,
   );
 
-  const trigger = screen.getByRole("button", { name: "Add Related relation" });
+  const trigger = screen.getByRole("button", { name: "Related relation: add a record" });
   assert.equal(trigger.getAttribute("aria-expanded"), "false");
   assert.equal(screen.queryByRole("listbox"), null);
 
@@ -55,7 +55,7 @@ test("relation cell opens a searchable list of records that are not linked yet",
   );
   assert.equal(
     document.activeElement,
-    screen.getByLabelText("Search Related records"),
+    screen.getByLabelText("Related relation: search records"),
     "the search field takes focus so the list is keyboard reachable",
   );
 });
@@ -65,8 +65,8 @@ test("relation cell filters the list by the typed search", () => {
     <RelationCell label="Related" value={[]} options={options} onChange={() => {}} />,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "Add Related relation" }));
-  const search = screen.getByLabelText("Search Related records");
+  fireEvent.click(screen.getByRole("button", { name: "Related relation: add a record" }));
+  const search = screen.getByLabelText("Related relation: search records");
 
   fireEvent.change(search, { target: { value: "COVER" } });
   assert.deepEqual(
@@ -91,14 +91,14 @@ test("relation cell adds a picked record and closes the list", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "Add Related relation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Related relation: add a record" }));
   fireEvent.click(screen.getByRole("option", { name: "Cover art" }));
 
   assert.deepEqual(changes, [["harvest", "cover"]]);
   assert.equal(screen.queryByRole("listbox"), null);
   assert.equal(
     document.activeElement,
-    screen.getByRole("button", { name: "Add Related relation" }),
+    screen.getByRole("button", { name: "Related relation: add a record" }),
     "focus returns to the add control",
   );
 });
@@ -131,11 +131,11 @@ test("relation cell picks a record from the keyboard and dismisses with Escape",
     />,
   );
 
-  const trigger = screen.getByRole("button", { name: "Add Related relation" });
+  const trigger = screen.getByRole("button", { name: "Related relation: add a record" });
   trigger.focus();
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
 
-  const search = screen.getByLabelText("Search Related records");
+  const search = screen.getByLabelText("Related relation: search records");
   assert.equal(document.activeElement, search);
 
   fireEvent.keyDown(search, { key: "ArrowDown" });
@@ -145,7 +145,7 @@ test("relation cell picks a record from the keyboard and dismisses with Escape",
   assert.equal(screen.queryByRole("listbox"), null);
 
   fireEvent.click(trigger);
-  fireEvent.keyDown(screen.getByLabelText("Search Related records"), { key: "Escape" });
+  fireEvent.keyDown(screen.getByLabelText("Related relation: search records"), { key: "Escape" });
   assert.equal(screen.queryByRole("listbox"), null);
   assert.equal(document.activeElement, trigger, "Escape restores the add control");
 });
@@ -155,7 +155,7 @@ test("relation cell closes when focus or a pointer leaves it", () => {
     <RelationCell label="Related" value={[]} options={options} onChange={() => {}} />,
   );
 
-  const trigger = screen.getByRole("button", { name: "Add Related relation" });
+  const trigger = screen.getByRole("button", { name: "Related relation: add a record" });
 
   fireEvent.click(trigger);
   pointerDownOnBody();
@@ -164,7 +164,7 @@ test("relation cell closes when focus or a pointer leaves it", () => {
   fireEvent.click(trigger);
   const outside = document.createElement("button");
   document.body.appendChild(outside);
-  fireEvent.focusOut(screen.getByLabelText("Search Related records"), {
+  fireEvent.focusOut(screen.getByLabelText("Related relation: search records"), {
     relatedTarget: outside,
   });
   assert.equal(screen.queryByRole("listbox"), null, "focus leaving closes the picker");
@@ -182,7 +182,7 @@ test("relation cell explains an empty target database and a missing record", () 
   );
 
   const trigger = screen.getByRole("button", {
-    name: "Add Related relation",
+    name: "Related relation: add a record",
   }) as HTMLButtonElement;
   assert.equal(trigger.disabled, true);
   assert.ok(screen.getByText("No records to link"));

@@ -21,7 +21,7 @@ test("RecordPageLinks lists the pages connected to a record", async () => {
   const link = await screen.findByRole("link", { name: "Source page" });
   assert.equal(link.getAttribute("href"), "/pages/p1");
 
-  const select = screen.getByRole("combobox", { name: "Choose a page to link" }) as HTMLSelectElement;
+  const select = screen.getByRole("combobox", { name: "Linked pages: choose a page to link" }) as HTMLSelectElement;
   assert.deepEqual(
     Array.from(select.options).map((option) => option.textContent),
     ["Choose a page…", "Free page"],
@@ -41,7 +41,7 @@ test("RecordPageLinks links a page and refreshes the list", async () => {
   render(<RecordPageLinks recordId="r1" />);
   await screen.findByText("No linked pages yet.");
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Choose a page to link" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Linked pages: choose a page to link" }), {
     target: { value: "p2" },
   });
   await act(async () => {
@@ -53,7 +53,7 @@ test("RecordPageLinks links a page and refreshes the list", async () => {
   assert.deepEqual(post?.body, { pageId: "p2" });
   assert.ok(await screen.findByRole("link", { name: "Free page" }));
   assert.equal(
-    (screen.getByRole("combobox", { name: "Choose a page to link" }) as HTMLSelectElement).value,
+    (screen.getByRole("combobox", { name: "Linked pages: choose a page to link" }) as HTMLSelectElement).value,
     "",
     "the picker resets after a successful link",
   );
@@ -88,7 +88,7 @@ test("RecordPageLinks disables the picker when there is nothing to link", async 
   render(<RecordPageLinks recordId="r1" />);
   await screen.findByText("No linked pages yet.");
 
-  const select = screen.getByRole("combobox", { name: "Choose a page to link" }) as HTMLSelectElement;
+  const select = screen.getByRole("combobox", { name: "Linked pages: choose a page to link" }) as HTMLSelectElement;
   assert.equal(select.disabled, true);
   assert.equal((screen.getByRole("button", { name: "Link page" }) as HTMLButtonElement).disabled, true);
 });
@@ -110,7 +110,7 @@ test("RecordPageLinks reports a failed link", async () => {
   render(<RecordPageLinks recordId="r1" />);
   await screen.findByText("No linked pages yet.");
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Choose a page to link" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Linked pages: choose a page to link" }), {
     target: { value: "p2" },
   });
   await act(async () => {

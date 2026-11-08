@@ -149,7 +149,7 @@ export function RecordPageLinks({ recordId }: { recordId: string }) {
 
       <div className="mt-4 flex gap-2">
         <select
-          aria-label="Choose a page to link"
+          aria-label="Linked pages: choose a page to link"
           value={targetId}
           onChange={(event) => setTargetId(event.target.value)}
           disabled={saving || options.length === 0}

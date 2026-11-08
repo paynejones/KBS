@@ -1184,8 +1184,8 @@ while (foundDescendant) {
             <h2 id="page-details-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Details
             </h2>
-            <div className="flex flex-wrap items-center gap-3">
-              <label htmlFor="move-page" className="text-sm font-medium">
+            <div className="flex flex-col gap-1.5 min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-3">
+              <label htmlFor="move-page" className="text-sm font-medium shrink-0 whitespace-nowrap">
                 Move to
               </label>
               <select
@@ -1193,7 +1193,7 @@ while (foundDescendant) {
                 value={parentId ?? ""}
                 onChange={(event) => void movePage(event.target.value)}
                 disabled={moving}
-                className="min-w-0 max-w-full rounded-md border bg-background px-3 py-2 text-sm sm:max-w-xs"
+                className="w-full min-w-0 rounded-md border bg-background px-3 py-2 text-sm min-[360px]:w-auto min-[360px]:max-w-full sm:max-w-xs"
               >
                 <option value="">Top level</option>
                 {allPages

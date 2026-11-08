@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Link2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,7 @@ export function PageLinks({
   const [recordOptions, setRecordOptions] = useState<LinkedRecord[]>([]);
   const [targetId, setTargetId] = useState("");
   const [recordId, setRecordId] = useState("");
+  const recordPickerId = useId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -213,7 +214,7 @@ export function PageLinks({
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <h3 className="text-sm font-medium">
             Linked pages
             {links.length > 0 && <span className="ml-1 text-muted-foreground">({links.length})</span>}
@@ -245,9 +246,9 @@ export function PageLinks({
             <p className="text-sm text-muted-foreground">No linked pages yet.</p>
           )}
 
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-col gap-2 pt-1 min-[360px]:flex-row">
             <select
-              aria-label="Choose a page to link"
+              aria-label="Page connections: choose a page to link"
               value={targetId}
               onChange={(event) => setTargetId(event.target.value)}
               disabled={saving || availablePages.length === 0}
@@ -264,7 +265,7 @@ export function PageLinks({
           </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <h3 className="text-sm font-medium">
             Backlinks
             {backlinks.length > 0 && <span className="ml-1 text-muted-foreground">({backlinks.length})</span>}
@@ -294,7 +295,7 @@ export function PageLinks({
           )}
         </div>
 
-        <div className="space-y-2 sm:col-span-2">
+        <div className="min-w-0 space-y-2 sm:col-span-2">
           <h3 className="text-sm font-medium">
             Linked records
             {records.length > 0 && <span className="ml-1 text-muted-foreground">({records.length})</span>}
@@ -330,32 +331,37 @@ export function PageLinks({
             <p className="text-sm text-muted-foreground">No linked records yet.</p>
           )}
 
-          <div className="flex gap-2 pt-1">
-            <select
-              aria-label="Choose a record to link"
-              value={recordId}
-              onChange={(event) => setRecordId(event.target.value)}
-              disabled={saving || recordOptions.length === 0}
-              className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
-            >
-              <option value="">Choose a record…</option>
-              {recordGroups.map(([databaseId, group]) => (
-                <optgroup key={databaseId} label={group.databaseName}>
-                  {group.records.map((record) => (
-                    <option key={record.id} value={record.id}>{record.title || "Untitled"}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void addRecordLink()}
-              disabled={!recordId || saving}
-            >
-              Link record
-            </Button>
+          <div className="space-y-1.5 pt-1">
+            <label htmlFor={recordPickerId} className="block text-sm text-muted-foreground">
+              Link a record to this page
+            </label>
+            <div className="flex flex-col gap-2 min-[360px]:flex-row">
+              <select
+                id={recordPickerId}
+                value={recordId}
+                onChange={(event) => setRecordId(event.target.value)}
+                disabled={saving || recordOptions.length === 0}
+                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
+              >
+                <option value="">Choose a record…</option>
+                {recordGroups.map(([databaseId, group]) => (
+                  <optgroup key={databaseId} label={group.databaseName}>
+                    {group.records.map((record) => (
+                      <option key={record.id} value={record.id}>{record.title || "Untitled"}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void addRecordLink()}
+                disabled={!recordId || saving}
+              >
+                Link record
+              </Button>
+            </div>
           </div>
         </div>
       </div>

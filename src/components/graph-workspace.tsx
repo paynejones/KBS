@@ -288,9 +288,9 @@ export function GraphWorkspace() {
                     role="link"
                     tabIndex={0}
                     aria-label={`Open page ${node.title || "Untitled"}`}
-                    className="cursor-pointer outline-none"
+                    className="cursor-pointer outline-none [&:focus-visible>circle]:stroke-[4]"
                     opacity={matched ? 1 : 0.14}
-                    onPointerDown={(event) => { event.stopPropagation(); draggedRef.current = false; setDraggingNode(node.id); svgRef.current?.setPointerCapture(event.pointerId); }}
+                    onPointerDown={(event) => { event.stopPropagation(); draggedRef.current = false; setDraggingNode(node.id); event.currentTarget.setPointerCapture(event.pointerId); }}
                     onClick={() => { if (!draggedRef.current) router.push(`/pages/${node.id}`); }}
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/pages/${node.id}`); } }}
                   >

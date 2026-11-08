@@ -69,7 +69,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.556 0 0);
   --brand: #4f46e5;
   --brand-foreground: #4338ca;
   --brand-soft: #eef2ff;
@@ -86,7 +86,7 @@
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 .dark {
@@ -107,7 +107,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.708 0 0);
   --brand: #8b8cf9;
   --brand-foreground: #b6b6ff;
   --brand-soft: #1d1b3a;
@@ -123,7 +123,7 @@
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 :root[data-theme="warm"] {
@@ -145,7 +145,7 @@
   --destructive: #a44135;
   --border: #d6c8b1;
   --input: #d6c8b1;
-  --ring: #98734b;
+  --ring: #775337;
   --brand: #775337;
   --brand-foreground: #5c3f28;
   --brand-soft: #efe3d0;
@@ -156,7 +156,7 @@
   --sidebar-accent: #d9c9ad;
   --sidebar-accent-foreground: #30281f;
   --sidebar-border: #d6c8b1;
-  --sidebar-ring: #98734b;
+  --sidebar-ring: #775337;
 }
 
 :root[data-theme="forest"] {
@@ -178,7 +178,7 @@
   --destructive: #a43d34;
   --border: #c2d3bf;
   --input: #c2d3bf;
-  --ring: #64856c;
+  --ring: #315b3e;
   --brand: #315b3e;
   --brand-foreground: #24462f;
   --brand-soft: #dbe9d8;
@@ -189,7 +189,7 @@
   --sidebar-accent: #c6dac5;
   --sidebar-accent-foreground: #1f3023;
   --sidebar-border: #c2d3bf;
-  --sidebar-ring: #64856c;
+  --sidebar-ring: #315b3e;
 }
 
 :root[data-theme="light"] { color-scheme: light; }
@@ -197,7 +197,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   body {
     @apply bg-background text-foreground;
@@ -207,6 +207,21 @@
     @apply font-sans;
     overflow-x: clip;
   }
+}
+
+/* Controls without a ring utility still get a visible 2px focus indicator. */
+:where(
+  a[href],
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex="-1"]),
+  [contenteditable="true"]
+):focus-visible:not([class*="ring"]):not(g) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* Tiptap rich-text editor */

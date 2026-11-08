@@ -75,7 +75,7 @@ test("PageLinks only offers pages that are not already linked", async () => {
   render(<PageLinks pageId="p1" pages={PAGES} />);
   await screen.findByRole("link", { name: "Other" });
 
-  const select = screen.getByRole("combobox", { name: "Choose a page to link" }) as HTMLSelectElement;
+  const select = screen.getByRole("combobox", { name: "Page connections: choose a page to link" }) as HTMLSelectElement;
   assert.deepEqual(
     Array.from(select.options).map((option) => option.textContent),
     ["Choose a page…", "Free page"],
@@ -102,7 +102,7 @@ test("PageLinks posts a new link and refreshes the list", async () => {
   render(<PageLinks pageId="p1" pages={PAGES} />);
   await screen.findByRole("link", { name: "Other" });
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Choose a page to link" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Page connections: choose a page to link" }), {
     target: { value: "p3" },
   });
   await act(async () => {
@@ -114,7 +114,7 @@ test("PageLinks posts a new link and refreshes the list", async () => {
   assert.deepEqual(post?.body, { targetPageId: "p3" });
   assert.ok(await screen.findByRole("link", { name: "Free page" }));
   assert.equal(
-    (screen.getByRole("combobox", { name: "Choose a page to link" }) as HTMLSelectElement).value,
+    (screen.getByRole("combobox", { name: "Page connections: choose a page to link" }) as HTMLSelectElement).value,
     "",
     "the picker resets after a successful link",
   );
@@ -160,7 +160,7 @@ test("PageLinks links a record and shows it with its database", async () => {
   render(<PageLinks pageId="p1" pages={PAGES} />);
   await screen.findByText("No linked records yet.");
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Choose a record to link" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Link a record to this page" }), {
     target: { value: "r1" },
   });
   await act(async () => {
@@ -173,7 +173,7 @@ test("PageLinks links a record and shows it with its database", async () => {
   const linked = await screen.findByRole("link", { name: "Record one" });
   assert.equal(linked.getAttribute("href"), "/databases/d1/records/r1");
   assert.equal(
-    (screen.getByRole("combobox", { name: "Choose a record to link" }) as HTMLSelectElement).value,
+    (screen.getByRole("combobox", { name: "Link a record to this page" }) as HTMLSelectElement).value,
     "",
   );
 });
@@ -222,7 +222,7 @@ test("PageLinks reports a failed link creation", async () => {
   render(<PageLinks pageId="p1" pages={PAGES} />);
   await screen.findByText("No linked pages yet.");
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Choose a page to link" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Page connections: choose a page to link" }), {
     target: { value: "p3" },
   });
   await act(async () => {
@@ -245,7 +245,7 @@ test("PageLinks reports a failed record link", async () => {
   render(<PageLinks pageId="p1" pages={PAGES} />);
   await screen.findByText("No linked records yet.");
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Choose a record to link" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Link a record to this page" }), {
     target: { value: "r1" },
   });
   await act(async () => {

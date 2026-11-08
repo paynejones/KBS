@@ -156,7 +156,7 @@ export function RelationCell({
           ref={triggerRef}
           type="button"
           disabled={options.length === 0}
-          aria-label={`Add ${label} relation`}
+          aria-label={`${label} relation: add a record`}
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
@@ -190,7 +190,7 @@ export function RelationCell({
                 setActiveIndex(0);
               }}
               onKeyDown={handleSearchKeyDown}
-              aria-label={`Search ${label} records`}
+              aria-label={`${label} relation: search records`}
               aria-controls={listId}
               aria-activedescendant={
                 activeOption ? `${listId}-${activeOption.id}` : undefined
@@ -203,7 +203,7 @@ export function RelationCell({
           <div
             id={listId}
             role="listbox"
-            aria-label={`${label} relation options`}
+            aria-label={`${label} relation: available records`}
             className="max-h-56 overflow-y-auto p-1"
           >
             {matching.length === 0 ? (
