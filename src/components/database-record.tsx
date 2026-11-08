@@ -1,15 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUpRight, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { FileCell } from "@/components/file-cell";
 import { PageEditorLoader } from "@/components/page-editor-loader";
 import { RecordPageLinks } from "@/components/record-links";
 import { Button } from "@/components/ui/button";
-import { evaluateFormula, formatFormulaValue, parseFormula } from "@/lib/database-formula";
-import { parseFilePropertyValue } from "@/lib/media";
+import { formatFormulaValue } from "@/lib/database-formula";
+import { formulaValue, rollupValue } from "@/lib/database-calculations";
 
 type Property = {
   id: string;
@@ -54,6 +65,7 @@ export function DatabaseRecordWorkspace({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -149,58 +161,26 @@ export function DatabaseRecordWorkspace({
     void applyUpdate({ relations: { ...record.relations, [property.id]: selected } });
   }
 
-  const propertiesByName = useMemo(
-    () => new Map(properties.map((property) => [property.name, property])),
-    [properties],
-  );
-
   function getRollupValue(property: Property): number | string {
     if (!record) return "—";
-    const relationPropertyId = property.options.relationPropertyId;
-    const targetIds = relationPropertyId ? record.relations[relationPropertyId] ?? [] : [];
-    if (property.options.aggregation === "count") return targetIds.length;
-    const targetPropertyId = property.options.targetPropertyId;
-    const values = targetIds
-      .map((targetId) =>
-        relationTargets[relationPropertyId ?? ""]?.records.find((item) => item.id === targetId)?.values[targetPropertyId ?? ""],
-      )
-      .map((value) => (typeof value === "number" ? value : Number(value)))
-      .filter(Number.isFinite);
-    if (values.length === 0) return "—";
-    switch (property.options.aggregation) {
-      case "sum": return values.reduce((sum, value) => sum + value, 0);
-      case "average": return values.reduce((sum, value) => sum + value, 0) / values.length;
-      case "min": return Math.min(...values);
-      case "max": return Math.max(...values);
-      default: return "—";
-    }
+    return rollupValue(record, property, relationTargets);
   }
 
   function getFormulaValue(property: Property): number | null {
     if (!record) return null;
-    const expression = typeof property.options.expression === "string" ? property.options.expression : "";
-    const parsed = parseFormula(expression);
-    if (!parsed.ok) return null;
-    return evaluateFormula(parsed.ast, (name) => {
-      const referenced = propertiesByName.get(name);
-      if (!referenced) return null;
-      if (referenced.type === "number") {
-        const value = record.values[referenced.id];
-        if (typeof value === "number") return Number.isFinite(value) ? value : null;
-        const text = String(value ?? "").trim();
-        const numeric = Number(text);
-        return text !== "" && Number.isFinite(numeric) ? numeric : null;
-      }
-      if (referenced.type === "rollup") {
-        const value = getRollupValue(referenced);
-        return typeof value === "number" ? value : null;
-      }
-      return null;
-    });
+    return formulaValue(record, property, properties, relationTargets);
+  }
+
+  // A record is often reached from an embed inside a page, so the first back
+  // step returns to that page. A record opened directly falls back to its
+  // database instead of leaving the app.
+  function goBack() {
+    if (window.history.length > 1) router.back();
+    else router.push(`/databases/${databaseId}`);
   }
 
   async function deleteRecord() {
-    if (!record || !window.confirm(`Delete “${record.title}”? Its page will stay in the workspace.`)) return;
+    if (!record) return;
     setDeleting(true);
     setError("");
     try {
@@ -254,23 +234,13 @@ export function DatabaseRecordWorkspace({
     }
 
     if (property.type === "file") {
-      const file = parseFilePropertyValue(value);
-      if (file) {
-        return (
-          <a
-            href={file.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 px-3 py-2 text-sm text-primary hover:underline"
-          >
-            {file.filename || file.alt || "Open file"} <ArrowUpRight size={14} />
-          </a>
-        );
-      }
       return (
-        <span className="block px-3 py-2 text-sm text-muted-foreground">
-          {file === null ? "No file" : "This file value can’t be displayed."}
-        </span>
+        <FileCell
+          label={property.name}
+          value={value}
+          disabled={saving}
+          onChange={(next) => updateValue(property.id, next)}
+        />
       );
     }
 
@@ -385,12 +355,20 @@ export function DatabaseRecordWorkspace({
     <AppShell>
       <div className="mx-auto max-w-4xl space-y-8">
         <div className="space-y-4">
-          <Link
-            href={`/databases/${databaseId}`}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft size={15} /> {databaseName || "Database"}
-          </Link>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <button
+              type="button"
+              onClick={goBack}
+              aria-label="Back to previous page"
+              className="inline-flex items-center gap-1 rounded hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ArrowLeft size={15} /> Back
+            </button>
+            <span aria-hidden="true">·</span>
+            <Link href={`/databases/${databaseId}`} className="rounded hover:text-foreground">
+              {databaseName || "Database"}
+            </Link>
+          </div>
           <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-5">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground">DATABASE RECORD</p>
@@ -414,7 +392,7 @@ export function DatabaseRecordWorkspace({
                 variant="ghost"
                 size="sm"
                 disabled={deleting || saving}
-                onClick={() => void deleteRecord()}
+                onClick={() => setConfirmDelete(true)}
                 className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
                 <Trash2 size={15} /> Delete
@@ -477,6 +455,30 @@ export function DatabaseRecordWorkspace({
           )}
         </section>
       </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={(open) => setConfirmDelete(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{record.title}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The record will be deleted. Its page stays in the workspace, so its content is not lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => {
+                setConfirmDelete(false);
+                void deleteRecord();
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" /> Delete record
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

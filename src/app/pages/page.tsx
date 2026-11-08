@@ -4,10 +4,24 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Link2Off, SlidersHorizontal, Star, Trash2, Upload } from "lucide-react";
+import { ChevronDown, FolderUp, Link2Off, SlidersHorizontal, Star, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { markdownFileToPage } from "@/lib/markdown-import";
+import {
+  describeMarkdownImport,
+  importMarkdownFiles,
+  importMarkdownFolder,
+} from "@/lib/markdown-import-files";
 import { starterPageTemplates } from "@/lib/page-templates";
 import { revealTemplateFromHash } from "@/lib/page-template-deep-link";
 
@@ -52,10 +66,13 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
   const templatesDetailsRef = useRef<HTMLDetailsElement>(null);
   const [templates, setTemplates] = useState<PageTemplate[]>([]);
   const [templateBusy, setTemplateBusy] = useState(false);
   const [templateMessage, setTemplateMessage] = useState("");
+  const [pendingPageDelete, setPendingPageDelete] = useState<PageSummary | null>(null);
+  const [pendingTemplateDelete, setPendingTemplateDelete] = useState<PageTemplate | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -270,11 +287,6 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
   }
 
   async function deleteTemplate(template: PageTemplate) {
-    const confirmed = window.confirm(
-      `Delete the “${template.name}” template? Pages already created from it are not affected.`,
-    );
-    if (!confirmed) return;
-
     setTemplateBusy(true);
     setError("");
 
@@ -295,51 +307,33 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
     setImporting(true);
     setImportMessage("");
     setError("");
-    let imported = 0;
-    const failures: string[] = [];
-
-    for (const file of files) {
-      if (!/\.(md|markdown)$/i.test(file.name)) {
-        failures.push(`${file.name}: unsupported file type`);
-        continue;
-      }
-      if (file.size > 2_000_000) {
-        failures.push(`${file.name}: file exceeds the 2 MB limit`);
-        continue;
-      }
-      try {
-        const importedPage = markdownFileToPage(await file.text(), file.name);
-        const response = await fetch("/api/pages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(importedPage),
-        });
-        if (!response.ok) throw new Error("Server could not create page");
-        imported++;
-      } catch {
-        failures.push(`${file.name}: import failed`);
-      }
-    }
+    const { imported, failures } = await importMarkdownFiles(files);
 
     if (imported > 0) {
       setRefreshKey((current) => current + 1);
       window.dispatchEvent(new Event("pages-updated"));
     }
-    setImportMessage(
-      failures.length > 0
-        ? `Imported ${imported} of ${files.length} files. ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? `; and ${failures.length - 3} more` : ""}`
-        : `Imported ${imported} ${imported === 1 ? "page" : "pages"}.`,
-    );
+    setImportMessage(describeMarkdownImport(imported, files.length, failures));
+    setImporting(false);
+  }
+
+  async function importMarkdownFolderFiles(files: File[]) {
+    if (files.length === 0) return;
+    setImporting(true);
+    setImportMessage("");
+    setError("");
+
+    const { imported, failures } = await importMarkdownFolder(files);
+
+    if (imported > 0) {
+      setRefreshKey((current) => current + 1);
+      window.dispatchEvent(new Event("pages-updated"));
+    }
+    setImportMessage(describeMarkdownImport(imported, files.length, failures));
     setImporting(false);
   }
 
   async function deletePage(page: PageSummary) {
-    const confirmed = window.confirm(
-      `Move "${page.title}" and its subpages to the trash? You can restore them from the trash screen.`
-    );
-
-    if (!confirmed) return;
-
     setDeletingId(page.id);
     setError("");
 
@@ -419,7 +413,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
               <input
                 ref={importInput}
                 type="file"
-                accept=".md,.markdown,text/markdown"
+                accept=".md,.markdown,text/markdown,image/*,.pdf,.txt,.csv,.json,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.epub,.rtf"
                 multiple
                 className="hidden"
                 aria-label="Choose Markdown files to import"
@@ -429,16 +423,40 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                   void importMarkdown(files);
                 }}
               />
+              <input
+                ref={folderInput}
+                type="file"
+                multiple
+                {...{ webkitdirectory: "", directory: "" }}
+                className="hidden"
+                aria-label="Choose a folder of Markdown files to import"
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? []);
+                  event.currentTarget.value = "";
+                  void importMarkdownFolderFiles(files);
+                }}
+              />
               <Button
                 type="button"
-                variant="ghost"
-                size="icon"
+                variant="outline"
+                size="sm"
                 onClick={() => importInput.current?.click()}
                 disabled={importing}
                 aria-label={importing ? "Importing Markdown" : "Import Markdown"}
-                title="Import Markdown"
+                title="Import Markdown files as pages"
               >
-                <Upload size={16} />
+                <Upload size={15} /> {importing ? "Importing…" : "Import Markdown"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => folderInput.current?.click()}
+                disabled={importing}
+                aria-label={importing ? "Importing Markdown folder" : "Import Markdown folder"}
+                title="Import a folder of Markdown files as nested pages"
+              >
+                <FolderUp size={15} /> Import folder
               </Button>
               <Button onClick={() => void createPage()}>New page</Button>
               <Link
@@ -514,7 +532,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                         variant="ghost"
                         disabled={templateBusy}
                         aria-label={`Delete the ${template.name} template`}
-                        onClick={() => void deleteTemplate(template)}
+                        onClick={() => setPendingTemplateDelete(template)}
                       >
                         <Trash2 size={16} className="text-muted-foreground" />
                       </Button>
@@ -714,7 +732,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                   variant="ghost"
                   size="icon"
                   disabled={deletingId !== null}
-                  onClick={() => void deletePage(page)}
+                  onClick={() => setPendingPageDelete(page)}
                   aria-label={`Delete ${page.title}`}
                   title="Delete page"
                 >
@@ -729,6 +747,56 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
           </div>
         )}
       </div>
+
+      <AlertDialog open={Boolean(pendingPageDelete)} onOpenChange={(open) => { if (!open) setPendingPageDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move “{pendingPageDelete?.title || "Untitled"}” to the trash?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its subpages move too. You can restore them from the trash screen.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingId !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deletingId !== null}
+              onClick={() => {
+                const pending = pendingPageDelete;
+                setPendingPageDelete(null);
+                if (pending) void deletePage(pending);
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" /> Move to trash
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(pendingTemplateDelete)} onOpenChange={(open) => { if (!open) setPendingTemplateDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{pendingTemplateDelete?.name ?? "template"}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Pages already created from this template are not affected. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={templateBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={templateBusy}
+              onClick={() => {
+                const pending = pendingTemplateDelete;
+                setPendingTemplateDelete(null);
+                if (pending) void deleteTemplate(pending);
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" /> Delete template
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

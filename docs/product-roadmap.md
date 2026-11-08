@@ -18,6 +18,8 @@ This is a code-level inventory, not a claim that every feature has the same poli
 
 ## Recently completed
 
+- Gave database views their own layout controls. The Properties menu beside the view filters shows how many properties a view displays and hides or restores each one without touching the database or its other views; the table, gallery, and embedded database blocks honour the choice, and an untouched view still shows everything. A view can also be duplicated — the copy keeps its type, filters, sorts, grouping, date property, and visible properties, opens immediately, and lands beside its source — and moved left or right, with the whole tab order saved in one request so duplicated and reordered views survive a reload.
+- Turned the home page into a daily landing page with two queues built from existing records. **Due soon** lists records from a chosen database whose date property is overdue or within the next week, sorted by date and flagged by urgency, with an overdue count, finished statuses left out, and an explicit choice of which status property marks a record finished (or no status filter at all); **Current projects** lists records whose status has not left the queue, most recently updated first, and can skip a chosen set of status values instead of relying on the built-in done vocabulary. Both are configured with a database and property picker on the home page, remember the choice per browser like pinned views, explain their empty, unconfigured, and deleted-source states, and remain views over the underlying records rather than copies.
 - Let the inbox keep a file, not just its address. Captures now accept one image or PDF up to the attachment limit: the file is stored through the existing attachment route, the inbox card shows an image preview or a named file row with its size and an open action, and the capture becomes a normal page whose body embeds the image or links the file. Moving the capture into Pages or a database keeps the file with it, and the orphan scan counts the capture as a reference so cleaning up unused files never deletes it.
 - Let a saved link keep the passage you meant to remember. Capturing a URL now accepts optional selected text, stored on the page beside its source and shown as a quote above the link's preview in the inbox. The quote stays with the item when it is moved into Pages and is shown again above the body when that page is opened, where it can be corrected or removed in place.
 - Connected pages and database records in both directions. A page's connections panel lists the records it is linked to, a record shows the pages linked to it, and either side can add or remove the same connection, which is stored once and disappears when either end is deleted. The new Unconnected view lists active pages with no parent, children, tags, page links, or record links, and records with no relations or page links, so unconnected material can be found and either connected or removed.
@@ -130,7 +132,7 @@ Make it easy to save something now and organize it later.
 Create a useful landing page from existing KBS data, with simple configurable sections or widgets.
 
 - Recent pages already appear on the home page (“Jump back in”); continue with favorites, the capture inbox, and selected databases or views as configurable sections.
-- Add tasks due soon and current projects after task and date workflows are established.
+- [x] Add tasks due soon and current projects queues, each configured from an existing database and property, with the project queue's finished statuses chosen explicitly.
 - [x] Support dashboard sections for saved database views, so any view (including active media queues and release dates) can be pinned from the home page with its own filters and sorts applied.
 - [x] Keep widgets as saved views over existing information rather than creating a second copy of the data.
 - Add a personal timeline for dated notes, milestones, and tasks once date properties and calendar views are reliable.
@@ -158,14 +160,24 @@ Create a useful landing page from existing KBS data, with simple configurable se
 - Add list, timeline, and chart views where they solve real use cases.
 - [x] Use calendar views for both task due dates and media release dates; the same view can be pinned to the personal home dashboard.
 - [x] Support structured, per-view filters and multiple sort rules instead of a single text filter and one sort. Board grouping stays configured per board view.
-- Add per-view property visibility and view duplication/reordering.
+- [x] Add per-view property visibility and view duplication/reordering.
 - [x] Add a file/media property and show it on gallery cards as a cover.
 - [x] Add formula properties; consider person and status properties when identity or team workflows arrive.
 - [x] Use formula, relation, and rollup properties to show simple progress measures such as episodes or chapters completed and project task completion.
 - [x] Improve record editing with a focused page/detail view that keeps properties and page content together.
 - Improve relation selection inside record pages.
 - [x] Add database templates that can be applied when creating records, and make template management discoverable.
-- Add import paths for CSV and Markdown exports, complementing existing exports and Markdown helpers.
+- [x] Import a database's CSV export back into it, creating text properties for columns that do not match an existing one.
+- [x] Import Markdown files or folders as pages, keeping headings, lists, quotes, code blocks, and inline marks, uploading embedded images and linked files (images, PDFs, office documents, archives, and other supported types) as attachments, and recreating a picked folder's tree as nested pages.
+- [x] Show attachments with a type icon and label in inbox captures, record file cells, and embedded database views, and link non-image files from imported Markdown instead of rendering a broken image preview.
+- [x] Upload, replace, or remove file-property attachments directly from database table cells, board cards, gallery cards, and record pages, with an accessible confirmation before removing a file value.
+- [x] Confirm record and template deletion with the app's accessible dialog, matching view deletion and gallery cover removal.
+- [x] Confirm database deletion, permanent trash deletion, unused-file cleanup, page and page-template deletion, and revision restore with the app's accessible dialog.
+- [x] Let each gallery view choose which file property supplies its card cover, falling back to the first image attachment and keeping the chosen property's editable attachment row on the card.
+- [x] Mark which file property supplied each gallery card's cover so the editable attachment rows are easy to scan.
+- [x] Hide a gallery card's cover image without touching its attachment value, with a Show cover action to restore it.
+- [x] Remove a gallery card's cover attachment after an accessible in-app confirmation, while keeping its file property row ready for a new upload.
+- [x] Render gallery card covers, the cover-property badge, hide/show controls, the cover-property selector, and upload/replace/remove cover actions in embedded database views too.
 
 ## Later: multi-user readiness
 

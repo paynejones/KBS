@@ -80,7 +80,7 @@ async function main() {
     KBS_AUTH_SECRET: BROWSER_TEST_SECRET,
   };
 
-  server = spawn(process.execPath, [nextBin, "build", "--webpack"], {
+  server = spawn(process.execPath, [nextBin, "build"], {
     cwd: process.cwd(),
     env,
     stdio: "inherit",

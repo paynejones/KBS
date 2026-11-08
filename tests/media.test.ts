@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   attachmentIdsInText,
+  attachmentKind,
+  attachmentTypeLabel,
   attachmentUrl,
   FILE_MIME_TYPES,
   fileValueSearchText,
+  LINKED_FILE_MIME_TYPES,
   IMAGE_MIME_TYPES,
   isAllowedMediaUrl,
   isImageMimeType,
@@ -25,6 +28,27 @@ test("attachment references are found in text, JSON, and markup", () => {
     [A, B],
   );
   assert.deepEqual(attachmentIdsInText(attachmentUrl(A).toUpperCase()), [A], "ids are normalized to lower case");
+});
+
+test("attachment types get readable labels and icon kinds", () => {
+  assert.equal(attachmentTypeLabel("application/pdf", "doc.pdf"), "PDF");
+  assert.equal(attachmentTypeLabel("text/csv", "data.csv"), "CSV");
+  assert.equal(
+    attachmentTypeLabel("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "plan.docx"),
+    "DOCX",
+  );
+  assert.equal(attachmentTypeLabel("application/zip", "bundle.zip"), "ZIP");
+  assert.equal(attachmentTypeLabel("image/png", "shot.png"), "Image");
+  assert.equal(attachmentTypeLabel("application/octet-stream", "archive.tar.gz"), "GZ");
+  assert.equal(attachmentTypeLabel("", "README"), "File");
+
+  assert.equal(attachmentKind("image/png"), "image");
+  assert.equal(attachmentKind("application/pdf"), "pdf");
+  assert.equal(attachmentKind("text/csv"), "spreadsheet");
+  assert.equal(attachmentKind("application/vnd.openxmlformats-officedocument.presentationml.presentation"), "presentation");
+  assert.equal(attachmentKind("application/zip"), "archive");
+  assert.equal(attachmentKind("text/plain"), "text");
+  assert.equal(attachmentKind("application/octet-stream"), "file");
 });
 
 test("attachment scanning deduplicates and ignores malformed references", () => {
@@ -62,6 +86,14 @@ test("image mime types are limited to the supported formats", () => {
   assert.equal(isImageMimeType(""), false);
   assert.ok(FILE_MIME_TYPES.includes("application/pdf"));
   assert.equal(MAX_ATTACHMENT_BYTES, 10 * 1024 * 1024);
+});
+
+test("linked attachments accept documents without widening inbox capture", () => {
+  assert.ok(LINKED_FILE_MIME_TYPES.includes("text/plain"));
+  assert.ok(LINKED_FILE_MIME_TYPES.includes("application/zip"));
+  assert.ok(LINKED_FILE_MIME_TYPES.includes("application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+  assert.ok(LINKED_FILE_MIME_TYPES.includes("application/pdf"));
+  assert.equal((FILE_MIME_TYPES as readonly string[]).includes("text/plain"), false);
 });
 
 test("file property values parse uploaded and remote media", () => {

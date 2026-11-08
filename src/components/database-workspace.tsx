@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, ChevronDown, CopyPlus, Download, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CopyPlus, Download, Eye, EyeOff, Plus, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { DatabaseCalendar } from "@/components/database-calendar";
+import { FileCell } from "@/components/file-cell";
+import { MediaImage } from "@/components/media-image";
 import { DatabaseViewControls } from "@/components/database-view-controls";
+import { ViewPropertiesMenu } from "@/components/view-properties-menu";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -19,18 +22,28 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  appendedViewName,
   applyView,
   parseViewFilters,
   parseViewSorts,
+  parseVisibleProperties,
+  reorderedViewIds,
+  visiblePropertyList,
   type ViewFilter,
   type ViewProperty,
   type ViewSort,
 } from "@/lib/database-view";
-import { evaluateFormula, formatFormulaValue, parseFormula } from "@/lib/database-formula";
+import { formatFormulaValue } from "@/lib/database-formula";
+import { formulaValue, rollupValue } from "@/lib/database-calculations";
 import { getDashboardWidgetsSnapshot } from "@/lib/dashboard";
+import {
+  isImageMimeType,
+  parseFilePropertyValue,
+  type FilePropertyValue,
+} from "@/lib/media";
 import { DateCell, SelectCell } from "@/components/database-cell-editors";
 
-type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup" | "formula";
+type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup" | "formula" | "file";
 type Property = { id: string; name: string; type: PropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string } };
 type RecordRow = { id: string; title: string; values: Record<string, unknown>; pageId: string | null; relations: Record<string, string[]> };
 type PageOption = { id: string; title: string };
@@ -95,11 +108,18 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [activeViewId, setActiveViewId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [viewPendingDelete, setViewPendingDelete] = useState<DatabaseView | null>(null);
+  const [coverPendingRemoval, setCoverPendingRemoval] = useState<{ recordId: string; propertyId: string; title: string } | null>(null);
+  const [recordPendingDelete, setRecordPendingDelete] = useState<RecordRow | null>(null);
+  const [templatePendingDelete, setTemplatePendingDelete] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDatabaseDelete, setConfirmDatabaseDelete] = useState(false);
   const [viewUsage, setViewUsage] = useState<ViewUsage | null>(null);
   const [viewUsageLoading, setViewUsageLoading] = useState(false);
   const [viewUsageError, setViewUsageError] = useState("");
   const [viewDeleteBusy, setViewDeleteBusy] = useState(false);
   const [viewDeleteError, setViewDeleteError] = useState("");
+  const [importMessage, setImportMessage] = useState("");
+  const [importError, setImportError] = useState("");
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   const loadDatabase = useCallback(async () => {
     try {
@@ -251,9 +271,9 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
-  async function deleteSelectedTemplate() {
-    const template = database?.templates.find((item) => item.id === selectedTemplateId);
-    if (!template || !window.confirm(`Delete template “${template.name}”?`)) return;
+  async function deleteSelectedTemplate(templateId = selectedTemplateId) {
+    const template = database?.templates.find((item) => item.id === templateId);
+    if (!template) return;
     setBusy(true);
     setError("");
     try {
@@ -263,6 +283,35 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       setSelectedTemplateId("");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Could not delete template.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importCsv(file: File) {
+    setBusy(true);
+    setImportMessage("");
+    setImportError("");
+    try {
+      const response = await fetch(`/api/databases/${id}/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv: await file.text() }),
+      });
+      const result = (await response.json().catch(() => null)) as
+        | { created?: number; propertiesCreated?: string[]; skippedRows?: number; skippedCells?: number; error?: string }
+        | null;
+      if (!response.ok) throw new Error(result?.error ?? "Could not import this CSV.");
+      const created = result?.created ?? 0;
+      const parts = [`Imported ${created} ${created === 1 ? "record" : "records"}`];
+      const createdProperties = result?.propertiesCreated?.length ?? 0;
+      if (createdProperties > 0) parts.push(`created ${createdProperties} ${createdProperties === 1 ? "property" : "properties"}`);
+      if (result?.skippedRows) parts.push(`skipped ${result.skippedRows} empty ${result.skippedRows === 1 ? "row" : "rows"}`);
+      if (result?.skippedCells) parts.push(`left ${result.skippedCells} ${result.skippedCells === 1 ? "value" : "values"} blank`);
+      setImportMessage(`${parts.join("; ")}.`);
+      await loadDatabase();
+    } catch (importFailure) {
+      setImportError(importFailure instanceof Error ? importFailure.message : "Could not import this CSV.");
     } finally {
       setBusy(false);
     }
@@ -421,6 +470,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     setSorts(controls.sorts);
   }
 
+  async function setCoverHidden(view: DatabaseView, recordId: string, hidden: boolean) {
+    const current = Array.isArray(view.config.hiddenCoverRecordIds)
+      ? view.config.hiddenCoverRecordIds.filter((id): id is string => typeof id === "string")
+      : [];
+    const next = hidden
+      ? Array.from(new Set([...current, recordId]))
+      : current.filter((id) => id !== recordId);
+    await changeViewConfig(view, { hiddenCoverRecordIds: next });
+  }
+
   async function changeViewConfig(view: DatabaseView, patch: Record<string, unknown>) {
     const config = { ...view.config, ...patch };
     setDatabase((current) => current ? {
@@ -434,6 +493,58 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     });
     if (!response.ok) setViewSaveError("View settings could not be saved.");
     else setViewSaveError("");
+  }
+
+  async function persistViewOrder(views: DatabaseView[]) {
+    const response = await fetch(`/api/databases/${id}/views/reorder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ viewIds: views.map((view) => view.id) }),
+    });
+    setViewSaveError(response.ok ? "" : "View order could not be saved.");
+  }
+
+  async function duplicateView(view: DatabaseView) {
+    if (!database || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/databases/${id}/views`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: appendedViewName(view.name),
+          type: view.type,
+          config: view.config,
+        }),
+      });
+      if (!response.ok) throw new Error("Could not duplicate view.");
+      const created: DatabaseView = await response.json();
+      // The copy belongs beside its source, not at the end of the tab row.
+      const ordered = database.views.flatMap((candidate) =>
+        candidate.id === view.id ? [candidate, created] : [candidate],
+      );
+      setDatabase((current) => current ? { ...current, views: ordered } : current);
+      selectView(created);
+      await persistViewOrder(ordered);
+    } catch (duplicateError) {
+      setError(duplicateError instanceof Error ? duplicateError.message : "Could not duplicate view.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveView(view: DatabaseView, direction: "left" | "right") {
+    if (!database) return;
+    const ids = reorderedViewIds(database.views.map((candidate) => candidate.id), view.id, direction);
+    if (ids.every((viewId, index) => viewId === database.views[index]?.id)) return;
+
+    const byId = new Map(database.views.map((candidate) => [candidate.id, candidate]));
+    const ordered = ids
+      .map((viewId) => byId.get(viewId))
+      .filter((candidate): candidate is DatabaseView => Boolean(candidate));
+    setDatabase((current) => current ? { ...current, views: ordered } : current);
+    await persistViewOrder(ordered);
   }
 
   async function updateRecord(record: RecordRow, changes: Partial<Pick<RecordRow, "title" | "values" | "pageId" | "relations">>) {
@@ -475,7 +586,6 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   }
 
   async function deleteRecord(record: RecordRow) {
-    if (!window.confirm(`Delete “${record.title}”?`)) return;
     setBusy(true);
     setError("");
     try {
@@ -568,7 +678,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   }
 
   async function deleteDatabase() {
-    if (!database || !window.confirm(`Delete “${database.name}” and all its records?`)) return;
+    if (!database) return;
     setBusy(true);
     setError("");
     try {
@@ -606,49 +716,27 @@ export function DatabaseWorkspace({ id }: { id: string }) {
 
   const normalizedFilter = filterText.trim().toLocaleLowerCase();
   const activeView = database.views.find((view) => view.id === activeViewId) ?? database.views[0];
+  const activeViewIndex = activeView
+    ? database.views.findIndex((view) => view.id === activeView.id)
+    : -1;
+  const visibleProperties = visiblePropertyList(database.properties, activeView?.config);
+  // Cover choices come from the view's visible file properties so the chosen
+  // property always keeps its editable row on the card.
+  const galleryCoverProperties = visibleProperties.filter((property) => property.type === "file");
+  const galleryCoverPropertyId = typeof activeView?.config.coverPropertyId === "string" ? activeView.config.coverPropertyId : "";
+  const galleryCoverProperty = galleryCoverProperties.find((property) => property.id === galleryCoverPropertyId);
+  const hiddenCoverRecordIds = new Set(
+    Array.isArray(activeView?.config.hiddenCoverRecordIds)
+      ? activeView.config.hiddenCoverRecordIds.filter((id): id is string => typeof id === "string")
+      : [],
+  );
   const boardProperties = database.properties.filter((property) => property.type === "select");
   const dateProperties = database.properties.filter((property) => property.type === "date");
   const relationProperties = database.properties.filter((property) => property.type === "relation");
-  const getRollupValue = (record: RecordRow, property: Property): number | string => {
-    const relationPropertyId = property.options.relationPropertyId;
-    const targetIds = relationPropertyId ? record.relations?.[relationPropertyId] ?? [] : [];
-    if (property.options.aggregation === "count") return targetIds.length;
-    const targetPropertyId = property.options.targetPropertyId;
-    const values = targetIds
-      .map((targetId) => relationTargets[relationPropertyId ?? ""]?.records.find((item) => item.id === targetId)?.values[targetPropertyId ?? ""])
-      .map((value) => typeof value === "number" ? value : Number(value))
-      .filter(Number.isFinite);
-    if (values.length === 0) return "—";
-    switch (property.options.aggregation) {
-      case "sum": return values.reduce((sum, value) => sum + value, 0);
-      case "average": return values.reduce((sum, value) => sum + value, 0) / values.length;
-      case "min": return Math.min(...values);
-      case "max": return Math.max(...values);
-      default: return "—";
-    }
-  };
-  const propertiesByName = new Map(database.properties.map((property) => [property.name, property]));
-  const getFormulaValue = (record: RecordRow, property: Property): number | null => {
-    const expression = typeof property.options.expression === "string" ? property.options.expression : "";
-    const parsed = parseFormula(expression);
-    if (!parsed.ok) return null;
-    return evaluateFormula(parsed.ast, (name) => {
-      const referenced = propertiesByName.get(name);
-      if (!referenced) return null;
-      if (referenced.type === "number") {
-        const value = record.values[referenced.id];
-        if (typeof value === "number") return Number.isFinite(value) ? value : null;
-        const text = String(value ?? "").trim();
-        const numeric = Number(text);
-        return text !== "" && Number.isFinite(numeric) ? numeric : null;
-      }
-      if (referenced.type === "rollup") {
-        const value = getRollupValue(record, referenced);
-        return typeof value === "number" ? value : null;
-      }
-      return null;
-    });
-  };
+  const getRollupValue = (record: RecordRow, property: Property) =>
+    rollupValue(record, property, relationTargets);
+  const getFormulaValue = (record: RecordRow, property: Property) =>
+    formulaValue(record, property, database.properties, relationTargets);
   const boardProperty = activeView?.type === "board"
     ? boardProperties.find((property) => property.id === activeView.config.groupBy) ?? boardProperties[0]
     : undefined;
@@ -754,6 +842,51 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 >
                   <Download size={15} aria-hidden="true" /> Export JSON
                 </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    csvInputRef.current?.click();
+                  }}
+                  disabled={busy}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                >
+                  <Upload size={15} aria-hidden="true" /> Import CSV
+                </button>
+                <div className="my-1 border-t" role="separator" />
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    if (activeView) void duplicateView(activeView);
+                  }}
+                  disabled={busy || !activeView}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                >
+                  <CopyPlus size={15} aria-hidden="true" /> Duplicate view
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    if (activeView) void moveView(activeView, "left");
+                  }}
+                  disabled={busy || !activeView || activeViewIndex <= 0}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                >
+                  <ArrowLeft size={15} aria-hidden="true" /> Move view left
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    if (activeView) void moveView(activeView, "right");
+                  }}
+                  disabled={busy || !activeView || activeViewIndex >= database.views.length - 1}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                >
+                  <ArrowRight size={15} aria-hidden="true" /> Move view right
+                </button>
                 <div className="my-1 border-t" role="separator" />
                 <button
                   type="button"
@@ -777,7 +910,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
-                    void deleteDatabase();
+                    setConfirmDatabaseDelete(true);
                   }}
                   disabled={busy}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
@@ -786,6 +919,18 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 </button>
               </div>
             </details>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              aria-label="Import records from a CSV file"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void importCsv(file);
+              }}
+            />
             <Button type="button" variant="outline" onClick={() => setShowPropertyForm((shown) => !shown)} disabled={busy}><Plus size={16} /> Add property</Button>
             <Button type="button" onClick={() => void addRecord()} disabled={busy}><Plus size={16} /> New record</Button>
           </div>
@@ -868,7 +1013,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               </select>
             </label>
             <Button type="button" size="sm" onClick={() => void createFromTemplate()} disabled={busy || !selectedTemplateId}><Plus size={15} /> Create record</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => void deleteSelectedTemplate()} disabled={busy || !selectedTemplateId}><Trash2 size={15} /> Delete template</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => {
+              const template = database?.templates.find((item) => item.id === selectedTemplateId);
+              if (template) setTemplatePendingDelete({ id: template.id, name: template.name });
+            }} disabled={busy || !selectedTemplateId}><Trash2 size={15} /> Delete template</Button>
           </div>
         )}
 
@@ -960,19 +1108,32 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           </form>
         )}
 
+        {importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}
+        {importMessage && <p role="status" aria-live="polite" className="text-xs text-muted-foreground">{importMessage}</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         {viewSaveError && <p role="status" aria-live="polite" className={`text-xs ${viewSaveError.includes("could not") ? "text-destructive" : "text-muted-foreground"}`}>{viewSaveError}</p>}
 
-        <DatabaseViewControls
-          properties={database.properties}
-          filterText={filterText}
-          filters={filters}
-          sorts={sorts}
-          recordCount={visibleRecords.length}
-          onFilterTextChange={setFilterText}
-          onFiltersChange={setFilters}
-          onSortsChange={setSorts}
-        />
+        <div className="flex flex-wrap items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <DatabaseViewControls
+              properties={database.properties}
+              filterText={filterText}
+              filters={filters}
+              sorts={sorts}
+              recordCount={visibleRecords.length}
+              onFilterTextChange={setFilterText}
+              onFiltersChange={setFilters}
+              onSortsChange={setSorts}
+            />
+          </div>
+          {activeView && (
+            <ViewPropertiesMenu
+              properties={database.properties}
+              visibleIds={parseVisibleProperties(activeView.config)}
+              onChange={(ids) => void changeViewConfig(activeView, { visibleProperties: ids })}
+            />
+          )}
+        </div>
 
         {activeView?.type === "calendar" ? (
           <DatabaseCalendar
@@ -983,21 +1144,116 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             onDatePropertyChange={(propertyId) => void changeViewConfig(activeView, { datePropertyId: propertyId })}
           />
         ) : activeView?.type === "gallery" ? (
-          <section aria-label="Gallery view" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <section aria-label="Gallery view" className="space-y-3">
+            {galleryCoverProperties.length > 0 && (
+              <label className="flex flex-wrap items-center gap-2 text-sm">
+                Cover image
+                <select
+                  value={galleryCoverProperty?.id ?? ""}
+                  onChange={(event) => void changeViewConfig(activeView, { coverPropertyId: event.target.value })}
+                  className="rounded-md border bg-background px-3 py-2"
+                >
+                  <option value="">First image attachment</option>
+                  {galleryCoverProperties.map((property) => (
+                    <option key={property.id} value={property.id}>{property.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visibleRecords.map((record) => {
-              const filledProperties = database.properties.filter((property) => {
+              const fileProperties = visibleProperties.filter((property) => property.type === "file");
+              // The chosen file property supplies the cover; when it has no
+              // image, the first image attachment keeps every card covered. The
+              // chosen property's own editable row stays below either way.
+              let cover: FilePropertyValue | null = null;
+              let coverPropertyId = "";
+              if (galleryCoverProperty) {
+                const chosen = parseFilePropertyValue(record.values[galleryCoverProperty.id]);
+                if (chosen && isImageMimeType(chosen.mimeType)) {
+                  cover = chosen;
+                  coverPropertyId = galleryCoverProperty.id;
+                }
+              }
+              if (!cover) {
+                for (const property of galleryCoverProperties) {
+                  const file = parseFilePropertyValue(record.values[property.id]);
+                  if (file && isImageMimeType(file.mimeType)) {
+                    cover = file;
+                    coverPropertyId = property.id;
+                    break;
+                  }
+                }
+              }
+              const coverHidden = Boolean(cover) && hiddenCoverRecordIds.has(record.id);
+              const filledProperties = visibleProperties.filter((property) => {
+                if (property.type === "file") return false;
                 if (property.type === "formula") return getFormulaValue(record, property) !== null;
                 const value = record.values[property.id];
                 return value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0);
               });
               return (
-                <article key={record.id} className="flex min-h-44 flex-col rounded-lg border bg-card p-4 shadow-sm">
+                <article key={record.id} className="flex min-h-44 flex-col overflow-hidden rounded-lg border bg-card p-4 shadow-sm">
+                  {cover && !coverHidden && (
+                    <div className="relative -mx-4 -mt-4 mb-3 border-b bg-muted/20">
+                      <Link
+                        href={`/databases/${id}/records/${record.id}`}
+                        className="block"
+                        aria-label={`Open ${record.title}`}
+                      >
+                        <MediaImage
+                          src={cover.url}
+                          alt={cover.alt || cover.filename || record.title}
+                          className="h-36 w-full object-cover"
+                        />
+                      </Link>
+                      <div className="absolute right-2 top-2 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!coverPropertyId) return;
+                            setCoverPendingRemoval({
+                              recordId: record.id,
+                              propertyId: coverPropertyId,
+                              title: record.title,
+                            });
+                          }}
+                          disabled={busy}
+                          aria-label={`Remove cover for ${record.title}`}
+                          title="Remove cover"
+                          className="inline-flex size-7 items-center justify-center rounded-md border bg-background/90 text-muted-foreground shadow-sm hover:text-destructive disabled:opacity-50"
+                        >
+                          <Trash2 size={13} aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void setCoverHidden(activeView, record.id, true)}
+                          aria-label={`Hide cover for ${record.title}`}
+                          title="Hide cover"
+                          className="inline-flex items-center gap-1 rounded-md border bg-background/90 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm hover:text-foreground"
+                        >
+                          <EyeOff size={12} aria-hidden="true" /> Hide cover
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {cover && coverHidden && (
+                    <button
+                      type="button"
+                      onClick={() => void setCoverHidden(activeView, record.id, false)}
+                      aria-label={`Show cover for ${record.title}`}
+                      title="Show cover"
+                      className="mb-2 inline-flex items-center gap-1 self-start text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      <Eye size={12} aria-hidden="true" /> Show cover
+                    </button>
+                  )}
                   <div className="flex items-start gap-2">
                     <h2 className="min-w-0 flex-1 break-words text-base font-semibold">
                       <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
                     </h2>
                     <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
-                    <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteRecord(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
+                    <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
                   </div>
                   {filledProperties.length > 0 ? (
                     <dl className="mt-3 space-y-2 text-sm">
@@ -1018,8 +1274,35 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         );
                       })}
                     </dl>
-                  ) : (
+                  ) : fileProperties.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">No property values</p>
+                  ) : null}
+                  {fileProperties.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {fileProperties.map((property) => (
+                        <div key={property.id} className="space-y-0.5">
+                          <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            {property.name}
+                            {property.id === coverPropertyId && (
+                              <span className="rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-foreground">
+                                Cover
+                              </span>
+                            )}
+                          </p>
+                          <FileCell
+                            compact
+                            label={property.name}
+                            value={record.values[property.id]}
+                            disabled={busy}
+                            onChange={(next) =>
+                              void updateRecord(record, {
+                                values: { ...record.values, [property.id]: next },
+                              })
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
                   )}
                   {record.pageId ? (
                     <Link href={`/pages/${record.pageId}`} className="mt-auto pt-3 text-sm text-primary hover:underline">Open linked page ↗</Link>
@@ -1030,6 +1313,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               );
             })}
             {visibleRecords.length === 0 && <p className="col-span-full rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No records match this filter.</p>}
+            </div>
           </section>
         ) : activeView?.type === "board" ? (
           boardProperty ? (
@@ -1056,13 +1340,29 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                                 <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
                               </h3>
                               <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={14} /></Button>
-                              <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteRecord(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={14} /></Button>
+                              <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={14} /></Button>
                             </div>
                             {record.pageId ? (
                               <Link href={`/pages/${record.pageId}`} className="block truncate text-xs text-primary hover:underline">Open linked page ↗</Link>
                             ) : (
                               <Button type="button" variant="ghost" size="sm" className="h-6 px-0 text-xs" onClick={() => void createPageForRecord(record)} disabled={busy}>Create linked page</Button>
                             )}
+                            {visibleProperties.filter((property) => property.type === "file").map((property) => (
+                              <div key={property.id} className="space-y-0.5">
+                                <p className="text-[11px] text-muted-foreground">{property.name}</p>
+                                <FileCell
+                                  compact
+                                  label={property.name}
+                                  value={record.values[property.id]}
+                                  disabled={busy}
+                                  onChange={(next) =>
+                                    void updateRecord(record, {
+                                      values: { ...record.values, [property.id]: next },
+                                    })
+                                  }
+                                />
+                              </div>
+                            ))}
                             <select
                               aria-label={`Move ${record.title} to another ${boardProperty.name} group`}
                               value={String(record.values[boardProperty.id] ?? "")}
@@ -1089,7 +1389,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             <thead>
               <tr className="border-b bg-muted/40 text-left">
                 <th className="sticky left-0 z-10 min-w-56 border-r bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">Name</th>
-                {database.properties.map((property) => <th key={property.id} className="min-w-44 px-3 py-2 text-xs font-medium text-muted-foreground">{property.name}</th>)}
+                {visibleProperties.map((property) => <th key={property.id} className="min-w-44 px-3 py-2 text-xs font-medium text-muted-foreground">{property.name}</th>)}
                 <th className="min-w-52 px-3 py-2 text-xs font-medium text-muted-foreground">Linked page</th>
                 <th className="w-16 px-2 py-2"><span className="sr-only">Actions</span></th>
               </tr>
@@ -1117,7 +1417,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                       </Link>
                     </div>
                   </td>
-                  {database.properties.map((property) => (
+                  {visibleProperties.map((property) => (
                     <td key={property.id} className="p-1">
                       {property.type === "relation" ? (
                         <select
@@ -1179,6 +1479,17 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                             })
                           }
                         />
+                      ) : property.type === "file" ? (
+                        <FileCell
+                          label={property.name}
+                          value={record.values[property.id]}
+                          disabled={busy}
+                          onChange={(next) =>
+                            void updateRecord(record, {
+                              values: { ...record.values, [property.id]: next },
+                            })
+                          }
+                        />
                       ) : (
                         <input
                           type={property.type === "number" ? "number" : property.type === "url" ? "url" : "text"}
@@ -1216,16 +1527,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   <td className="px-1">
                     <div className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                       <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
-                      <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteRecord(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
+                      <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
                     </div>
                   </td>
                 </tr>
               ))}
               {visibleRecords.length === 0 && (
-                <tr><td colSpan={database.properties.length + 3} className="px-4 py-10 text-center text-muted-foreground">No records yet. Add a record to get started.</td></tr>
+                <tr><td colSpan={visibleProperties.length + 3} className="px-4 py-10 text-center text-muted-foreground">No records yet. Add a record to get started.</td></tr>
               )}
               <tr>
-                <td colSpan={database.properties.length + 3} className="p-0">
+                <td colSpan={visibleProperties.length + 3} className="p-0">
                   <button
                     type="button"
                     onClick={() => void addRecord()}
@@ -1329,6 +1640,119 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             >
               <Trash2 size={15} aria-hidden="true" />
               {viewDeleteBusy ? "Deleting…" : "Delete view"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(coverPendingRemoval)}
+        onOpenChange={(open) => { if (!open) setCoverPendingRemoval(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this cover image?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The cover for “{coverPendingRemoval?.title ?? "this record"}” will be cleared. Its file property row stays ready for a new upload.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const pending = coverPendingRemoval;
+                if (!pending) return;
+                const currentRecord = database?.records.find((row) => row.id === pending.recordId);
+                if (currentRecord) {
+                  void updateRecord(currentRecord, {
+                    values: { ...currentRecord.values, [pending.propertyId]: null },
+                  });
+                }
+                setCoverPendingRemoval(null);
+              }}
+            >
+              <Trash2 size={15} aria-hidden="true" /> Remove cover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(recordPendingDelete)}
+        onOpenChange={(open) => { if (!open) setRecordPendingDelete(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{recordPendingDelete?.title ?? "record"}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The record will be deleted. Its page stays in the workspace, so its content is not lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                const pending = recordPendingDelete;
+                setRecordPendingDelete(null);
+                if (pending) void deleteRecord(pending);
+              }}
+            >
+              <Trash2 size={15} aria-hidden="true" /> Delete record
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(templatePendingDelete)}
+        onOpenChange={(open) => { if (!open) setTemplatePendingDelete(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{templatePendingDelete?.name ?? "template"}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Records created from this template stay in the database. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                const pending = templatePendingDelete;
+                setTemplatePendingDelete(null);
+                if (pending) void deleteSelectedTemplate(pending.id);
+              }}
+            >
+              <Trash2 size={15} aria-hidden="true" /> Delete template
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDatabaseDelete} onOpenChange={(open) => setConfirmDatabaseDelete(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{database?.name ?? "database"}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The database and all its records will be deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                setConfirmDatabaseDelete(false);
+                void deleteDatabase();
+              }}
+            >
+              <Trash2 size={15} aria-hidden="true" /> Delete database
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

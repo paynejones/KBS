@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { readStoredAttachment } from "@/lib/attachment-store";
 import { apiErrorResponse } from "@/lib/api-log";
+import { isImageMimeType } from "@/lib/media";
 
 type Context = { params: Promise<{ id: string }> };
 
-function contentDispositionFilename(filename: string) {
+function contentDisposition(filename: string, mimeType: string) {
   const ascii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "") || "download";
-  return `inline; filename="${ascii}"`;
+  // Only formats a browser renders safely preview inline; every other stored
+  // type downloads, so an uploaded document never runs on this origin.
+  const inline = isImageMimeType(mimeType) || mimeType === "application/pdf";
+  return `${inline ? "inline" : "attachment"}; filename="${ascii}"`;
 }
 
 export async function GET(request: Request, context: Context) {
@@ -23,7 +27,7 @@ export async function GET(request: Request, context: Context) {
       headers: {
         "Content-Type": attachment.mimeType,
         "Content-Length": String(attachment.bytes.byteLength),
-        "Content-Disposition": contentDispositionFilename(attachment.filename),
+        "Content-Disposition": contentDisposition(attachment.filename, attachment.mimeType),
         "Cache-Control": "private, max-age=31536000, immutable",
         "X-Content-Type-Options": "nosniff",
       },

@@ -38,7 +38,8 @@ jobs:
       - run: npm run lint
       - run: npx next typegen
       - run: npx tsc --noEmit
-      - run: npm run build
+      - name: Build and reject Turbopack filesystem tracing warnings
+        run: npm run check:build-warnings
 
   browser:
     runs-on: ubuntu-latest

@@ -5,6 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Database, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
 type DatabaseSummary = { id: string; name: string; description: string; updatedAt: string };
@@ -17,6 +27,7 @@ export default function DatabasesPage() {
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState<DatabaseSummary | null>(null);
 
   async function loadDatabases() {
     setLoading(true);
@@ -56,7 +67,6 @@ export default function DatabasesPage() {
   }
 
   async function deleteDatabase(database: DatabaseSummary) {
-    if (!window.confirm(`Delete “${database.name}” and all its records?`)) return;
     setBusy(true);
     setError("");
     try {
@@ -109,12 +119,37 @@ export default function DatabasesPage() {
                     <span className="mt-1 block text-xs text-muted-foreground">Updated {new Date(database.updatedAt).toLocaleDateString()}</span>
                   </span>
                 </Link>
-                <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void deleteDatabase(database)} aria-label={`Delete ${database.name}`} title="Delete database"><Trash2 size={16} /></Button>
+                <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setPendingDelete(database)} aria-label={`Delete ${database.name}`} title="Delete database"><Trash2 size={16} /></Button>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{pendingDelete?.name ?? "database"}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The database and all its records will be deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                const pending = pendingDelete;
+                setPendingDelete(null);
+                if (pending) void deleteDatabase(pending);
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" /> Delete database
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

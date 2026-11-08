@@ -15,6 +15,31 @@ export const FILE_MIME_TYPES = [
   "application/pdf",
 ] as const;
 
+/** Documents and archives a note can link to as an attachment. */
+export const DOCUMENT_MIME_TYPES = [
+  "text/plain",
+  "text/csv",
+  "text/markdown",
+  "application/json",
+  "application/rtf",
+  "application/zip",
+  "application/gzip",
+  "application/x-7z-compressed",
+  "application/epub+zip",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.presentation",
+] as const;
+
+/** Everything the attachment endpoint stores outside the image-only purpose. */
+export const LINKED_FILE_MIME_TYPES: readonly string[] = [...FILE_MIME_TYPES, ...DOCUMENT_MIME_TYPES];
+
 /** A file captured into the inbox, stored beside the page that references it. */
 export type CapturedAttachment = {
   id: string;
@@ -91,6 +116,59 @@ export function parseFilePropertyValue(value: unknown): FilePropertyValue | null
   }
 
   return { attachmentId, url, alt, filename, mimeType };
+}
+
+const ATTACHMENT_TYPE_LABELS: Record<string, string> = {
+  "application/pdf": "PDF",
+  "text/plain": "TXT",
+  "text/csv": "CSV",
+  "text/markdown": "MD",
+  "application/json": "JSON",
+  "application/rtf": "RTF",
+  "application/zip": "ZIP",
+  "application/gzip": "GZIP",
+  "application/x-7z-compressed": "7Z",
+  "application/epub+zip": "EPUB",
+  "application/msword": "DOC",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "DOCX",
+  "application/vnd.ms-excel": "XLS",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "XLSX",
+  "application/vnd.ms-powerpoint": "PPT",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "PPTX",
+  "application/vnd.oasis.opendocument.text": "ODT",
+  "application/vnd.oasis.opendocument.spreadsheet": "ODS",
+  "application/vnd.oasis.opendocument.presentation": "ODP",
+};
+
+export type AttachmentKind =
+  | "image"
+  | "pdf"
+  | "document"
+  | "spreadsheet"
+  | "presentation"
+  | "archive"
+  | "text"
+  | "file";
+
+/** Groups a stored file by what the UI should draw for it. */
+export function attachmentKind(mimeType: string): AttachmentKind {
+  if (isImageMimeType(mimeType)) return "image";
+  if (mimeType === "application/pdf") return "pdf";
+  if (/(spreadsheet|ms-excel|text\/csv)/.test(mimeType)) return "spreadsheet";
+  if (/(presentation|ms-powerpoint)/.test(mimeType)) return "presentation";
+  if (/(zip|gzip|7z|compressed)/.test(mimeType)) return "archive";
+  if (/(word|opendocument|rtf|epub|json|markdown)/.test(mimeType)) return "document";
+  if (mimeType.startsWith("text/")) return "text";
+  return "file";
+}
+
+/** A short label such as PDF, XLSX, or ZIP for an attachment. */
+export function attachmentTypeLabel(mimeType: string, filename = "") {
+  const known = ATTACHMENT_TYPE_LABELS[mimeType];
+  if (known) return known;
+  if (isImageMimeType(mimeType)) return "Image";
+  const extension = /\.([a-z0-9]{1,8})$/i.exec(filename)?.[1];
+  return extension ? extension.toUpperCase() : "File";
 }
 
 export function fileValueSearchText(value: unknown) {

@@ -34,6 +34,38 @@ test("Markdown import keeps an unclosed fence as a code block instead of throwin
   });
 });
 
+test("Markdown import turns a standalone image into an image embed", () => {
+  const page = markdownFileToPage("![A chart](images/chart.png)\n\nbody", "Chart.md");
+
+  assert.deepEqual(page.contentJson.content?.[0], {
+    type: "imageEmbed",
+    attrs: { src: "images/chart.png", alt: "A chart" },
+  });
+  assert.deepEqual(page.contentJson.content?.[1], {
+    type: "paragraph",
+    content: [{ type: "text", text: "body" }],
+  });
+});
+
+test("Markdown import links non-image files instead of embedding a broken image", () => {
+  const page = markdownFileToPage("![Quarterly report](files/report.pdf)", "Report.md");
+
+  assert.deepEqual(page.contentJson.content?.[0], {
+    type: "paragraph",
+    content: [{
+      type: "text",
+      text: "Quarterly report",
+      marks: [{ type: "link", attrs: { href: "files/report.pdf" } }],
+    }],
+  });
+  assert.equal(page.content, "Quarterly report");
+});
+
+test("Markdown import keeps an inline image's alt text", () => {
+  const page = markdownFileToPage("Before ![chart](c.png) after", "Inline.md");
+  assert.equal(page.content, "Before chart after");
+});
+
 test("Markdown import merges quote lines and recognizes horizontal rules", () => {
   const page = markdownFileToPage("> quoted one\n> quoted two\n\n---\n", "Quotes.md");
 

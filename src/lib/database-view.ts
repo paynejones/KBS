@@ -322,3 +322,64 @@ export function applyView<T extends ViewRecord>(
 ): T[] {
   return sortRecords(filterRecords(records, properties, filters, options), properties, sorts, options);
 }
+
+/**
+ * The properties a view chose to show, or null when it shows them all. A saved
+ * list is untrusted JSON, so duplicates and non-strings are dropped; an empty
+ * list is deliberate and leaves the view with only its record titles.
+ */
+export function parseVisibleProperties(
+  config: Record<string, unknown> | undefined,
+): string[] | null {
+  const raw = config?.visibleProperties;
+  if (!Array.isArray(raw)) return null;
+
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (typeof entry !== "string" || !entry || seen.has(entry)) continue;
+    seen.add(entry);
+    ids.push(entry);
+    if (ids.length >= 200) break;
+  }
+
+  return ids;
+}
+
+/** Properties in database order, keeping only the ones the view shows. */
+export function visiblePropertyList<T extends { id: string }>(
+  properties: T[],
+  config: Record<string, unknown> | undefined,
+): T[] {
+  const ids = parseVisibleProperties(config);
+  if (!ids) return properties;
+
+  const shown = new Set(ids);
+  return properties.filter((property) => shown.has(property.id));
+}
+
+const VIEW_NAME_LIMIT = 100;
+
+/** "Watchlist" becomes "Watchlist copy", trimmed to the stored name limit. */
+export function appendedViewName(name: string): string {
+  const base = name.trim() || "View";
+  const suffix = " copy";
+  return `${base.slice(0, VIEW_NAME_LIMIT - suffix.length).trimEnd()}${suffix}`;
+}
+
+/** Swaps a view with its neighbor and leaves boundary moves untouched. */
+export function reorderedViewIds(
+  viewIds: string[],
+  viewId: string,
+  direction: "left" | "right",
+): string[] {
+  const index = viewIds.indexOf(viewId);
+  if (index === -1) return viewIds;
+
+  const target = direction === "left" ? index - 1 : index + 1;
+  if (target < 0 || target >= viewIds.length) return viewIds;
+
+  const next = [...viewIds];
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}

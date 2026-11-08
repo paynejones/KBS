@@ -14,6 +14,16 @@ import { TableCellExtension, TableExtension, TableHeaderExtension, TableRowExten
 import { ImageExtension } from "@/components/image-extension";
 import { MediaImage } from "@/components/media-image";
 import { isAllowedMediaUrl, pickLocalFile, uploadAttachment } from "@/lib/media";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
 import { PageTags } from "@/components/page-tags";
@@ -243,6 +253,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
   const [coverImageError, setCoverImageError] = useState<"invalid" | "load" | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [revisions, setRevisions] = useState<PageRevision[]>([]);
+  const [revisionPendingRestore, setRevisionPendingRestore] = useState<PageRevision | null>(null);
   const [loadingRevisions, setLoadingRevisions] = useState(false);
   const [revisionError, setRevisionError] = useState("");
   const [restoringRevision, setRestoringRevision] = useState("");
@@ -859,7 +870,6 @@ async function loadRevisions() {
 }
 
 async function restoreRevision(revisionId: string) {
-  if (!window.confirm("Restore this version? The current page will be saved to history first.")) return;
   setRestoringRevision(revisionId);
   setRevisionError("");
   try {
@@ -1244,7 +1254,7 @@ while (foundDescendant) {
                   variant="outline"
                   size="sm"
                   disabled={Boolean(restoringRevision)}
-                  onClick={() => void restoreRevision(revision.id)}
+                  onClick={() => setRevisionPendingRestore(revision)}
                 >
                   {restoringRevision === revision.id ? "Restoring…" : "Restore"}
                 </Button>
@@ -1425,6 +1435,35 @@ while (foundDescendant) {
           onSelectHeading={scrollToHeading}
         />
       </div>
+
+      <AlertDialog
+        open={Boolean(revisionPendingRestore)}
+        onOpenChange={(open) => { if (!open) setRevisionPendingRestore(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore this version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{revisionPendingRestore?.title || "Untitled"}” from{" "}
+              {revisionPendingRestore ? new Date(revisionPendingRestore.createdAt).toLocaleString() : "this snapshot"}{" "}
+              will replace the current page content. The current page is saved to history first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(restoringRevision)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={Boolean(restoringRevision)}
+              onClick={() => {
+                const pending = revisionPendingRestore;
+                setRevisionPendingRestore(null);
+                if (pending) void restoreRevision(pending.id);
+              }}
+            >
+              Restore version
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

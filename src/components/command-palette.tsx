@@ -13,6 +13,7 @@ import {
   Clock,
   Database,
   FileText,
+  FolderUp,
   GitFork,
   House,
   Inbox,
@@ -21,9 +22,15 @@ import {
   Search,
   Star,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { formatRecentTime, loadRecentPages, type RecentPage } from "@/lib/recents";
+import {
+  describeMarkdownImport,
+  importMarkdownFiles,
+  importMarkdownFolder,
+} from "@/lib/markdown-import-files";
 
 type PageOption = { id: string; title: string; isFavorite: boolean; isRecordPage?: boolean };
 type DatabaseOption = { id: string; name: string };
@@ -289,6 +296,25 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
     }
   }
 
+  async function importMarkdownFromPalette(files: File[], folder = false) {
+    if (files.length === 0) return;
+    setError("");
+    setNotice("");
+    const { imported, failures } = folder ? await importMarkdownFolder(files) : await importMarkdownFiles(files);
+    if (imported > 0) window.dispatchEvent(new Event("pages-updated"));
+    if (imported === 0) {
+      setError(failures.length > 0 ? describeMarkdownImport(0, files.length, failures) : "No Markdown files were imported.");
+      return;
+    }
+    if (failures.length > 0) {
+      // Stay open so the failed files stay readable; the imported pages are
+      // already saved and appear once the palette closes.
+      setNotice(describeMarkdownImport(imported, files.length, failures));
+      return;
+    }
+    go("/pages");
+  }
+
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const activeResults = resultsQuery === normalizedQuery ? results : emptyResults;
   const isSearching = searching && normalizedQuery.length >= 2;
@@ -322,6 +348,22 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
       group: "Actions",
       icon: <Database size={16} />,
       run: () => void createDatabase(),
+    },
+    {
+      key: "action-import-markdown",
+      label: "Import Markdown",
+      detail: "Turn .md files into pages",
+      group: "Actions",
+      icon: <Upload size={16} />,
+      run: () => document.getElementById("command-palette-markdown-import")?.click(),
+    },
+    {
+      key: "action-import-markdown-folder",
+      label: "Import Markdown folder",
+      detail: "Keep folders as nested pages",
+      group: "Actions",
+      icon: <FolderUp size={16} />,
+      run: () => document.getElementById("command-palette-markdown-folder")?.click(),
     },
     {
       key: "nav-home",
@@ -541,6 +583,33 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
           <kbd className="ml-2 hidden rounded border px-1.5 py-0.5 text-[10px] sm:inline">Ctrl K</kbd>
         </button>
       )}
+
+      <input
+        id="command-palette-markdown-import"
+        type="file"
+        accept=".md,.markdown,text/markdown,image/*,.pdf,.txt,.csv,.json,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.epub,.rtf"
+        multiple
+        className="hidden"
+        aria-label="Choose Markdown files to import"
+        onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
+          void importMarkdownFromPalette(files);
+        }}
+      />
+      <input
+        id="command-palette-markdown-folder"
+        type="file"
+        multiple
+        {...{ webkitdirectory: "", directory: "" }}
+        className="hidden"
+        aria-label="Choose a folder of Markdown files to import"
+        onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
+          void importMarkdownFromPalette(files, true);
+        }}
+      />
 
       {open && (
         <div

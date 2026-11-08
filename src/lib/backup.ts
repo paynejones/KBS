@@ -77,7 +77,7 @@ export function isValidBackupId(id: string) {
 export function backupDirectory(id: string) {
   if (!isValidBackupId(id)) throw new Error("Invalid backup ID.");
 
-  return path.join(backupsDirectory(), id);
+  return path.join(/*turbopackIgnore: true*/ backupsDirectory(), id);
 }
 
 export function checksum(bytes: Uint8Array) {
@@ -229,7 +229,7 @@ export function summarizeBackup(manifest: BackupManifest): BackupSummary {
 export async function listBackups(): Promise<BackupSummary[]> {
   let entries: string[];
   try {
-    entries = await readdir(backupsDirectory());
+    entries = await readdir(/*turbopackIgnore: true*/ backupsDirectory());
   } catch (error) {
     if (isMissingFile(error)) return [];
     throw error;
@@ -240,7 +240,11 @@ export async function listBackups(): Promise<BackupSummary[]> {
     if (!isValidBackupId(entry)) continue;
     try {
       summaries.push(
-        summarizeBackup(await readBackupManifest(path.join(backupsDirectory(), entry))),
+        summarizeBackup(
+          await readBackupManifest(
+            path.join(/*turbopackIgnore: true*/ backupsDirectory(), entry),
+          ),
+        ),
       );
     } catch {
       // An unreadable manifest is not a usable backup, but it should not hide

@@ -1,3 +1,5 @@
+import { parseDashboardQueues, type DashboardQueueConfig } from "./dashboard-queues";
+
 export type DashboardWidget = {
   viewId: string;
   databaseId: string;
@@ -105,5 +107,55 @@ export function storeDashboardWidgets(widgets: DashboardWidget[]): void {
     window.dispatchEvent(new Event(DASHBOARD_UPDATED_EVENT));
   } catch {
     // A dashboard is a convenience; storage failures must not break the home page.
+  }
+}
+
+export const DASHBOARD_QUEUES_STORAGE_KEY = "kbs:dashboard-queues";
+export const DASHBOARD_QUEUES_UPDATED_EVENT = "kbs:dashboard-queues-updated";
+
+const EMPTY_QUEUES: DashboardQueueConfig = { tasks: null, projects: null };
+let cachedQueuesRaw: string | null | undefined;
+let cachedQueues: DashboardQueueConfig = EMPTY_QUEUES;
+
+export function getDashboardQueuesSnapshot(): DashboardQueueConfig {
+  if (typeof window === "undefined") return EMPTY_QUEUES;
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(DASHBOARD_QUEUES_STORAGE_KEY);
+  } catch {
+    return EMPTY_QUEUES;
+  }
+  if (raw !== cachedQueuesRaw) {
+    cachedQueuesRaw = raw;
+    cachedQueues = parseDashboardQueues(raw);
+  }
+  return cachedQueues;
+}
+
+export function getEmptyDashboardQueuesSnapshot(): DashboardQueueConfig {
+  return EMPTY_QUEUES;
+}
+
+export function subscribeToDashboardQueues(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(DASHBOARD_QUEUES_UPDATED_EVENT, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(DASHBOARD_QUEUES_UPDATED_EVENT, listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+export function storeDashboardQueues(queues: DashboardQueueConfig): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (!queues.tasks && !queues.projects) {
+      window.localStorage.removeItem(DASHBOARD_QUEUES_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(DASHBOARD_QUEUES_STORAGE_KEY, JSON.stringify(queues));
+    }
+    window.dispatchEvent(new Event(DASHBOARD_QUEUES_UPDATED_EVENT));
+  } catch {
+    // Queue choices are a convenience; storage failures must not break the home page.
   }
 }

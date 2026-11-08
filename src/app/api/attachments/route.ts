@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { FILE_MIME_TYPES, IMAGE_MIME_TYPES } from "@/lib/media";
+import { IMAGE_MIME_TYPES, LINKED_FILE_MIME_TYPES } from "@/lib/media";
 import { storeAttachment } from "@/lib/attachment-store";
 import { apiErrorResponse } from "@/lib/api-log";
 
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) return NextResponse.json({ error: "Choose a file to upload." }, { status: 400 });
 
   const purpose = formData.get("purpose");
-  const allowed = purpose === "image" ? IMAGE_MIME_TYPES : FILE_MIME_TYPES;
+  const allowed = purpose === "image" ? IMAGE_MIME_TYPES : LINKED_FILE_MIME_TYPES;
 
   try {
     const result = await storeAttachment(file, allowed);

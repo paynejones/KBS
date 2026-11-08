@@ -3,6 +3,16 @@
 import { useEffect, useState } from "react";
 import { Archive, Download, HardDrive, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
 type TrashItem = {
@@ -43,6 +53,8 @@ export default function TrashPage() {
   const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [backingUp, setBackingUp] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [pendingPurge, setPendingPurge] = useState<TrashItem | null>(null);
+  const [confirmCleanUnused, setConfirmCleanUnused] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,15 +119,6 @@ export default function TrashPage() {
   }
 
   async function purge(item: TrashItem) {
-    const nested =
-      item.descendantCount > 0
-        ? ` and ${item.descendantCount} nested page${item.descendantCount === 1 ? "" : "s"}`
-        : "";
-    const confirmed = window.confirm(
-      `Permanently delete “${item.title || "Untitled"}”${nested}? Files used only by this page are removed too. This cannot be undone.`,
-    );
-    if (!confirmed) return;
-
     setBusyId(item.id);
     setError("");
     setStatus("");
@@ -142,11 +145,6 @@ export default function TrashPage() {
 
   async function cleanUnusedFiles() {
     if (!orphans || orphans.count === 0) return;
-    const confirmed = window.confirm(
-      `Permanently delete ${orphans.count} unused file(s) (${formatBytes(orphans.bytes)})? No page, revision, or record references them.`,
-    );
-    if (!confirmed) return;
-
     setCleaning(true);
     setError("");
     setStatus("");
@@ -299,7 +297,7 @@ export default function TrashPage() {
                       variant="ghost"
                       size="sm"
                       disabled={busyId !== null}
-                      onClick={() => void purge(item)}
+                      onClick={() => setPendingPurge(item)}
                       aria-label={`Delete ${item.title || "Untitled"} permanently`}
                     >
                       <Trash2 size={15} className="text-destructive" /> Delete forever
@@ -334,7 +332,7 @@ export default function TrashPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => void cleanUnusedFiles()}
+                onClick={() => setConfirmCleanUnused(true)}
                 disabled={cleaning || !orphans || orphans.count === 0}
               >
                 {cleaning ? "Removing…" : "Remove unused files"}
@@ -424,6 +422,60 @@ export default function TrashPage() {
           </div>
         </section>
       </div>
+
+      <AlertDialog open={Boolean(pendingPurge)} onOpenChange={(open) => { if (!open) setPendingPurge(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{pendingPurge?.title || "Untitled"}” permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingPurge && pendingPurge.descendantCount > 0
+                ? `This also deletes ${pendingPurge.descendantCount} nested page${pendingPurge.descendantCount === 1 ? "" : "s"}. `
+                : ""}
+              Files used only by this page are removed too. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busyId !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busyId !== null}
+              onClick={() => {
+                const pending = pendingPurge;
+                setPendingPurge(null);
+                if (pending) void purge(pending);
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" /> Delete forever
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmCleanUnused} onOpenChange={(open) => setConfirmCleanUnused(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove unused files?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {orphans
+                ? `Permanently delete ${orphans.count} unused file${orphans.count === 1 ? "" : "s"} (${formatBytes(orphans.bytes)})? No page, revision, or record references them.`
+                : "Permanently delete the unused stored files?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cleaning}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={cleaning}
+              onClick={() => {
+                setConfirmCleanUnused(false);
+                void cleanUnusedFiles();
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" /> Remove files
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

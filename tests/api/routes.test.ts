@@ -32,6 +32,7 @@ type ApiModules = {
   views: typeof import("../../src/app/api/databases/[id]/views/route");
   view: typeof import("../../src/app/api/databases/[id]/views/[viewId]/route");
   viewUsage: typeof import("../../src/app/api/databases/[id]/views/[viewId]/usage/route");
+  viewReorder: typeof import("../../src/app/api/databases/[id]/views/reorder/route");
   templates: typeof import("../../src/app/api/databases/[id]/templates/route");
   template: typeof import("../../src/app/api/databases/[id]/templates/[templateId]/route");
   pageTemplatesList: typeof import("../../src/app/api/page-templates/route");
@@ -165,6 +166,7 @@ before(async () => {
     views,
     view,
     viewUsage,
+    viewReorder,
     templates,
     template,
     pageTemplatesList,
@@ -201,6 +203,7 @@ before(async () => {
     import("../../src/app/api/databases/[id]/views/route"),
     import("../../src/app/api/databases/[id]/views/[viewId]/route"),
     import("../../src/app/api/databases/[id]/views/[viewId]/usage/route"),
+    import("../../src/app/api/databases/[id]/views/reorder/route"),
     import("../../src/app/api/databases/[id]/templates/route"),
     import("../../src/app/api/databases/[id]/templates/[templateId]/route"),
     import("../../src/app/api/page-templates/route"),
@@ -217,7 +220,7 @@ before(async () => {
     import("../../src/app/api/orphans/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
+  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
 });
 
 after(async () => {
@@ -235,7 +238,7 @@ describe("attachments API", () => {
   it("rejects unsupported types and empty files", async () => {
     const text = await api.attachments.POST(formRequest(
       "/api/attachments",
-      uploadForm(new File([new Uint8Array([1])], "note.txt", { type: "text/plain" })),
+      uploadForm(new File([new Uint8Array([1])], "page.html", { type: "text/html" })),
     ));
     assert.equal(text.status, 400);
     assert.match(String((await body(text)).error), /not supported/);
@@ -260,6 +263,23 @@ describe("attachments API", () => {
       uploadForm(new File([new Uint8Array([1, 2, 3])], "doc.pdf", { type: "application/pdf" })),
     ));
     assert.equal(pdfAsFile.status, 201, "PDFs are allowed outside image fields");
+  });
+
+  it("stores linked documents and downloads them instead of previewing", async () => {
+    const response = await api.attachments.POST(formRequest(
+      "/api/attachments",
+      uploadForm(new File([new Uint8Array([104, 105])], "notes.txt", { type: "text/plain" })),
+    ));
+    assert.equal(response.status, 201);
+    const attachment = await body<AttachmentRow>(response);
+
+    const download = await api.attachment.GET(
+      jsonRequest(attachment.url, "GET"),
+      routeContext({ id: attachment.id }),
+    );
+    assert.equal(download.status, 200);
+    assert.equal(download.headers.get("content-type"), "text/plain");
+    assert.equal(download.headers.get("content-disposition"), 'attachment; filename="notes.txt"');
   });
 
   it("stores an upload on disk and serves it back with safe headers", async () => {
@@ -2034,6 +2054,110 @@ describe("database view mutations API", () => {
       400,
     );
   });
+
+  it("imports a CSV into a database and creates properties for new columns", async () => {
+    const database = await createDatabase("CSV import database");
+    const { POST } = await import("../../src/app/api/databases/[id]/import/route");
+    const response = await POST(
+      jsonRequest(`/api/databases/${database.id}/import`, "POST", {
+        csv: "Name,Score,Author\nAda,7,Mathematician\nGrace,,Admiral\n",
+      }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(response.status, 201);
+    const summary = await body<{ created: number; propertiesCreated: string[] }>(response);
+    assert.equal(summary.created, 2);
+    assert.deepEqual(summary.propertiesCreated, ["Score", "Author"]);
+
+    const loaded = await body<{
+      properties: { id: string; name: string }[];
+      records: { title: string; values: Record<string, unknown> }[];
+    }>(
+      await api.database.GET(
+        jsonRequest(`/api/databases/${database.id}`, "GET"),
+        routeContext({ id: database.id }),
+      ),
+    );
+    const scoreId = loaded.properties.find((property) => property.name === "Score")?.id;
+    const authorId = loaded.properties.find((property) => property.name === "Author")?.id;
+    assert.ok(scoreId);
+    assert.ok(authorId);
+    assert.deepEqual(
+      loaded.records.map((record) => [record.title, record.values[scoreId], record.values[authorId]]),
+      [["Ada", "7", "Mathematician"], ["Grace", undefined, "Admiral"]],
+    );
+
+    assert.equal(
+      (await POST(
+        jsonRequest(`/api/databases/${database.id}/import`, "POST", { csv: "" }),
+        routeContext({ id: database.id }),
+      )).status,
+      400,
+    );
+  });
+
+  it("saves a complete view order in one request", async () => {
+    const database = await createDatabase("Reorder views database");
+    const extraResponse = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", { name: "Extra", type: "gallery" }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(extraResponse.status, 201);
+    const extra = await body<{ id: string }>(extraResponse);
+
+    const loaded = await body<{ views: { id: string }[] }>(
+      await api.database.GET(
+        jsonRequest(`/api/databases/${database.id}`, "GET"),
+        routeContext({ id: database.id }),
+      ),
+    );
+    const ids = loaded.views.map((view) => view.id);
+    assert.ok(ids.includes(extra.id));
+
+    const reversed = [...ids].reverse();
+    const reorderResponse = await api.viewReorder.POST(
+      jsonRequest(`/api/databases/${database.id}/views/reorder`, "POST", { viewIds: reversed }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(reorderResponse.status, 200);
+
+    const reordered = await body<{ views: { id: string }[] }>(
+      await api.database.GET(
+        jsonRequest(`/api/databases/${database.id}`, "GET"),
+        routeContext({ id: database.id }),
+      ),
+    );
+    assert.deepEqual(reordered.views.map((view) => view.id), reversed);
+
+    assert.equal(
+      (await api.viewReorder.POST(
+        jsonRequest(`/api/databases/${database.id}/views/reorder`, "POST", { viewIds: [ids[0]] }),
+        routeContext({ id: database.id }),
+      )).status,
+      400,
+      "the order must list every view",
+    );
+    assert.equal(
+      (await api.viewReorder.POST(
+        jsonRequest(`/api/databases/${database.id}/views/reorder`, "POST", {
+          viewIds: [...reversed, MISSING_ID],
+        }),
+        routeContext({ id: database.id }),
+      )).status,
+      400,
+      "a foreign view id is rejected",
+    );
+    assert.equal(
+      (await api.viewReorder.POST(
+        jsonRequest(`/api/databases/${database.id}/views/reorder`, "POST", {
+          viewIds: [ids[0], ids[0]],
+        }),
+        routeContext({ id: database.id }),
+      )).status,
+      400,
+      "a repeated view is rejected",
+    );
+  });
 });
 
 describe("dashboard API", () => {
@@ -2123,6 +2247,185 @@ describe("dashboard API", () => {
       widget.records.map((record) => record.values[score.id]).sort((left, right) => Number(left) - Number(right)),
       [20, 30],
     );
+  });
+
+  it("lists databases with their properties for the dashboard pickers", async () => {
+    const database = await createDatabase("Picker database");
+    await createDatabaseProperty(database.id, { name: "Due", type: "date" });
+
+    const data = await body<{
+      databases: { id: string; name: string; properties: { name: string; type: string }[] }[];
+    }>(await api.dashboard.GET(new Request("http://localhost/api/dashboard")));
+
+    const listed = data.databases.find((candidate) => candidate.id === database.id);
+    assert.ok(listed);
+    assert.equal(listed.name, "Picker database");
+    assert.ok(listed.properties.some((property) => property.name === "Due" && property.type === "date"));
+  });
+
+  it("returns due-soon tasks and current projects for the home queues", async () => {
+    async function recordWithValues(
+      databaseId: string,
+      title: string,
+      values: Record<string, unknown> = {},
+    ) {
+      const record = await createDatabaseRecord(databaseId, { title });
+      if (Object.keys(values).length > 0) {
+        const updated = await api.record.PATCH(
+          jsonRequest(`/api/databases/${databaseId}/records/${record.id}`, "PATCH", { values }),
+          routeContext({ id: databaseId, recordId: record.id }),
+        );
+        assert.equal(updated.status, 200);
+      }
+      return record;
+    }
+
+    const tasksDatabase = await createDatabase("Tasks");
+    const due = await createDatabaseProperty(tasksDatabase.id, { name: "Due", type: "date" });
+    const status = await createDatabaseProperty(tasksDatabase.id, {
+      name: "Status",
+      type: "select",
+      options: { choices: ["Todo", "In progress", "Done"] },
+    });
+
+    await recordWithValues(tasksDatabase.id, "Overdue task", { [due.id]: "2026-03-02", [status.id]: "Todo" });
+    await recordWithValues(tasksDatabase.id, "Today task", { [due.id]: "2026-03-10", [status.id]: "In progress" });
+    await recordWithValues(tasksDatabase.id, "Soon task", { [due.id]: "2026-03-13", [status.id]: "Todo" });
+    await recordWithValues(tasksDatabase.id, "Later task", { [due.id]: "2026-04-10", [status.id]: "Todo" });
+    await recordWithValues(tasksDatabase.id, "Finished task", { [due.id]: "2026-03-02", [status.id]: "Done" });
+    await recordWithValues(tasksDatabase.id, "Undated task", { [status.id]: "Todo" });
+
+    const projectsDatabase = await createDatabase("Projects");
+    const stage = await createDatabaseProperty(projectsDatabase.id, {
+      name: "Stage",
+      type: "select",
+      options: { choices: ["Planning", "In progress", "Done"] },
+    });
+    await recordWithValues(projectsDatabase.id, "Active project", { [stage.id]: "In progress" });
+    await recordWithValues(projectsDatabase.id, "Shipped project", { [stage.id]: "Done" });
+    await recordWithValues(projectsDatabase.id, "Unstaged project");
+
+    const response = await api.dashboard.GET(
+      new Request(
+        `http://localhost/api/dashboard?today=2026-03-10&taskDatabaseId=${tasksDatabase.id}&taskPropertyId=${due.id}&projectDatabaseId=${projectsDatabase.id}`,
+      ),
+    );
+    assert.equal(response.status, 200);
+    const data = await body<{
+      tasks: {
+        databaseName: string;
+        property: { name: string };
+        overdue: number;
+        total: number;
+        records: { title: string; due: string; bucket: string }[];
+      } | null;
+      projects: {
+        databaseName: string;
+        property: { name: string } | null;
+        total: number;
+        records: { title: string; status: string }[];
+      } | null;
+    }>(response);
+
+    assert.ok(data.tasks);
+    assert.equal(data.tasks.databaseName, "Tasks");
+    assert.equal(data.tasks.property.name, "Due");
+    assert.equal(data.tasks.total, 3, "overdue, today, and within a week");
+    assert.equal(data.tasks.overdue, 1);
+    assert.deepEqual(
+      data.tasks.records.map((record) => [record.title, record.due, record.bucket]),
+      [
+        ["Overdue task", "2026-03-02", "overdue"],
+        ["Today task", "2026-03-10", "today"],
+        ["Soon task", "2026-03-13", "soon"],
+      ],
+    );
+
+    assert.ok(data.projects);
+    assert.equal(data.projects.property?.name, "Stage", "the first status property is used by default");
+    assert.equal(data.projects.total, 2, "completed projects are left out");
+    assert.deepEqual(
+      data.projects.records.map((record) => record.title).sort(),
+      ["Active project", "Unstaged project"],
+    );
+
+    const phase = await createDatabaseProperty(tasksDatabase.id, {
+      name: "Phase",
+      type: "select",
+      options: { choices: ["Draft", "Archived"] },
+    });
+    await recordWithValues(tasksDatabase.id, "Archived draft task", {
+      [due.id]: "2026-03-11",
+      [status.id]: "Todo",
+      [phase.id]: "Archived",
+    });
+
+    const chosenStatus = await body<{
+      tasks: { statusProperty: { name: string } | null; records: { title: string }[] } | null;
+    }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?today=2026-03-10&taskDatabaseId=${tasksDatabase.id}&taskPropertyId=${due.id}&taskStatusPropertyId=${phase.id}`,
+        ),
+      ),
+    );
+    assert.ok(chosenStatus.tasks);
+    assert.equal(chosenStatus.tasks.statusProperty?.name, "Phase");
+    assert.equal(
+      chosenStatus.tasks.records.some((record) => record.title === "Archived draft task"),
+      false,
+      "the chosen status property decides what counts as finished",
+    );
+
+    const unfiltered = await body<{
+      tasks: { statusProperty: unknown; records: { title: string }[] } | null;
+    }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?today=2026-03-10&taskDatabaseId=${tasksDatabase.id}&taskPropertyId=${due.id}&taskStatusPropertyId=none`,
+        ),
+      ),
+    );
+    assert.ok(unfiltered.tasks);
+    assert.equal(unfiltered.tasks.statusProperty, null);
+    assert.ok(
+      unfiltered.tasks.records.some((record) => record.title === "Finished task"),
+      "no status filter keeps finished records",
+    );
+
+    const customExclusions = await body<{
+      projects: { records: { title: string }[]; total: number } | null;
+    }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?projectDatabaseId=${projectsDatabase.id}&projectExcludedStatus=in%20progress&projectExcludedStatus=Planning`,
+        ),
+      ),
+    );
+    assert.ok(customExclusions.projects);
+    assert.deepEqual(
+      customExclusions.projects.records.map((record) => record.title).sort(),
+      ["Shipped project", "Unstaged project"],
+      "chosen statuses replace the built-in vocabulary and compare without case",
+    );
+
+    const ignored = await body<{ tasks: unknown }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?taskDatabaseId=${MISSING_ID}&taskPropertyId=${due.id}`,
+        ),
+      ),
+    );
+    assert.equal(ignored.tasks, null, "an unknown task database is ignored");
+
+    const wrongProperty = await body<{ tasks: unknown }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?taskDatabaseId=${projectsDatabase.id}&taskPropertyId=${due.id}`,
+        ),
+      ),
+    );
+    assert.equal(wrongProperty.tasks, null, "a date property from another database is ignored");
   });
 });
 

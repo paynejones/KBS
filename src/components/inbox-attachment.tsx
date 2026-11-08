@@ -1,8 +1,13 @@
 "use client";
 
-import { FileText, Paperclip } from "lucide-react";
+import { AttachmentTypeIcon } from "@/components/attachment-preview";
 import { MediaImage } from "@/components/media-image";
-import { formatFileSize, isImageMimeType, type CapturedAttachment } from "@/lib/media";
+import {
+  attachmentTypeLabel,
+  formatFileSize,
+  isImageMimeType,
+  type CapturedAttachment,
+} from "@/lib/media";
 
 /** The stored file behind an inbox capture, rendered as an image or a file row. */
 export function InboxAttachmentPreview({ attachment }: { attachment: CapturedAttachment }) {
@@ -17,7 +22,7 @@ export function InboxAttachmentPreview({ attachment }: { attachment: CapturedAtt
           />
         </a>
         <figcaption className="flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground">
-          <Paperclip size={14} aria-hidden="true" />
+          <AttachmentTypeIcon mimeType={attachment.mimeType} size={14} />
           <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
           <span className="shrink-0">{formatFileSize(attachment.size)}</span>
         </figcaption>
@@ -25,17 +30,17 @@ export function InboxAttachmentPreview({ attachment }: { attachment: CapturedAtt
     );
   }
 
-  const isPdf = attachment.mimeType === "application/pdf";
+  const label = attachmentTypeLabel(attachment.mimeType, attachment.filename);
 
   return (
     <div className="mt-4 flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
       <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-        {isPdf ? <FileText size={18} aria-hidden="true" /> : <Paperclip size={18} aria-hidden="true" />}
+        <AttachmentTypeIcon mimeType={attachment.mimeType} size={18} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{attachment.filename}</p>
         <p className="text-xs text-muted-foreground">
-          {isPdf ? "PDF" : "File"} · {formatFileSize(attachment.size)}
+          {label} · {formatFileSize(attachment.size)}
         </p>
       </div>
       <a
@@ -45,7 +50,7 @@ export function InboxAttachmentPreview({ attachment }: { attachment: CapturedAtt
         aria-label={`Open ${attachment.filename} in a new tab`}
         className="shrink-0 rounded-md px-2.5 py-1.5 text-sm font-medium text-primary hover:bg-accent"
       >
-        Open {isPdf ? "PDF" : "file"}
+        Open {label}
       </a>
     </div>
   );

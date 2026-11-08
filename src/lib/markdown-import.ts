@@ -3,6 +3,8 @@ type BlockNode = { type: string; attrs?: Record<string, unknown>; content?: unkn
 
 function inlineContent(value: string): InlineNode[] {
   const nodes: InlineNode[] = [];
+  // Inline images cannot sit inside a paragraph, so they keep their alt text.
+  value = value.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
   const tokens = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|~~([^~]+)~~|`([^`]+)`|\*([^*]+)\*|_([^_]+)_/g;
   let cursor = 0;
   for (const match of value.matchAll(tokens)) {
@@ -25,6 +27,11 @@ function inlineContent(value: string): InlineNode[] {
   }
   if (cursor < value.length) nodes.push({ type: "text", text: value.slice(cursor) });
   return nodes;
+}
+
+function isImageTarget(src: string) {
+  if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith("data:")) return true;
+  return /\.(png|jpe?g|gif|webp|avif)(?:[?#].*)?$/i.test(src);
 }
 
 function isBlockStart(line: string) {
@@ -59,6 +66,24 @@ function parseBlocks(markdown: string): BlockNode[] {
 
     if (/^\s*([-*_]\s*){3,}$/.test(line)) {
       blocks.push({ type: "horizontalRule" });
+      index++;
+      continue;
+    }
+
+    const image = line.match(/^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/);
+    if (image) {
+      const src = image[2];
+      if (isImageTarget(src)) {
+        blocks.push({ type: "imageEmbed", attrs: { src, alt: image[1] } });
+      } else {
+        // Image syntax can point at any file. A non-image becomes a link so an
+        // imported note lists the attachment instead of showing a broken image.
+        const label = image[1].trim() || src.split("/").pop() || src;
+        blocks.push({
+          type: "paragraph",
+          content: [{ type: "text", text: label, marks: [{ type: "link", attrs: { href: src } }] }],
+        });
+      }
       index++;
       continue;
     }
