@@ -1,6 +1,9 @@
 export type NavigationKey =
   | "home"
   | "pages"
+  | "searches"
+  | "reading"
+  | "focus"
   | "inbox"
   | "databases"
   | "favorites"
@@ -16,6 +19,9 @@ export type NavigationItem = {
 export const NAVIGATION_ITEMS: NavigationItem[] = [
   { key: "home", label: "Home", href: "/" },
   { key: "pages", label: "Pages", href: "/pages" },
+  { key: "searches", label: "Searches", href: "/searches" },
+  { key: "reading", label: "Reading", href: "/reading" },
+  { key: "focus", label: "Focus", href: "/focus" },
   { key: "inbox", label: "Inbox", href: "/inbox" },
   { key: "databases", label: "Databases", href: "/databases" },
   { key: "favorites", label: "Favorites", href: "/favorites" },

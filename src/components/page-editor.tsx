@@ -13,6 +13,8 @@ import { TableCellExtension, TableExtension, TableHeaderExtension, TableRowExten
 import { ImageExtension } from "@/components/image-extension";
 import { MediaImage } from "@/components/media-image";
 import { isAllowedMediaUrl, pickLocalFile, uploadAttachment } from "@/lib/media";
+import { taskCompletionChanges } from "@/lib/focus";
+import { recordTaskCompletions } from "@/lib/focus-task-save";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -215,6 +217,8 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
     revision: 0,
   });
   const linkedPageIds = useRef<Set<string>>(new Set());
+  // The last saved document, used to notice tasks checked off in the editor.
+  const completionBaseline = useRef<Record<string, unknown>>({});
   const relinkBaseline = useRef(false);
   const [parentId, setParentId] = useState<string | null>(null);
   const [allPages, setAllPages] = useState<
@@ -535,6 +539,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
           contentJson: page.contentJson ?? {},
           revision: 0,
         };
+        completionBaseline.current = page.contentJson ?? {};
         draftRevision.current = 0;
         dirty.current = false;
         setRecoveredDraft(false);
@@ -659,6 +664,16 @@ useEffect(() => {
 
     try {
       const saved = await savePage(updates, { silent });
+      if (saved) {
+        // A checkbox in the editor is an ordinary document edit, so the
+        // check-off is found by comparing this save with the previous one.
+        const changes = taskCompletionChanges(
+          completionBaseline.current,
+          snapshot.contentJson,
+        );
+        completionBaseline.current = snapshot.contentJson;
+        if (changes.length > 0) void recordTaskCompletions(id, changes);
+      }
       if (saved && revision === draftRevision.current) {
         try {
           const storedDraft = readRecoverablePageDraft(localStorage.getItem(draftStorageKey), new Date(0));
@@ -766,11 +781,17 @@ useEffect(() => {
 async function retryContentSave() {
   if (!editor) return;
   const revision = draftRevision.current;
+  const contentJson = editor.getJSON() as Record<string, unknown>;
   const saved = await savePage({
     title: title.trim() || "Untitled",
     content: editor.getText(),
-    contentJson: editor.getJSON() as Record<string, unknown>,
+    contentJson,
   });
+  if (saved) {
+    const changes = taskCompletionChanges(completionBaseline.current, contentJson);
+    completionBaseline.current = contentJson;
+    if (changes.length > 0) void recordTaskCompletions(id, changes);
+  }
   if (saved && revision === draftRevision.current) {
     dirty.current = false;
     setRecoveredDraft(false);
@@ -887,6 +908,9 @@ async function restoreRevision(revisionId: string) {
     const page = await response.json() as PageData;
     setTitle(page.title);
     editor?.commands.setContent(page.contentJson as Parameters<typeof editor.commands.setContent>[0]);
+    // Restoring a version is not a check-off, so the restored document becomes
+    // the baseline the next save is compared against.
+    completionBaseline.current = page.contentJson ?? {};
     markSaved();
     setStatus("saved");
     await loadRevisions();

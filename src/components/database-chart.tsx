@@ -22,8 +22,9 @@ import {
   TIMELINE_RANGES,
   type TimelineRange,
 } from "@/lib/timeline";
+import type { DatabasePropertyType } from "@/lib/database-property";
 
-export type ChartProperty = { id: string; name: string; type: string };
+export type ChartProperty = { id: string; name: string; type: DatabasePropertyType };
 export type ChartGroupProperty = { id: string; name: string };
 
 /** Distinct hues for pie slices; the legend labels every slice in text too. */

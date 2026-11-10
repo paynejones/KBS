@@ -1,10 +1,11 @@
 import { dateKey } from "./calendar";
+import type { DatabasePropertyType } from "./database-property";
 import { shiftDateKey, timelineWindow, type TimelineRange } from "./timeline";
 
 export type ChartProperty = {
   id: string;
   name: string;
-  type: string;
+  type: DatabasePropertyType;
   options?: { choices?: string[] };
 };
 

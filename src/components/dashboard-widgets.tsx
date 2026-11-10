@@ -22,6 +22,8 @@ import {
   type ChartSeries,
   type ChartType,
 } from "@/lib/database-chart";
+import type { DatabasePropertyType } from "@/lib/database-property";
+import type { DatabaseViewType } from "@/lib/database-view";
 import { statusToneClass } from "@/lib/status-tone";
 import { parseTimelineRange, TIMELINE_RANGES, type TimelineRange } from "@/lib/timeline";
 import {
@@ -37,12 +39,12 @@ import {
 type ViewOption = {
   id: string;
   name: string;
-  type: string;
+  type: DatabaseViewType;
   databaseId: string;
   databaseName: string;
 };
 
-type WidgetProperty = { id: string; name: string; type: string };
+type WidgetProperty = { id: string; name: string; type: DatabasePropertyType };
 type WidgetRecord = {
   id: string;
   title: string;
@@ -52,9 +54,9 @@ type WidgetRecord = {
 
 type WidgetChart = {
   type: ChartType;
-  property: { id: string; name: string; type: string };
+  property: { id: string; name: string; type: DatabasePropertyType };
   groupProperty: { id: string; name: string } | null;
-  dateProperty: { id: string; name: string; type: string } | null;
+  dateProperty: { id: string; name: string; type: DatabasePropertyType } | null;
   dateRange: TimelineRange;
   dateOffset: number;
   dateStart: string | null;

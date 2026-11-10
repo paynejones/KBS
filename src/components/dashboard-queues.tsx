@@ -18,9 +18,10 @@ import {
   storeDashboardQueues,
   subscribeToDashboardQueues,
 } from "@/lib/dashboard";
+import type { DatabasePropertyType } from "@/lib/database-property";
 import { statusToneClass } from "@/lib/status-tone";
 
-type DashboardProperty = { id: string; name: string; type: string; choices?: string[] };
+type DashboardProperty = { id: string; name: string; type: DatabasePropertyType; choices?: string[] };
 type DatabaseOption = { id: string; name: string; properties: DashboardProperty[] };
 
 type TaskQueue = {

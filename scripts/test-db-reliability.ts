@@ -383,7 +383,7 @@ async function main() {
 
     const invalidViewTypeResponse = await createView(makeRequest(`/api/databases/${dashboardDatabase.id}/views`, "POST", {
       name: "Nope",
-      type: "timeline",
+      type: "map",
     }), dashboardContext);
     assert.equal(invalidViewTypeResponse.status, 400, "unsupported view types should be rejected");
     assert.equal((await updateView(makeRequest(`/api/databases/${dashboardDatabase.id}/views/${dashboardView.id}`, "PATCH", {}), routeContext({ id: dashboardDatabase.id, viewId: dashboardView.id }))).status, 400,

@@ -4,12 +4,13 @@ import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseProperties } from "@/db/schema";
 import { parseFormula } from "@/lib/database-formula";
+import { DATABASE_PROPERTY_TYPES } from "@/lib/database-property";
 import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["text", "number", "checkbox", "select", "multi_select", "date", "url", "file", "relation", "rollup", "formula"]).default("text"),
+  type: z.enum(DATABASE_PROPERTY_TYPES).default("text"),
   options: z.record(z.string(), z.unknown()).optional(),
 });
 

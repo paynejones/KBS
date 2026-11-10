@@ -32,10 +32,16 @@ import {
   parseVisibleProperties,
   reorderedViewIds,
   visiblePropertyList,
+  type DatabaseViewType,
   type ViewFilter,
   type ViewProperty,
   type ViewSort,
 } from "@/lib/database-view";
+import {
+  DATABASE_PROPERTY_TYPES,
+  DATABASE_PROPERTY_TYPE_LABELS,
+  type DatabasePropertyType,
+} from "@/lib/database-property";
 import {
   chartData,
   chartDateSpanLabel,
@@ -60,14 +66,13 @@ import { dateKey, todayKey } from "@/lib/calendar";
 import { parseTimelineRange } from "@/lib/timeline";
 import { DateCell, SelectCell } from "@/components/database-cell-editors";
 
-type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup" | "formula" | "file";
-type Property = { id: string; name: string; type: PropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string } };
+type Property = { id: string; name: string; type: DatabasePropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string } };
 type RecordRow = { id: string; title: string; values: Record<string, unknown>; pageId: string | null; relations: Record<string, string[]> };
 type PageOption = { id: string; title: string };
 type RelatedRecordOption = { id: string; title: string; values: Record<string, unknown> };
 type DatabaseOption = { id: string; name: string };
 type RelationTargetData = { properties: Property[]; records: RelatedRecordOption[] };
-type DatabaseView = { id: string; name: string; type: string; config: Record<string, unknown> };
+type DatabaseView = { id: string; name: string; type: DatabaseViewType; config: Record<string, unknown> };
 type DatabaseTemplate = { id: string; name: string; title: string; values: Record<string, unknown> };
 type DatabaseData = { id: string; name: string; properties: Property[]; records: RecordRow[]; views: DatabaseView[]; templates: DatabaseTemplate[] };
 type ViewUsage = {
@@ -82,6 +87,14 @@ function viewControlsFromConfig(config: Record<string, unknown> | undefined) {
     filters: parseViewFilters(config),
     sorts: parseViewSorts(config),
   };
+}
+
+/**
+ * Builds a view-creation payload in one place, so every type the UI offers is
+ * checked against the shared DATABASE_VIEW_TYPES list the API validates with.
+ */
+function viewCreatePayload(type: DatabaseViewType, name: string, config: Record<string, unknown>) {
+  return { name, type, config };
 }
 
 type AdHocFilter =
@@ -177,7 +190,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [chartToday] = useState(() => todayKey());
   const [showPropertyForm, setShowPropertyForm] = useState(false);
   const [propertyName, setPropertyName] = useState("");
-  const [propertyType, setPropertyType] = useState<PropertyType>("text");
+  const [propertyType, setPropertyType] = useState<DatabasePropertyType>("text");
   const [propertyChoices, setPropertyChoices] = useState("");
   const [relatedDatabaseId, setRelatedDatabaseId] = useState("");
   const [rollupRelationPropertyId, setRollupRelationPropertyId] = useState("");
@@ -483,11 +496,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       const response = await fetch(`/api/databases/${id}/views`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Board",
-          type: "board",
-          config: { groupBy: groupProperty.id },
-        }),
+        body: JSON.stringify(viewCreatePayload("board", "Board", { groupBy: groupProperty.id })),
       });
       if (!response.ok) throw new Error("Could not create board view.");
       const view: DatabaseView = await response.json();
@@ -507,7 +516,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       const response = await fetch(`/api/databases/${id}/views`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Gallery", type: "gallery", config: {} }),
+        body: JSON.stringify(viewCreatePayload("gallery", "Gallery", {})),
       });
       if (!response.ok) throw new Error("Could not create gallery view.");
       const view: DatabaseView = await response.json();
@@ -529,11 +538,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       const response = await fetch(`/api/databases/${id}/views`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Calendar",
-          type: "calendar",
-          config: { datePropertyId: dateProperty.id },
-        }),
+        body: JSON.stringify(viewCreatePayload("calendar", "Calendar", { datePropertyId: dateProperty.id })),
       });
       if (!response.ok) throw new Error("Could not create calendar view.");
       const view: DatabaseView = await response.json();
@@ -553,7 +558,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       const response = await fetch(`/api/databases/${id}/views`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "List", type: "list", config: {} }),
+        body: JSON.stringify(viewCreatePayload("list", "List", {})),
       });
       if (!response.ok) throw new Error("Could not create list view.");
       const view: DatabaseView = await response.json();
@@ -577,11 +582,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       const response = await fetch(`/api/databases/${id}/views`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Chart",
-          type: "chart",
-          config: { chartPropertyId: valueProperty.id },
-        }),
+        body: JSON.stringify(viewCreatePayload("chart", "Chart", { chartPropertyId: valueProperty.id })),
       });
       if (!response.ok) throw new Error("Could not create chart view.");
       const view: DatabaseView = await response.json();
@@ -603,11 +604,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       const response = await fetch(`/api/databases/${id}/views`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Timeline",
-          type: "timeline",
-          config: { datePropertyId: dateProperty.id, timelineRange: 30 },
-        }),
+        body: JSON.stringify(viewCreatePayload("timeline", "Timeline", {
+          datePropertyId: dateProperty.id,
+          timelineRange: 30,
+        })),
       });
       if (!response.ok) throw new Error("Could not create timeline view.");
       const view: DatabaseView = await response.json();
@@ -1342,17 +1342,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             </label>
             <label className="grid gap-1 text-sm">
               Type
-              <select value={propertyType} onChange={(event) => setPropertyType(event.target.value as PropertyType)} className="rounded-md border bg-background px-3 py-2">
-                <option value="text">Text</option>
-                <option value="number">Number</option>
-                <option value="checkbox">Checkbox</option>
-                <option value="date">Date</option>
-                <option value="url">URL</option>
-                <option value="select">Select</option>
-                <option value="multi_select">Multi-select</option>
-                <option value="relation">Relation</option>
-                <option value="rollup">Rollup</option>
-                <option value="formula">Formula</option>
+              <select value={propertyType} onChange={(event) => setPropertyType(event.target.value as DatabasePropertyType)} className="rounded-md border bg-background px-3 py-2">
+                {DATABASE_PROPERTY_TYPES.map((type) => (
+                  <option key={type} value={type}>{DATABASE_PROPERTY_TYPE_LABELS[type]}</option>
+                ))}
               </select>
             </label>
             {["select", "multi_select"].includes(propertyType) && (

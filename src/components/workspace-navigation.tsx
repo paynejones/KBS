@@ -4,6 +4,8 @@ import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BookMarked,
+  BookOpen,
   Database,
   Files,
   GitFork,
@@ -11,6 +13,7 @@ import {
   House,
   Inbox,
   Star,
+  Target,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -33,6 +36,9 @@ import {
 const iconByKey: Record<NavigationKey, LucideIcon> = {
   home: House,
   pages: Files,
+  searches: BookMarked,
+  reading: BookOpen,
+  focus: Target,
   inbox: Inbox,
   databases: Database,
   favorites: Star,

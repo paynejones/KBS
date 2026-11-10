@@ -1,9 +1,10 @@
 import { evaluateFormula, parseFormula } from "@/lib/database-formula";
+import type { DatabasePropertyType } from "./database-property";
 
 export type CalculationProperty = {
   id: string;
   name: string;
-  type: string;
+  type: DatabasePropertyType;
   options: Record<string, unknown>;
 };
 

@@ -1,3 +1,16 @@
+/** Every view type the API accepts, so the route and the database UI cannot drift. */
+export const DATABASE_VIEW_TYPES = [
+  "table",
+  "board",
+  "gallery",
+  "calendar",
+  "list",
+  "timeline",
+  "chart",
+] as const;
+
+export type DatabaseViewType = (typeof DATABASE_VIEW_TYPES)[number];
+
 export const FILTER_OPERATORS = {
   contains: "contains",
   does_not_contain: "does not contain",

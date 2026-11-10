@@ -11,6 +11,7 @@ import {
   Search,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { DashboardPinnedProjects } from "@/components/dashboard-pinned-projects";
 import { DashboardQueues } from "@/components/dashboard-queues";
 import { DashboardTimeline } from "@/components/dashboard-timeline";
 import { DashboardWidgets } from "@/components/dashboard-widgets";
@@ -334,6 +335,8 @@ export default function Home() {
             </section>
 
             <DashboardQueues />
+
+            <DashboardPinnedProjects />
 
             <DashboardTimeline />
 

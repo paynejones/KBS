@@ -38,6 +38,7 @@ import {
   parseViewSorts,
   visiblePropertyList,
 } from "@/lib/database-view";
+import type { DatabaseViewType } from "@/lib/database-view";
 import { formatFormulaValue } from "@/lib/database-formula";
 import {
   formulaValue,
@@ -70,7 +71,7 @@ type EmbedData = {
   name: string;
   properties: EmbedProperty[];
   records: EmbedRecord[];
-  views: { id: string; name: string; type: string; config: Record<string, unknown> }[];
+  views: { id: string; name: string; type: DatabaseViewType; config: Record<string, unknown> }[];
 };
 
 function displayValue(value: unknown) {
@@ -728,7 +729,7 @@ export const DatabaseEmbedExtension = Node.create({
 });
 
 type DatabaseOption = { id: string; name: string };
-type ViewOption = { id: string; name: string; type: string };
+type ViewOption = { id: string; name: string; type: DatabaseViewType };
 
 export function DatabaseEmbedPicker({ editor }: { editor: import("@tiptap/react").Editor | null }) {
   const [databases, setDatabases] = useState<DatabaseOption[]>([]);

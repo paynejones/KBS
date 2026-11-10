@@ -10,8 +10,9 @@ import {
   TIMELINE_RANGES,
   type TimelineRange,
 } from "@/lib/timeline";
+import type { DatabasePropertyType } from "@/lib/database-property";
 
-type TimelineProperty = { id: string; name: string; type: string };
+type TimelineProperty = { id: string; name: string; type: DatabasePropertyType };
 type TimelineRecord = { id: string; title: string; values: Record<string, unknown> };
 
 function dayHeading(key: string, today: string): string {

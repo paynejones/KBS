@@ -14,6 +14,9 @@ import {
   boolean,
 } from "drizzle-orm/pg-core";
 
+import type { DatabasePropertyType } from "@/lib/database-property";
+import type { DatabaseViewType } from "@/lib/database-view";
+
 // Metadata read from a captured link's page. Stored alongside the source URL
 // so the inbox can show a real preview without re-fetching on every load.
 export type LinkPreviewMetadata = {
@@ -136,6 +139,92 @@ export const pageTags = pgTable(
   ]
 );
 
+// A saved search is a live collection: it stores the filters, never the rows,
+// so its results follow the workspace as pages change. A deleted tag leaves
+// the saved search intact and simply drops that part of the filter.
+export const savedSearches = pgTable(
+  "saved_searches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+
+    name: text("name").notNull(),
+
+    // Matched against page titles and content, like the page browser's search.
+    query: text("query").notNull().default(""),
+
+    tagId: uuid("tag_id").references(() => tags.id, { onDelete: "set null" }),
+
+    favoritesOnly: boolean("favorites_only").notNull().default(false),
+
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("saved_searches_created_at_idx").on(table.createdAt)],
+);
+
+// A reading item is an article or book tracked through to-read, reading, and
+// finished. Its notes live in the page it owns, so the item is metadata beside
+// a normal page rather than a second copy of one.
+export const readingItems = pgTable(
+  "reading_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+
+    // "article" or "book"; validated at the API edge.
+    kind: text("kind").notNull().default("article"),
+
+    // "to-read", "reading", or "finished".
+    status: text("status").notNull().default("to-read"),
+
+    author: text("author").notNull().default(""),
+
+    url: text("url"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("reading_items_page_id_unique").on(table.pageId),
+    index("reading_items_status_idx").on(table.status),
+    index("reading_items_updated_at_idx").on(table.updatedAt),
+  ],
+);
+
+// Passages kept from a reading item, with an optional note about why they
+// matter. Removing an item takes its highlights with it; removing an item does
+// not delete the notes page.
+export const readingHighlights = pgTable(
+  "reading_highlights",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => readingItems.id, { onDelete: "cascade" }),
+
+    text: text("text").notNull(),
+
+    note: text("note").notNull().default(""),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("reading_highlights_item_created_idx").on(table.itemId, table.createdAt)],
+);
+
 // Reusable page structures. A template is a snapshot of a page's title, icon,
 // and content; using one creates an ordinary page, so later edits to either
 // side never affect the other.
@@ -175,6 +264,26 @@ export const attachments = pgTable(
       .defaultNow(),
   },
   (table) => [index("attachments_created_at_idx").on(table.createdAt)],
+);
+
+// A small log of tasks checked off from the focus view or the home page, so a
+// pinned project card can show what was finished recently. A row is keyed by
+// the task's text on its page; unchecking the task removes the row again.
+export const taskCompletions = pgTable(
+  "task_completions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("task_completions_page_completed_idx").on(table.pageId, table.completedAt),
+  ],
 );
 
 export const pageLinks = pgTable(
@@ -222,7 +331,7 @@ export const databaseProperties = pgTable(
       .notNull()
       .references(() => databases.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    type: text("type").notNull().default("text"),
+    type: text("type").$type<DatabasePropertyType>().notNull().default("text"),
     options: jsonb("options")
       .$type<Record<string, unknown>>()
       .notNull()
@@ -270,7 +379,7 @@ export const databaseViews = pgTable(
       .notNull()
       .references(() => databases.id, { onDelete: "cascade" }),
     name: text("name").notNull().default("Table"),
-    type: text("type").notNull().default("table"),
+    type: text("type").$type<DatabaseViewType>().notNull().default("table"),
     config: jsonb("config")
       .$type<Record<string, unknown>>()
       .notNull()

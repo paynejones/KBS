@@ -12,7 +12,11 @@ import {
   pageTags,
   pageTemplates,
   pages,
+  readingHighlights,
+  readingItems,
+  savedSearches,
   tags,
+  taskCompletions,
 } from "@/db/schema";
 import { attachmentUrl } from "@/lib/media";
 
@@ -39,6 +43,10 @@ export type WorkspaceExport = {
   pageRevisions: unknown[];
   tags: unknown[];
   pageTags: unknown[];
+  savedSearches: unknown[];
+  readingItems: unknown[];
+  readingHighlights: unknown[];
+  taskCompletions: unknown[];
   pageLinks: unknown[];
   databases: unknown[];
   databaseProperties: unknown[];
@@ -57,6 +65,10 @@ export async function buildWorkspaceExport(now = new Date()): Promise<WorkspaceE
     revisionRows,
     tagRows,
     pageTagRows,
+    savedSearchRows,
+    readingItemRows,
+    readingHighlightRows,
+    taskCompletionRows,
     linkRows,
     databaseRows,
     propertyRows,
@@ -71,6 +83,10 @@ export async function buildWorkspaceExport(now = new Date()): Promise<WorkspaceE
     db.select().from(pageRevisions),
     db.select().from(tags),
     db.select().from(pageTags),
+    db.select().from(savedSearches),
+    db.select().from(readingItems),
+    db.select().from(readingHighlights),
+    db.select().from(taskCompletions),
     db.select().from(pageLinks),
     db.select().from(databases),
     db.select().from(databaseProperties),
@@ -92,6 +108,10 @@ export async function buildWorkspaceExport(now = new Date()): Promise<WorkspaceE
       pageRevisions: revisionRows.length,
       tags: tagRows.length,
       pageTags: pageTagRows.length,
+      savedSearches: savedSearchRows.length,
+      readingItems: readingItemRows.length,
+      readingHighlights: readingHighlightRows.length,
+      taskCompletions: taskCompletionRows.length,
       pageLinks: linkRows.length,
       databases: databaseRows.length,
       databaseProperties: propertyRows.length,
@@ -106,6 +126,10 @@ export async function buildWorkspaceExport(now = new Date()): Promise<WorkspaceE
     pageRevisions: revisionRows,
     tags: tagRows,
     pageTags: pageTagRows,
+    savedSearches: savedSearchRows,
+    readingItems: readingItemRows,
+    readingHighlights: readingHighlightRows,
+    taskCompletions: taskCompletionRows,
     pageLinks: linkRows,
     databases: databaseRows,
     databaseProperties: propertyRows,

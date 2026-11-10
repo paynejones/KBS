@@ -21,7 +21,7 @@ test("defaults list every destination once", () => {
   assert.deepEqual(preferences.sidebar, NAVIGATION_KEYS);
   assert.deepEqual(preferences.mobile, DEFAULT_MOBILE_ITEMS);
   assert.equal(preferences.mobile.length, MOBILE_NAVIGATION_LIMIT);
-  assert.equal(DEFAULT_SIDEBAR_ORDER.length, 7);
+  assert.equal(DEFAULT_SIDEBAR_ORDER.length, 10);
 });
 
 test("defaults are fresh arrays, so callers cannot mutate the constants", () => {
@@ -29,7 +29,7 @@ test("defaults are fresh arrays, so callers cannot mutate the constants", () => 
   first.sidebar.pop();
   first.mobile.pop();
 
-  assert.equal(defaultNavigationPreferences().sidebar.length, 7);
+  assert.equal(defaultNavigationPreferences().sidebar.length, 10);
   assert.equal(defaultNavigationPreferences().mobile.length, 4);
 });
 
@@ -39,6 +39,9 @@ test("a saved order is restored as written", () => {
       "trash",
       "home",
       "pages",
+      "searches",
+      "reading",
+      "focus",
       "inbox",
       "databases",
       "favorites",
@@ -62,7 +65,7 @@ test("unknown and duplicate destinations are dropped, missing ones appended", ()
   );
 
   assert.deepEqual(preferences.sidebar.slice(0, 2), ["graph", "home"]);
-  assert.equal(preferences.sidebar.length, 7);
+  assert.equal(preferences.sidebar.length, 10);
   assert.deepEqual([...preferences.sidebar].sort(), [...NAVIGATION_KEYS].sort());
   assert.deepEqual(preferences.mobile, ["graph"]);
 });
@@ -100,6 +103,9 @@ test("moving a destination respects the ends of the list", () => {
   assert.deepEqual(moveNavigationKeyBy(order, "pages", "up"), [
     "pages",
     "home",
+    "searches",
+    "reading",
+    "focus",
     "inbox",
     "databases",
     "favorites",
@@ -117,6 +123,9 @@ test("dropping onto another destination moves to its index", () => {
     "trash",
     "home",
     "pages",
+    "searches",
+    "reading",
+    "focus",
     "inbox",
     "databases",
     "favorites",

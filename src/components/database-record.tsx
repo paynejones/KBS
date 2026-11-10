@@ -22,12 +22,13 @@ import { RecordPageLinks } from "@/components/record-links";
 import { RelationCell } from "@/components/relation-cell";
 import { Button } from "@/components/ui/button";
 import { formatFormulaValue } from "@/lib/database-formula";
+import type { DatabasePropertyType } from "@/lib/database-property";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
 
 type Property = {
   id: string;
   name: string;
-  type: string;
+  type: DatabasePropertyType;
   options: {
     choices?: string[];
     relatedDatabaseId?: string;

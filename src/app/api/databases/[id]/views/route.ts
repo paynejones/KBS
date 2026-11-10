@@ -4,11 +4,12 @@ import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseViews } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api-log";
+import { DATABASE_VIEW_TYPES } from "@/lib/database-view";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["table", "board", "gallery", "calendar", "list", "timeline", "chart"]),
+  type: z.enum(DATABASE_VIEW_TYPES),
   config: z.record(z.string(), z.unknown()).optional(),
 });
 

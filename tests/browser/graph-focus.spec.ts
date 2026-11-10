@@ -230,6 +230,54 @@ test("releases a graph drag that ends outside the graph", async ({ page, request
   }
 });
 
+test("filters the graph by tag and page group and draws shared-tag edges", async ({ page, request }) => {
+  const token = `graph-tags-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const parent = await createPage(request, `${token} parent`);
+  const child = await json<PageRow>(
+    await request.post("/api/pages", { data: { title: `${token} child`, parentId: parent.id } }),
+  );
+  const unrelated = await createPage(request, `${token} unrelated`);
+  const tag = await json<{ id: string }>(
+    await request.post("/api/tags", { data: { name: token } }),
+  );
+
+  try {
+    for (const pageId of [child.id, unrelated.id]) {
+      await json(
+        await request.post(`/api/pages/${pageId}/tags`, { data: { tagId: tag.id } }),
+      );
+    }
+
+    await page.goto("/graph");
+    const nodeFor = (title: string) => page.getByRole("link", { name: `Open page ${title}` });
+    await expect(nodeFor(child.title)).toBeVisible();
+
+    // A tag filter keeps the tagged pages and hides the untagged parent.
+    await page.getByLabel("Filter graph by tag").selectOption(tag.id);
+    await expect(nodeFor(child.title)).toBeVisible();
+    await expect(nodeFor(unrelated.title)).toBeVisible();
+    await expect(nodeFor(parent.title)).toBeHidden();
+
+    // A page group keeps the chosen page with everything beneath it.
+    await page.getByLabel("Filter graph by tag").selectOption("");
+    await expect(nodeFor(parent.title)).toBeVisible();
+    await page.getByLabel("Limit graph to a page group").selectOption(parent.id);
+    await expect(nodeFor(child.title)).toBeVisible();
+    await expect(nodeFor(unrelated.title)).toBeHidden();
+
+    // Shared tags add their own dotted relation between tagged pages.
+    await page.getByLabel("Limit graph to a page group").selectOption("");
+    await page.getByLabel("Shared tags").check();
+    await expect(
+      page.locator('svg[role="application"] line[stroke-dasharray="2 4"]'),
+    ).not.toHaveCount(0);
+  } finally {
+    await purgePage(request, child.id);
+    await purgePage(request, parent.id);
+    await purgePage(request, unrelated.id);
+  }
+});
+
 test("replaces the canvas with a filterable page list on small screens", async ({ page, request }) => {
   const token = `graph-mobile-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const source = await createPage(request, `${token} source`);

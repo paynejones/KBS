@@ -176,6 +176,19 @@ export function GraphWorkspace() {
       filteredGraph.nodes.filter((node) => !normalized || matchingIds.has(node.id)),
     );
   }, [filteredGraph.nodes, matchingIds, query]);
+  const tagOptions = useMemo(() => {
+    const namesById = new Map<string, string>();
+    for (const node of data.nodes) {
+      for (const tag of node.tags) namesById.set(tag.id, tag.name);
+    }
+    return [...namesById.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+  }, [data.nodes]);
+  const groupOptions = useMemo(() => {
+    const parentIds = new Set(data.nodes.flatMap((node) => (node.parentId ? [node.parentId] : [])));
+    return graphListItems(data.nodes.filter((node) => parentIds.has(node.id)));
+  }, [data.nodes]);
 
   const updateFocus = (nextFocusId: string, nextDepth = depth) => {
     setFocusId(nextFocusId);
@@ -258,6 +271,32 @@ export function GraphWorkspace() {
             </select>
           </label>
         )}
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Tag
+          <select
+            aria-label="Filter graph by tag"
+            value={filters.tagId}
+            onChange={(event) => setFilters((current) => ({ ...current, tagId: event.target.value }))}
+            className="min-w-40 rounded-md border bg-background px-2 py-2 text-sm text-foreground"
+          >
+            <option value="">All tags</option>
+            {tagOptions.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Page group
+          <select
+            aria-label="Limit graph to a page group"
+            value={filters.groupRootId}
+            onChange={(event) => setFilters((current) => ({ ...current, groupRootId: event.target.value }))}
+            className="min-w-40 rounded-md border bg-background px-2 py-2 text-sm text-foreground"
+          >
+            <option value="">Whole workspace</option>
+            {groupOptions.map((node) => (
+              <option key={node.id} value={node.id}>{node.title || "Untitled"}</option>
+            ))}
+          </select>
+        </label>
         <fieldset className="flex flex-wrap items-center gap-3 text-xs">
           <legend className="sr-only">Graph filters</legend>
           <span className="font-medium text-muted-foreground">Show</span>
@@ -285,6 +324,14 @@ export function GraphWorkspace() {
             />
             Favorites only
           </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={filters.sharedTags}
+              onChange={(event) => setFilters((current) => ({ ...current, sharedTags: event.target.checked }))}
+            />
+            Shared tags
+          </label>
         </fieldset>
         <div className="ml-auto flex items-center gap-1">
           <button type="button" aria-label="Zoom out" onClick={() => setZoom((value) => Math.max(0.45, value - 0.15))} className="rounded-md border p-2 hover:bg-accent"><Minus size={16} /></button>
@@ -302,7 +349,7 @@ export function GraphWorkspace() {
         </div>
       ) : filteredGraph.nodes.length === 0 ? (
         <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-          {filters.favoritesOnly || !filters.links || !filters.hierarchy
+          {filters.favoritesOnly || filters.tagId || filters.groupRootId || !filters.links || !filters.hierarchy
             ? "No pages match these filters."
             : "No connected pages at this neighborhood depth."}
         </div>
@@ -351,7 +398,9 @@ export function GraphWorkspace() {
                 const source = positions[edge.source];
                 const target = positions[edge.target];
                 if (!source || !target) return null;
-                return <line key={`${edge.type}-${edge.source}-${edge.target}-${index}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={edge.type === "link" ? "var(--primary)" : "var(--border)"} strokeWidth={edge.type === "link" ? 1.8 : 1.2} strokeDasharray={edge.type === "hierarchy" ? "5 5" : undefined} opacity={edge.type === "link" ? 0.65 : 0.8} />;
+                const stroke = edge.type === "link" ? "var(--primary)" : edge.type === "tag" ? "var(--muted-foreground)" : "var(--border)";
+                const dash = edge.type === "hierarchy" ? "5 5" : edge.type === "tag" ? "2 4" : undefined;
+                return <line key={`${edge.type}-${edge.source}-${edge.target}-${index}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={stroke} strokeWidth={edge.type === "link" ? 1.8 : 1.2} strokeDasharray={dash} opacity={edge.type === "link" ? 0.65 : 0.8} />;
               })}
               {filteredGraph.nodes.map((node) => {
                 const point = positions[node.id];
@@ -382,6 +431,7 @@ export function GraphWorkspace() {
             <span>{filteredGraph.nodes.length} pages</span>
             <span className="flex items-center gap-2"><span className="inline-block w-5 border-t-2 border-primary" />Page link</span>
             <span className="flex items-center gap-2"><span className="inline-block w-5 border-t border-dashed border-muted-foreground" />Parent / child</span>
+            <span className="flex items-center gap-2"><span className="inline-block w-5 border-t border-dotted border-muted-foreground" />Shared tag</span>
             <span className="ml-auto">Drag to pan or move a page · Select a node to open</span>
           </div>
           </div>

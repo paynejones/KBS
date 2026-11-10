@@ -16,10 +16,19 @@ type ApiModules = {
   pageTags: typeof import("../../src/app/api/pages/[id]/tags/route");
   links: typeof import("../../src/app/api/pages/[id]/links/route");
   related: typeof import("../../src/app/api/pages/[id]/related/route");
+  focus: typeof import("../../src/app/api/pages/[id]/focus/route");
+  focusPinned: typeof import("../../src/app/api/focus/pinned/route");
+  taskCompletions: typeof import("../../src/app/api/pages/[id]/task-completions/route");
   pageRecords: typeof import("../../src/app/api/pages/[id]/records/route");
   recordPages: typeof import("../../src/app/api/records/[recordId]/pages/route");
   connections: typeof import("../../src/app/api/orphans/route");
   tags: typeof import("../../src/app/api/tags/route");
+  savedSearches: typeof import("../../src/app/api/saved-searches/route");
+  savedSearch: typeof import("../../src/app/api/saved-searches/[id]/route");
+  reading: typeof import("../../src/app/api/reading/route");
+  readingItem: typeof import("../../src/app/api/reading/[id]/route");
+  readingHighlights: typeof import("../../src/app/api/reading/[id]/highlights/route");
+  readingHighlight: typeof import("../../src/app/api/reading/[id]/highlights/[highlightId]/route");
   graph: typeof import("../../src/app/api/graph/route");
   records: typeof import("../../src/app/api/databases/[id]/records/route");
   inbox: typeof import("../../src/app/api/inbox/route");
@@ -83,6 +92,23 @@ async function createPage(overrides: Json = {}): Promise<PageRow> {
   const response = await api.pages.POST(jsonRequest("/api/pages", "POST", overrides));
   assert.equal(response.status, 201);
   return await body<PageRow>(response);
+}
+
+function focusDocument(tasks: { text: string; checked: boolean }[]) {
+  return {
+    type: "doc",
+    content: [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Milestones" }] },
+      {
+        type: "taskList",
+        content: tasks.map((task) => ({
+          type: "taskItem",
+          attrs: { checked: task.checked },
+          content: [{ type: "paragraph", content: [{ type: "text", text: task.text }] }],
+        })),
+      },
+    ],
+  };
 }
 
 async function createDatabase(name: string): Promise<{ id: string; name: string }> {
@@ -155,7 +181,16 @@ before(async () => {
     links,
     related,
     tags,
+    savedSearches,
+    savedSearch,
+    reading,
+    readingItem,
+    readingHighlights,
+    readingHighlight,
     graph,
+    focus,
+    focusPinned,
+    taskCompletions,
     records,
     inbox,
     inboxItem,
@@ -193,7 +228,16 @@ before(async () => {
     import("../../src/app/api/pages/[id]/links/route"),
     import("../../src/app/api/pages/[id]/related/route"),
     import("../../src/app/api/tags/route"),
+    import("../../src/app/api/saved-searches/route"),
+    import("../../src/app/api/saved-searches/[id]/route"),
+    import("../../src/app/api/reading/route"),
+    import("../../src/app/api/reading/[id]/route"),
+    import("../../src/app/api/reading/[id]/highlights/route"),
+    import("../../src/app/api/reading/[id]/highlights/[highlightId]/route"),
     import("../../src/app/api/graph/route"),
+    import("../../src/app/api/pages/[id]/focus/route"),
+    import("../../src/app/api/focus/pinned/route"),
+    import("../../src/app/api/pages/[id]/task-completions/route"),
     import("../../src/app/api/databases/[id]/records/route"),
     import("../../src/app/api/inbox/route"),
     import("../../src/app/api/inbox/[id]/route"),
@@ -223,7 +267,7 @@ before(async () => {
     import("../../src/app/api/orphans/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, related, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
+  api = { pages, page, move, reorder, revisions, pageTags, links, related, tags, savedSearches, savedSearch, reading, readingItem, readingHighlights, readingHighlight, graph, focus, focusPinned, taskCompletions, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
 });
 
 after(async () => {
@@ -858,11 +902,32 @@ describe("graph API", () => {
     );
     assert.equal(linked.status, 201);
 
-    const graph = await body<{ nodes: { id: string }[]; edges: { source: string; target: string; type: string }[] }>(
+    const tag = await body<{ id: string; name: string }>(
+      await api.tags.POST(jsonRequest("/api/tags", "POST", { name: `Graph tag ${Date.now()}` })),
+    );
+    await api.pageTags.POST(
+      jsonRequest(`/api/pages/${child.id}/tags`, "POST", { tagId: tag.id }),
+      routeContext({ id: child.id }),
+    );
+
+    const graph = await body<{
+      nodes: { id: string; parentId: string | null; tags: { id: string; name: string }[] }[];
+      edges: { source: string; target: string; type: string }[];
+    }>(
       await api.graph.GET(jsonRequest("/api/graph", "GET")),
     );
     assert.ok(graph.nodes.some((node) => node.id === parent.id));
     assert.ok(graph.nodes.some((node) => node.id === child.id));
+    assert.equal(
+      graph.nodes.find((node) => node.id === child.id)?.parentId,
+      parent.id,
+      "nodes carry their parent so the graph can scope a page group",
+    );
+    assert.deepEqual(
+      graph.nodes.find((node) => node.id === child.id)?.tags,
+      [{ id: tag.id, name: tag.name }],
+      "nodes carry their tags so the graph can filter and connect by tag",
+    );
     assert.ok(graph.edges.some((edge) =>
       edge.source === parent.id && edge.target === child.id && edge.type === "hierarchy"));
     assert.ok(graph.edges.some((edge) =>
@@ -2973,6 +3038,467 @@ describe("export API", () => {
     for (const attachment of payload.attachments) {
       assert.equal(attachment.url, `/api/attachments/${attachment.id}`);
     }
+  });
+});
+
+describe("focus API", () => {
+  it("gathers a project's tasks, subpages, and references", async () => {
+    const project = await createPage({
+      title: `Focus project ${Date.now()}`,
+      contentJson: focusDocument([
+        { text: "Define scope", checked: false },
+        { text: "Collect references", checked: true },
+      ]),
+    });
+    const child = await createPage({
+      title: `${project.title} outline`,
+      parentId: project.id,
+      contentJson: focusDocument([{ text: "Draft outline", checked: false }]),
+    });
+    const reference = await createPage({ title: `Focus reference ${Date.now()}` });
+    await api.links.POST(
+      jsonRequest(`/api/pages/${project.id}/links`, "POST", { targetPageId: reference.id }),
+      routeContext({ id: project.id }),
+    );
+
+    const database = await createDatabase(`Focus database ${Date.now()}`);
+    const record = await createDatabaseRecord(database.id, { title: "Focus record" });
+    await api.pageRecords.POST(
+      jsonRequest(`/api/pages/${project.id}/records`, "POST", { recordId: record.id }),
+      routeContext({ id: project.id }),
+    );
+
+    const response = await api.focus.GET(
+      jsonRequest(`/api/pages/${project.id}/focus`, "GET"),
+      routeContext({ id: project.id }),
+    );
+    assert.equal(response.status, 200);
+
+    const data = await body<{
+      project: { id: string; title: string; isFavorite: boolean };
+      tasks: { pageId: string; pageTitle: string; path: number[]; text: string; checked: boolean }[];
+      pages: { id: string; title: string }[];
+      references: {
+        links: { id: string }[];
+        backlinks: { id: string }[];
+        records: { id: string; databaseName: string }[];
+      };
+      progress: { total: number; done: number; open: number; percent: number };
+    }>(response);
+
+    assert.equal(data.project.id, project.id);
+    assert.equal(data.project.isFavorite, false);
+    assert.deepEqual(
+      data.tasks.map(({ text }) => text),
+      ["Define scope", "Collect references", "Draft outline"],
+    );
+    assert.deepEqual(data.tasks[0].path, [1, 0], "a task keeps the path to its checkbox");
+    assert.equal(data.tasks[0].pageId, project.id);
+    assert.equal(data.tasks[2].pageId, child.id);
+    assert.equal(data.tasks[2].pageTitle, child.title);
+    assert.deepEqual(data.pages.map(({ id }) => id), [child.id]);
+    assert.deepEqual(data.references.links.map(({ id }) => id), [reference.id]);
+    assert.deepEqual(
+      data.references.records.map(({ id, databaseName }) => ({ id, databaseName })),
+      [{ id: record.id, databaseName: database.name }],
+    );
+    assert.deepEqual(data.progress, { total: 3, done: 1, open: 2, percent: 33 });
+
+    // Pinning the project is the page's own favorite flag, so the focus view
+    // and the rest of the workspace agree on what is pinned.
+    await api.page.PATCH(
+      jsonRequest(`/api/pages/${project.id}`, "PATCH", { isFavorite: true }),
+      routeContext({ id: project.id }),
+    );
+    const pinned = await body<{ project: { isFavorite: boolean } }>(
+      await api.focus.GET(
+        jsonRequest(`/api/pages/${project.id}/focus`, "GET"),
+        routeContext({ id: project.id }),
+      ),
+    );
+    assert.equal(pinned.project.isFavorite, true);
+  });
+
+  it("lists pinned projects with task progress and skips pages with no work", async () => {
+    const pinned = await createPage({
+      title: `Pinned project ${Date.now()}`,
+      contentJson: focusDocument([
+        { text: "Pinned open task", checked: false },
+        { text: "Pinned done task", checked: true },
+      ]),
+    });
+    const child = await createPage({
+      title: `${pinned.title} child`,
+      parentId: pinned.id,
+      contentJson: focusDocument([{ text: "Pinned child task", checked: false }]),
+    });
+    const pinnedWithoutTasks = await createPage({
+      title: `Pinned notes ${Date.now()}`,
+    });
+    const unpinnedWithTasks = await createPage({
+      title: `Unpinned project ${Date.now()}`,
+      contentJson: focusDocument([{ text: "Unpinned task", checked: false }]),
+    });
+
+    await api.page.PATCH(
+      jsonRequest(`/api/pages/${pinned.id}`, "PATCH", { isFavorite: true }),
+      routeContext({ id: pinned.id }),
+    );
+    await api.page.PATCH(
+      jsonRequest(`/api/pages/${pinnedWithoutTasks.id}`, "PATCH", { isFavorite: true }),
+      routeContext({ id: pinnedWithoutTasks.id }),
+    );
+
+    const response = await api.focusPinned.GET(jsonRequest("/api/focus/pinned", "GET"));
+    assert.equal(response.status, 200);
+
+    const data = await body<{
+      projects: {
+        id: string;
+        title: string;
+        progress: { total: number; done: number; open: number };
+        tasks: { text: string; checked: boolean }[];
+      }[];
+    }>(response);
+
+    const listed = data.projects.find((project) => project.id === pinned.id);
+    assert.ok(listed, "a pinned project with tasks is listed");
+    assert.deepEqual(listed.progress, { total: 3, done: 1, open: 2, percent: 33 });
+    assert.deepEqual(
+      listed.tasks.map(({ text, checked }) => ({ text, checked })),
+      [
+        { text: "Pinned open task", checked: false },
+        { text: "Pinned child task", checked: false },
+      ],
+      "a card carries the open tasks from the project and its subpage",
+    );
+    assert.equal(
+      data.projects.some((project) => project.id === pinnedWithoutTasks.id),
+      false,
+      "a pinned page with no tasks has no progress to show",
+    );
+    assert.equal(
+      data.projects.some((project) => project.id === unpinnedWithTasks.id),
+      false,
+      "an unpinned project is left to the focus view",
+    );
+
+    // Checking tasks off records a short history for the card, newest first.
+    for (const [pageId, text] of [
+      [pinned.id, "Pinned open task"],
+      [child.id, "Pinned child task"],
+      [pinned.id, "Pinned done task"],
+    ] as const) {
+      const recorded = await api.taskCompletions.POST(
+        jsonRequest(`/api/pages/${pageId}/task-completions`, "POST", {
+          text,
+          checked: true,
+        }),
+        routeContext({ id: pageId }),
+      );
+      assert.equal(recorded.status, 200);
+    }
+
+    const withHistory = await body<{
+      projects: { id: string; recentlyCompleted: { text: string }[] }[];
+    }>(await api.focusPinned.GET(jsonRequest("/api/focus/pinned", "GET")));
+    assert.deepEqual(
+      withHistory.projects
+        .find((project) => project.id === pinned.id)
+        ?.recentlyCompleted.map(({ text }) => text),
+      ["Pinned done task", "Pinned child task"],
+      "only the two most recent check-offs are shown",
+    );
+
+    // Undoing a task removes it from the history again.
+    const undone = await api.taskCompletions.POST(
+      jsonRequest(`/api/pages/${pinned.id}/task-completions`, "POST", {
+        text: "Pinned done task",
+        checked: false,
+      }),
+      routeContext({ id: pinned.id }),
+    );
+    assert.equal(undone.status, 200);
+
+    const afterUndo = await body<{
+      projects: { id: string; recentlyCompleted: { text: string }[] }[];
+    }>(await api.focusPinned.GET(jsonRequest("/api/focus/pinned", "GET")));
+    assert.deepEqual(
+      afterUndo.projects
+        .find((project) => project.id === pinned.id)
+        ?.recentlyCompleted.map(({ text }) => text),
+      ["Pinned child task", "Pinned open task"],
+    );
+
+    const emptyText = await api.taskCompletions.POST(
+      jsonRequest(`/api/pages/${pinned.id}/task-completions`, "POST", {
+        text: "  ",
+        checked: true,
+      }),
+      routeContext({ id: pinned.id }),
+    );
+    assert.equal(emptyText.status, 400);
+
+    const missingPage = await api.taskCompletions.POST(
+      jsonRequest(`/api/pages/${MISSING_ID}/task-completions`, "POST", {
+        text: "Anything",
+        checked: true,
+      }),
+      routeContext({ id: MISSING_ID }),
+    );
+    assert.equal(missingPage.status, 404);
+  });
+
+  it("rejects malformed and missing projects", async () => {
+    const invalid = await api.focus.GET(
+      jsonRequest("/api/pages/nope/focus", "GET"),
+      routeContext({ id: "nope" }),
+    );
+    assert.equal(invalid.status, 400);
+
+    const missing = await api.focus.GET(
+      jsonRequest(`/api/pages/${MISSING_ID}/focus`, "GET"),
+      routeContext({ id: MISSING_ID }),
+    );
+    assert.equal(missing.status, 404);
+  });
+});
+
+describe("reading list API", () => {
+  it("creates an item with a notes page and lists its highlights", async () => {
+    const title = `Reading item ${Date.now()}`;
+    const created = await api.reading.POST(jsonRequest("/api/reading", "POST", {
+      title,
+      kind: "book",
+      author: "Ada Lovelace",
+      url: "https://example.com/notes",
+      status: "reading",
+    }));
+    assert.equal(created.status, 201);
+
+    const item = await body<{
+      id: string;
+      pageId: string;
+      title: string;
+      kind: string;
+      status: string;
+      author: string;
+      url: string | null;
+      highlights: unknown[];
+    }>(created);
+    assert.equal(item.title, title);
+    assert.equal(item.kind, "book");
+    assert.equal(item.status, "reading");
+    assert.equal(item.author, "Ada Lovelace");
+    assert.equal(item.url, "https://example.com/notes");
+    assert.deepEqual(item.highlights, []);
+
+    const notesPage = await api.page.GET(
+      jsonRequest(`/api/pages/${item.pageId}`, "GET"),
+      routeContext({ id: item.pageId }),
+    );
+    assert.equal(notesPage.status, 200, "the item owns a notes page");
+    assert.equal((await body<PageRow>(notesPage)).title, title);
+
+    const highlight = await api.readingHighlights.POST(
+      jsonRequest(`/api/reading/${item.id}/highlights`, "POST", {
+        text: "A line worth keeping",
+        note: "Chapter 2",
+      }),
+      routeContext({ id: item.id }),
+    );
+    assert.equal(highlight.status, 201);
+
+    const listed = await body<{ id: string; highlights: { id: string; text: string; note: string }[] }[]>(
+      await api.reading.GET(jsonRequest("/api/reading", "GET")),
+    );
+    const stored = listed.find((row) => row.id === item.id);
+    assert.deepEqual(
+      stored?.highlights.map(({ text, note }) => ({ text, note })),
+      [{ text: "A line worth keeping", note: "Chapter 2" }],
+    );
+
+    const updated = await api.readingItem.PATCH(
+      jsonRequest(`/api/reading/${item.id}`, "PATCH", { status: "finished" }),
+      routeContext({ id: item.id }),
+    );
+    assert.equal(updated.status, 200);
+    assert.equal((await body<{ status: string }>(updated)).status, "finished");
+
+    const removedHighlight = await api.readingHighlight.DELETE(
+      jsonRequest(`/api/reading/${item.id}/highlights/${stored?.highlights[0]?.id ?? MISSING_ID}`, "DELETE"),
+      routeContext({ id: item.id, highlightId: stored?.highlights[0]?.id ?? MISSING_ID }),
+    );
+    assert.equal(removedHighlight.status, 200);
+  });
+
+  it("rejects untitled items, bad links, unknown kinds, and empty updates", async () => {
+    const untitled = await api.reading.POST(jsonRequest("/api/reading", "POST", { title: "  " }));
+    assert.equal(untitled.status, 400);
+
+    const badKind = await api.reading.POST(
+      jsonRequest("/api/reading", "POST", { title: "Bad kind", kind: "film" }),
+    );
+    assert.equal(badKind.status, 400);
+
+    const badUrl = await api.reading.POST(
+      jsonRequest("/api/reading", "POST", { title: "Bad link", url: "javascript:alert(1)" }),
+    );
+    assert.equal(badUrl.status, 400);
+
+    const emptyUpdate = await api.readingItem.PATCH(
+      jsonRequest(`/api/reading/${MISSING_ID}`, "PATCH", {}),
+      routeContext({ id: MISSING_ID }),
+    );
+    assert.equal(emptyUpdate.status, 400);
+
+    const missingItem = await api.readingItem.PATCH(
+      jsonRequest(`/api/reading/${MISSING_ID}`, "PATCH", { status: "finished" }),
+      routeContext({ id: MISSING_ID }),
+    );
+    assert.equal(missingItem.status, 404);
+
+    const invalidId = await api.readingItem.DELETE(
+      jsonRequest("/api/reading/nope", "DELETE"),
+      routeContext({ id: "nope" }),
+    );
+    assert.equal(invalidId.status, 400);
+
+    const missingHighlight = await api.readingHighlight.DELETE(
+      jsonRequest(`/api/reading/${MISSING_ID}/highlights/${MISSING_ID}`, "DELETE"),
+      routeContext({ id: MISSING_ID, highlightId: MISSING_ID }),
+    );
+    assert.equal(missingHighlight.status, 404);
+  });
+
+  it("removing an item keeps its notes page", async () => {
+    const created = await body<{ id: string; pageId: string }>(await api.reading.POST(
+      jsonRequest("/api/reading", "POST", { title: `Keep notes ${Date.now()}` }),
+    ));
+
+    const removed = await api.readingItem.DELETE(
+      jsonRequest(`/api/reading/${created.id}`, "DELETE"),
+      routeContext({ id: created.id }),
+    );
+    assert.equal(removed.status, 200);
+
+    const pageStillExists = await api.page.GET(
+      jsonRequest(`/api/pages/${created.pageId}`, "GET"),
+      routeContext({ id: created.pageId }),
+    );
+    assert.equal(pageStillExists.status, 200);
+
+    const again = await api.readingItem.DELETE(
+      jsonRequest(`/api/reading/${created.id}`, "DELETE"),
+      routeContext({ id: created.id }),
+    );
+    assert.equal(again.status, 404);
+  });
+});
+
+describe("saved searches API", () => {
+  it("stores a filter set and lists it with its tag name", async () => {
+    const tag = await body<TagRow>(
+      await api.tags.POST(jsonRequest("/api/tags", "POST", { name: `Saved search tag ${Date.now()}` })),
+    );
+    const created = await api.savedSearches.POST(jsonRequest("/api/saved-searches", "POST", {
+      name: "Reading queue",
+      query: "habits",
+      tagId: tag.id,
+      favoritesOnly: true,
+    }));
+    assert.equal(created.status, 201);
+
+    const saved = await body<{
+      id: string;
+      name: string;
+      query: string;
+      tagId: string | null;
+      tagName: string | null;
+      favoritesOnly: boolean;
+    }>(created);
+    assert.deepEqual(
+      {
+        name: saved.name,
+        query: saved.query,
+        tagId: saved.tagId,
+        tagName: saved.tagName,
+        favoritesOnly: saved.favoritesOnly,
+      },
+      {
+        name: "Reading queue",
+        query: "habits",
+        tagId: tag.id,
+        tagName: tag.name,
+        favoritesOnly: true,
+      },
+    );
+
+    const listed = await body<{ id: string; tagName: string | null }[]>(
+      await api.savedSearches.GET(jsonRequest("/api/saved-searches", "GET")),
+    );
+    assert.equal(
+      listed.find((row) => row.id === saved.id)?.tagName,
+      tag.name,
+      "the list names the tag the collection filters by",
+    );
+  });
+
+  it("rejects unnamed collections, overlong queries, and unknown tags", async () => {
+    const unnamed = await api.savedSearches.POST(
+      jsonRequest("/api/saved-searches", "POST", { name: "   " }),
+    );
+    assert.equal(unnamed.status, 400);
+
+    const overlong = await api.savedSearches.POST(jsonRequest("/api/saved-searches", "POST", {
+      name: "Too long",
+      query: "x".repeat(201),
+    }));
+    assert.equal(overlong.status, 400);
+
+    const badTagShape = await api.savedSearches.POST(
+      jsonRequest("/api/saved-searches", "POST", { name: "Bad tag", tagId: "nope" }),
+    );
+    assert.equal(badTagShape.status, 400);
+
+    const unknownTag = await api.savedSearches.POST(
+      jsonRequest("/api/saved-searches", "POST", { name: "Missing tag", tagId: MISSING_ID }),
+    );
+    assert.equal(unknownTag.status, 404);
+  });
+
+  it("deletes only the collection, never the pages it matched", async () => {
+    const matched = await createPage({ title: `Saved search page ${Date.now()}` });
+    const created = await body<{ id: string }>(await api.savedSearches.POST(
+      jsonRequest("/api/saved-searches", "POST", {
+        name: `Keep ${Date.now()}`,
+        query: matched.title,
+      }),
+    ));
+
+    const deleted = await api.savedSearch.DELETE(
+      jsonRequest(`/api/saved-searches/${created.id}`, "DELETE"),
+      routeContext({ id: created.id }),
+    );
+    assert.equal(deleted.status, 200);
+
+    const pageStillExists = await api.page.GET(
+      jsonRequest(`/api/pages/${matched.id}`, "GET"),
+      routeContext({ id: matched.id }),
+    );
+    assert.equal(pageStillExists.status, 200, "the matched page is untouched");
+
+    const again = await api.savedSearch.DELETE(
+      jsonRequest(`/api/saved-searches/${created.id}`, "DELETE"),
+      routeContext({ id: created.id }),
+    );
+    assert.equal(again.status, 404);
+
+    const invalid = await api.savedSearch.DELETE(
+      jsonRequest("/api/saved-searches/nope", "DELETE"),
+      routeContext({ id: "nope" }),
+    );
+    assert.equal(invalid.status, 400);
   });
 });
 

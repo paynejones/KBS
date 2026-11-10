@@ -10,6 +10,8 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  BookMarked,
+  BookOpen,
   Clock,
   Database,
   FileText,
@@ -21,6 +23,7 @@ import {
   Plus,
   Search,
   Star,
+  Target,
   Trash2,
   Upload,
   X,
@@ -378,6 +381,30 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
       group: "Actions",
       icon: <FileText size={16} />,
       run: () => go("/pages"),
+    },
+    {
+      key: "nav-searches",
+      label: "Go to saved searches",
+      detail: "Live page collections",
+      group: "Actions",
+      icon: <BookMarked size={16} />,
+      run: () => go("/searches"),
+    },
+    {
+      key: "nav-reading",
+      label: "Go to reading list",
+      detail: "Articles, books, and highlights",
+      group: "Actions",
+      icon: <BookOpen size={16} />,
+      run: () => go("/reading"),
+    },
+    {
+      key: "nav-focus",
+      label: "Go to focus view",
+      detail: "A project, its tasks, and references",
+      group: "Actions",
+      icon: <Target size={16} />,
+      run: () => go("/focus"),
     },
     {
       key: "nav-inbox",

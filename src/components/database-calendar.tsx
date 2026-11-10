@@ -13,8 +13,9 @@ import {
   todayKey,
   WEEKDAY_LABELS,
 } from "@/lib/calendar";
+import type { DatabasePropertyType } from "@/lib/database-property";
 
-type CalendarProperty = { id: string; name: string; type: string };
+type CalendarProperty = { id: string; name: string; type: DatabasePropertyType };
 type CalendarRecord = {
   id: string;
   title: string;
