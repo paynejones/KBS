@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QuickCapture } from "../../src/components/quick-capture";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json } from "./fetch-stub";
+import { restoreStrictFetch, stubStrictFetch } from "./strict-fetch-stub";
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
+  restoreStrictFetch();
 });
 
 async function openCapture() {
@@ -28,7 +29,11 @@ test("the selected-text field only appears once a link is present", async () => 
 });
 
 test("a capture sends the selected text with its link", async () => {
-  const calls = stubFetch(() => json({ id: "page-1" }, 201));
+  const calls = stubStrictFetch("QuickCapture", (call) =>
+    call.url === "/api/inbox" && call.method === "POST"
+      ? json({ id: "page-1" }, 201)
+      : undefined,
+  );
   await openCapture();
 
   fireEvent.change(screen.getByPlaceholderText("Paste a link (optional)"), {
@@ -54,9 +59,15 @@ test("a capture sends the selected text with its link", async () => {
 
 test("a captured file is uploaded before the inbox item is saved", async () => {
   const attachmentId = "33333333-3333-4333-8333-333333333333";
-  const calls = stubFetch((call) => call.url === "/api/attachments"
-    ? json({ id: attachmentId, url: `/api/attachments/${attachmentId}`, filename: "syllabus.pdf", mimeType: "application/pdf", size: 3 }, 201)
-    : json({ id: "page-3" }, 201));
+  const calls = stubStrictFetch("QuickCapture", (call) => {
+    if (call.url === "/api/attachments" && call.method === "POST") {
+      return json({ id: attachmentId, url: `/api/attachments/${attachmentId}`, filename: "syllabus.pdf", mimeType: "application/pdf", size: 3 }, 201);
+    }
+    if (call.url === "/api/inbox" && call.method === "POST") {
+      return json({ id: "page-3" }, 201);
+    }
+    return undefined;
+  });
   await openCapture();
 
   const file = new File([new Uint8Array([1, 2, 3])], "syllabus.pdf", { type: "application/pdf" });
@@ -84,7 +95,11 @@ test("a captured file is uploaded before the inbox item is saved", async () => {
 });
 
 test("a file type the attachment route rejects never reaches the upload", async () => {
-  const calls = stubFetch(() => json({ id: "page-4" }, 201));
+  const calls = stubStrictFetch("QuickCapture", (call) =>
+    call.url === "/api/inbox" && call.method === "POST"
+      ? json({ id: "page-4" }, 201)
+      : undefined,
+  );
   await openCapture();
 
   const file = new File([new Uint8Array([1, 2, 3])], "notes.txt", { type: "text/plain" });
@@ -97,7 +112,11 @@ test("a file type the attachment route rejects never reaches the upload", async 
 });
 
 test("a note captured without a link leaves the quote out of the request", async () => {
-  const calls = stubFetch(() => json({ id: "page-2" }, 201));
+  const calls = stubStrictFetch("QuickCapture", (call) =>
+    call.url === "/api/inbox" && call.method === "POST"
+      ? json({ id: "page-2" }, 201)
+      : undefined,
+  );
   await openCapture();
 
   fireEvent.change(screen.getByPlaceholderText("Write a quick note…"), {

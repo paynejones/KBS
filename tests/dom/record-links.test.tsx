@@ -3,18 +3,23 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RecordPageLinks } from "../../src/components/record-links";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json } from "./fetch-stub";
+import { restoreStrictFetch, stubStrictFetch } from "./strict-fetch-stub";
 
 const PAGE = { id: "p1", title: "Source page" };
 const FREE_PAGE = { id: "p2", title: "Free page" };
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
+  restoreStrictFetch();
 });
 
 test("RecordPageLinks lists the pages connected to a record", async () => {
-  stubFetch(() => json({ pages: [PAGE], options: [FREE_PAGE] }));
+  stubStrictFetch("RecordPageLinks", (call) =>
+    call.url === "/api/records/r1/pages" && call.method === "GET"
+      ? json({ pages: [PAGE], options: [FREE_PAGE] })
+      : undefined,
+  );
 
   render(<RecordPageLinks recordId="r1" />);
 
@@ -30,12 +35,16 @@ test("RecordPageLinks lists the pages connected to a record", async () => {
 
 test("RecordPageLinks links a page and refreshes the list", async () => {
   let pages: { id: string; title: string }[] = [];
-  const calls = stubFetch((call) => {
+  const calls = stubStrictFetch("RecordPageLinks", (call) => {
+    if (call.url !== "/api/records/r1/pages") return undefined;
     if (call.method === "POST") {
       pages = [FREE_PAGE];
       return json({ ok: true });
     }
-    return json({ pages, options: pages.length ? [] : [FREE_PAGE] });
+    if (call.method === "GET") {
+      return json({ pages, options: pages.length ? [] : [FREE_PAGE] });
+    }
+    return undefined;
   });
 
   render(<RecordPageLinks recordId="r1" />);
@@ -61,12 +70,14 @@ test("RecordPageLinks links a page and refreshes the list", async () => {
 
 test("RecordPageLinks removes a page connection", async () => {
   let pages = [PAGE];
-  const calls = stubFetch((call) => {
+  const calls = stubStrictFetch("RecordPageLinks", (call) => {
+    if (call.url !== "/api/records/r1/pages") return undefined;
     if (call.method === "DELETE") {
       pages = [];
       return json({ ok: true });
     }
-    return json({ pages, options: [] });
+    if (call.method === "GET") return json({ pages, options: [] });
+    return undefined;
   });
 
   render(<RecordPageLinks recordId="r1" />);
@@ -83,7 +94,11 @@ test("RecordPageLinks removes a page connection", async () => {
 });
 
 test("RecordPageLinks disables the picker when there is nothing to link", async () => {
-  stubFetch(() => json({ pages: [], options: [] }));
+  stubStrictFetch("RecordPageLinks", (call) =>
+    call.url === "/api/records/r1/pages" && call.method === "GET"
+      ? json({ pages: [], options: [] })
+      : undefined,
+  );
 
   render(<RecordPageLinks recordId="r1" />);
   await screen.findByText("No linked pages yet.");
@@ -94,7 +109,11 @@ test("RecordPageLinks disables the picker when there is nothing to link", async 
 });
 
 test("RecordPageLinks reports a failed load", async () => {
-  stubFetch(() => json({ error: "boom" }, 500));
+  stubStrictFetch("RecordPageLinks", (call) =>
+    call.url === "/api/records/r1/pages" && call.method === "GET"
+      ? json({ error: "boom" }, 500)
+      : undefined,
+  );
 
   render(<RecordPageLinks recordId="r1" />);
 
@@ -103,9 +122,12 @@ test("RecordPageLinks reports a failed load", async () => {
 });
 
 test("RecordPageLinks reports a failed link", async () => {
-  stubFetch((call) =>
-    call.method === "POST" ? json({ error: "boom" }, 500) : json({ pages: [], options: [FREE_PAGE] }),
-  );
+  stubStrictFetch("RecordPageLinks", (call) => {
+    if (call.url !== "/api/records/r1/pages") return undefined;
+    if (call.method === "POST") return json({ error: "boom" }, 500);
+    if (call.method === "GET") return json({ pages: [], options: [FREE_PAGE] });
+    return undefined;
+  });
 
   render(<RecordPageLinks recordId="r1" />);
   await screen.findByText("No linked pages yet.");

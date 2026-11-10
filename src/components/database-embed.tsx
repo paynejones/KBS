@@ -6,6 +6,9 @@ import { Database, ExternalLink, Eye, EyeOff, Trash2, Upload } from "lucide-reac
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { AttachmentFileLink } from "@/components/attachment-preview";
+import { DatabaseChart } from "@/components/database-chart";
+import { DatabaseList } from "@/components/database-list";
+import { DatabaseTimeline } from "@/components/database-timeline";
 import { MediaImage } from "@/components/media-image";
 import {
   AlertDialog,
@@ -18,6 +21,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  chartData,
+  chartDateWindow,
+  chartSeries,
+  chartDatePresetWindow,
+  parseChartDateBound,
+  parseChartDateOffset,
+  parseChartDatePreset,
+  parseChartType,
+} from "@/lib/database-chart";
+import { listRows } from "@/lib/database-list";
 import {
   applyView,
   parseViewFilters,
@@ -40,12 +54,15 @@ import {
   uploadAttachment,
   type FilePropertyValue,
 } from "@/lib/media";
+import { todayKey } from "@/lib/calendar";
+import { parseTimelineRange } from "@/lib/timeline";
 
 type EmbedProperty = CalculationProperty;
 type EmbedRecord = {
   id: string;
   title: string;
   values: Record<string, unknown>;
+  pageId?: string | null;
   relations?: Record<string, string[]>;
 };
 type EmbedData = {
@@ -88,10 +105,11 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
   const databaseId = String(node.attrs.databaseId ?? "");
   const viewId = String(node.attrs.viewId ?? "");
   const [data, setData] = useState<EmbedData | null>(null);
+  const [chartToday] = useState(() => todayKey());
   const [relationTargets, setRelationTargets] = useState<RelationTargetMap>({});
   const [error, setError] = useState("");
-  const [coverSaving, setCoverSaving] = useState(false);
-  const [coverError, setCoverError] = useState("");
+  const [viewSaving, setViewSaving] = useState(false);
+  const [viewError, setViewError] = useState("");
   const [coverPendingRemoval, setCoverPendingRemoval] = useState<{ recordId: string; propertyId: string; title: string } | null>(null);
 
   useEffect(() => {
@@ -170,23 +188,23 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
 
   async function saveViewConfig(config: Record<string, unknown>) {
     if (!data || !selectedView) return;
-    setCoverSaving(true);
-    setCoverError("");
+    setViewSaving(true);
+    setViewError("");
     try {
       const response = await fetch(`/api/databases/${data.id}/views/${selectedView.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config }),
       });
-      if (!response.ok) throw new Error("Could not save this gallery setting.");
+      if (!response.ok) throw new Error("Could not save this view setting.");
       setData((views) => views ? {
         ...views,
         views: views.views.map((view) => view.id === selectedView.id ? { ...view, config } : view),
       } : views);
     } catch (saveError) {
-      setCoverError(saveError instanceof Error ? saveError.message : "Could not save this gallery setting.");
+      setViewError(saveError instanceof Error ? saveError.message : "Could not save this view setting.");
     } finally {
-      setCoverSaving(false);
+      setViewSaving(false);
     }
   }
 
@@ -210,8 +228,8 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
     if (!data) return;
     const record = data.records.find((row) => row.id === recordId);
     if (!record) return;
-    setCoverSaving(true);
-    setCoverError("");
+    setViewSaving(true);
+    setViewError("");
     try {
       const response = await fetch(`/api/databases/${data.id}/records/${recordId}`, {
         method: "PATCH",
@@ -225,9 +243,9 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
         records: current.records.map((row) => row.id === recordId ? { ...row, values: updated.values } : row),
       } : current);
     } catch (removeError) {
-      setCoverError(removeError instanceof Error ? removeError.message : "Could not remove the cover image.");
+      setViewError(removeError instanceof Error ? removeError.message : "Could not remove the cover image.");
     } finally {
-      setCoverSaving(false);
+      setViewSaving(false);
     }
   }
 
@@ -235,15 +253,15 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
     const picked = await pickLocalFile(IMAGE_MIME_TYPES.join(","));
     if (!picked) return;
     if (!isImageMimeType(picked.type)) {
-      setCoverError("Choose an image file for the cover.");
+      setViewError("Choose an image file for the cover.");
       return;
     }
     if (picked.size > MAX_ATTACHMENT_BYTES) {
-      setCoverError("Cover images must be 10 MB or smaller.");
+      setViewError("Cover images must be 10 MB or smaller.");
       return;
     }
-    setCoverSaving(true);
-    setCoverError("");
+    setViewSaving(true);
+    setViewError("");
     try {
       const uploaded = await uploadAttachment(picked);
       const record = data?.records.find((row) => row.id === recordId);
@@ -271,9 +289,9 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
         records: current.records.map((row) => row.id === recordId ? { ...row, values: updated.values } : row),
       } : current);
     } catch (uploadError) {
-      setCoverError(uploadError instanceof Error ? uploadError.message : "Could not save the cover image.");
+      setViewError(uploadError instanceof Error ? uploadError.message : "Could not save the cover image.");
     } finally {
-      setCoverSaving(false);
+      setViewSaving(false);
     }
   }
   // An embed applies the same saved filters, search text, and sorts as the
@@ -282,17 +300,18 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
   const filterText = typeof selectedView?.config.filterText === "string"
     ? selectedView.config.filterText.trim().toLocaleLowerCase()
     : "";
+  // Filters, lists, timelines, and charts all read calculated properties the
+  // same way they appear on the database page.
+  const valueFor = (record: EmbedRecord, property: { id: string; type: string }) => {
+    const calculated = property.type === "rollup" || property.type === "formula"
+      ? data?.properties.find((candidate) => candidate.id === property.id)
+      : undefined;
+    return calculated && data
+      ? cellValue(record, calculated, data.properties, relationTargets)
+      : record.values[property.id];
+  };
   const sorted = data
-    ? applyView(data.records, data.properties, viewFilters, parseViewSorts(selectedView?.config), {
-        valueFor: (record, property) => {
-          const calculated = property.type === "rollup" || property.type === "formula"
-            ? data.properties.find((candidate) => candidate.id === property.id)
-            : undefined;
-          return calculated
-            ? cellValue(record, calculated, data.properties, relationTargets)
-            : record.values[property.id];
-        },
-      })
+    ? applyView(data.records, data.properties, viewFilters, parseViewSorts(selectedView?.config), { valueFor })
     : [];
   const records = filterText
     ? sorted.filter((record) => [
@@ -303,6 +322,77 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
           .map((property) => displayValue(cellValue(record, property, data?.properties ?? [], relationTargets))),
       ].some((text) => text.toLocaleLowerCase().includes(filterText)))
     : sorted;
+  const timelineRange = parseTimelineRange(selectedView?.config.timelineRange);
+  const dateViewPropertyId = typeof selectedView?.config.datePropertyId === "string"
+    ? selectedView.config.datePropertyId
+    : "";
+  const listRowsForView = listRows(records, visibleProperties, { valueFor, limit: 4 });
+  const chartNumericProperties = (data?.properties ?? []).filter((property) =>
+    property.type === "number" || property.type === "formula" || property.type === "rollup",
+  );
+  const chartSelectProperties = (data?.properties ?? []).filter((property) => property.type === "select");
+  const chartPropertyId = typeof selectedView?.config.chartPropertyId === "string"
+    ? selectedView.config.chartPropertyId
+    : "";
+  const chartGroupPropertyId = typeof selectedView?.config.chartGroupPropertyId === "string"
+    ? selectedView.config.chartGroupPropertyId
+    : "";
+  const chartProperty = chartNumericProperties.find((property) => property.id === chartPropertyId)
+    ?? chartNumericProperties[0];
+  const chartGroupProperty = chartSelectProperties.find((property) => property.id === chartGroupPropertyId);
+  const chartBarProperty = chartProperty
+    ? { id: chartProperty.id, name: chartProperty.name, type: chartProperty.type }
+    : null;
+  const chartGroups = chartGroupProperty
+    ? {
+        id: chartGroupProperty.id,
+        name: chartGroupProperty.name,
+        type: chartGroupProperty.type,
+        options: {
+          choices: Array.isArray(chartGroupProperty.options.choices)
+            ? chartGroupProperty.options.choices.filter((choice): choice is string => typeof choice === "string")
+            : [],
+        },
+      }
+    : null;
+  const chart = chartBarProperty
+    ? chartData(records, chartBarProperty, { valueFor, groupBy: chartGroups })
+    : null;
+  const chartDateProperties = (data?.properties ?? []).filter((property) => property.type === "date");
+  const chartDatePropertyId = typeof selectedView?.config.chartDatePropertyId === "string"
+    ? selectedView.config.chartDatePropertyId
+    : "";
+  const chartDateProperty = chartDateProperties.find((property) => property.id === chartDatePropertyId);
+  const chartDateRange = parseTimelineRange(selectedView?.config.chartDateRange);
+  const chartDateOffset = parseChartDateOffset(selectedView?.config.chartDateOffset);
+  const chartDatePreset = parseChartDatePreset(selectedView?.config.chartDatePreset);
+  const chartPresetWindow = chartDatePreset
+    ? chartDatePresetWindow(chartToday, chartDatePreset)
+    : null;
+  const chartDateStart = chartPresetWindow?.from
+    ?? parseChartDateBound(selectedView?.config.chartDateStart)
+    ?? "";
+  const chartDateEnd = chartPresetWindow?.to
+    ?? parseChartDateBound(selectedView?.config.chartDateEnd)
+    ?? "";
+  const chartWindow = chartDateProperty
+    ? chartDateWindow(
+        chartToday,
+        chartDateRange,
+        chartDateOffset,
+        chartDateStart,
+        chartDateEnd,
+        chartDatePreset,
+      )
+    : null;
+  const chartType = parseChartType(selectedView?.config.chartType);
+  const chartSeriesForView = chartType === "line" && chartBarProperty
+    ? chartSeries(records, chartBarProperty, {
+        valueFor,
+        dateProperty: chartDateProperty ?? null,
+        dateWindow: chartWindow,
+      })
+    : null;
 
   return (
     <NodeViewWrapper className="my-5" contentEditable={false}>
@@ -322,6 +412,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
             </Button>
           </div>
         </div>
+        {viewError && <p role="alert" className="border-b px-3 py-2 text-xs text-destructive">{viewError}</p>}
         {error ? (
           <p role="alert" className="p-4 text-sm text-destructive">{error}</p>
         ) : data ? (
@@ -334,7 +425,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                     <select
                       value={galleryCoverProperty?.id ?? ""}
                       onChange={(event) => void setCoverProperty(event.target.value)}
-                      disabled={coverSaving}
+                      disabled={viewSaving}
                       className="rounded border bg-background px-2 py-1 text-foreground disabled:opacity-50"
                     >
                       <option value="">First image attachment</option>
@@ -346,7 +437,6 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                 </div>
               )}
               <div className="grid max-h-96 gap-3 overflow-y-auto p-3 sm:grid-cols-2">
-              {coverError && <p role="alert" className="col-span-full text-xs text-destructive">{coverError}</p>}
               {records.map((record) => {
                 const cover = coverForRecord(record);
                 const coverHidden = Boolean(cover) && hiddenCoverRecordIds.has(record.id);
@@ -370,7 +460,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                           <button
                             type="button"
                             onClick={() => coverTargetId && void uploadCover(record.id, coverTargetId)}
-                            disabled={coverSaving}
+                            disabled={viewSaving}
                             aria-label={`Replace cover for ${record.title}`}
                             title="Replace cover"
                             className="inline-flex size-6 items-center justify-center rounded border bg-background/90 text-muted-foreground shadow-sm hover:text-foreground disabled:opacity-50"
@@ -387,7 +477,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                                 title: record.title,
                               });
                             }}
-                            disabled={coverSaving}
+                            disabled={viewSaving}
                             aria-label={`Remove cover for ${record.title}`}
                             title="Remove cover"
                             className="inline-flex size-6 items-center justify-center rounded border bg-background/90 text-muted-foreground shadow-sm hover:text-destructive disabled:opacity-50"
@@ -397,7 +487,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                           <button
                             type="button"
                             onClick={() => void setCoverHidden(record.id, true)}
-                            disabled={coverSaving}
+                            disabled={viewSaving}
                             aria-label={`Hide cover for ${record.title}`}
                             title="Hide cover"
                             className="inline-flex items-center gap-1 rounded border bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm hover:text-foreground disabled:opacity-50"
@@ -411,7 +501,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                       <button
                         type="button"
                         onClick={() => void setCoverHidden(record.id, false)}
-                        disabled={coverSaving}
+                        disabled={viewSaving}
                         aria-label={`Show cover for ${record.title}`}
                         title="Show cover"
                         className="mb-1.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50"
@@ -423,7 +513,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                       <button
                         type="button"
                         onClick={() => void uploadCover(record.id, coverTargetId)}
-                        disabled={coverSaving}
+                        disabled={viewSaving}
                         aria-label={`Add cover for ${record.title}`}
                         title="Add cover"
                         className="mb-1.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50"
@@ -482,6 +572,75 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                   </section>
                 );
               })}
+            </div>
+          ) : selectedView?.type === "list" ? (
+            <div className="max-h-96 overflow-y-auto p-3">
+              <DatabaseList databaseId={data.id} rows={listRowsForView} />
+            </div>
+          ) : selectedView?.type === "timeline" ? (
+            <div className="max-h-96 overflow-y-auto p-3">
+              <DatabaseTimeline
+                databaseId={data.id}
+                properties={data.properties}
+                records={records}
+                datePropertyId={dateViewPropertyId}
+                range={timelineRange}
+                onDatePropertyChange={(propertyId) => void saveViewConfig({ ...selectedView.config, datePropertyId: propertyId })}
+                onRangeChange={(range) => void saveViewConfig({ ...selectedView.config, timelineRange: range })}
+              />
+            </div>
+          ) : selectedView?.type === "chart" ? (
+            <div className="max-h-96 overflow-y-auto p-3">
+              <DatabaseChart
+                databaseId={data.id}
+                sourceViewId={selectedView.id}
+                chart={chart}
+                series={chartSeriesForView}
+                properties={chartNumericProperties}
+                groupProperties={chartSelectProperties}
+                dateProperties={chartDateProperties}
+                propertyId={chartBarProperty?.id ?? ""}
+                groupPropertyId={chartGroupProperty?.id ?? ""}
+                datePropertyId={chartDateProperty?.id ?? ""}
+                dateRange={chartDateRange}
+                dateOffset={chartDateOffset}
+                dateStart={chartDateStart}
+                dateEnd={chartDateEnd}
+                datePreset={chartDatePreset}
+                type={chartType}
+                onPropertyChange={(propertyId) => void saveViewConfig({ ...selectedView.config, chartPropertyId: propertyId })}
+                onGroupChange={(propertyId) => void saveViewConfig({ ...selectedView.config, chartGroupPropertyId: propertyId })}
+                onDatePropertyChange={(propertyId) => void saveViewConfig({ ...selectedView.config, chartDatePropertyId: propertyId })}
+                onDateRangeChange={(range) => void saveViewConfig({
+                  ...selectedView.config,
+                  chartDateRange: range,
+                  chartDateStart: null,
+                  chartDateEnd: null,
+                  chartDatePreset: null,
+                })}
+                onDateOffsetChange={(offset) => void saveViewConfig({ ...selectedView.config, chartDateOffset: offset })}
+                onDateChange={(start, end) => void saveViewConfig({
+                  ...selectedView.config,
+                  chartDateStart: start || null,
+                  chartDateEnd: end || null,
+                  chartDatePreset: null,
+                })}
+                onDatePresetChange={(preset) => void saveViewConfig({
+                  ...selectedView.config,
+                  chartDatePreset: preset,
+                  chartDateStart: null,
+                  chartDateEnd: null,
+                })}
+                onDateWindowClear={() => void saveViewConfig({
+                  ...selectedView.config,
+                  chartDatePropertyId: "",
+                  chartDateStart: null,
+                  chartDateEnd: null,
+                  chartDatePreset: null,
+                  chartDateOffset: 0,
+                })}
+                onTypeChange={(chartType) => void saveViewConfig({ ...selectedView.config, chartType })}
+              />
             </div>
           ) : (
           <div className="max-h-96 overflow-auto">

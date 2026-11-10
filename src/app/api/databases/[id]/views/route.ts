@@ -8,7 +8,7 @@ import { apiErrorResponse } from "@/lib/api-log";
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["table", "board", "gallery", "calendar"]),
+  type: z.enum(["table", "board", "gallery", "calendar", "list", "timeline", "chart"]),
   config: z.record(z.string(), z.unknown()).optional(),
 });
 

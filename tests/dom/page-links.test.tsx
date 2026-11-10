@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PageLinks } from "../../src/components/page-links";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json } from "./fetch-stub";
+import { restoreStrictFetch, stubStrictFetch } from "./strict-fetch-stub";
 
 const PAGES = [
   { id: "p1", title: "Current page", parentId: null },
@@ -14,8 +15,8 @@ const PAGES = [
 const RECORD = { id: "r1", title: "Record one", databaseId: "d1", databaseName: "Media" };
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
+  restoreStrictFetch();
 });
 
 /** Answers the page-links request and the page-records request separately. */
@@ -23,9 +24,15 @@ function stubConnections(
   pageLinks: { links: { id: string; title: string }[]; backlinks: { id: string; title: string; contexts: string[] }[] },
   recordLinks: { records: typeof RECORD[]; options: typeof RECORD[] } = { records: [], options: [] },
 ) {
-  return stubFetch((call) =>
-    call.url.endsWith("/records") ? json(recordLinks) : json(pageLinks),
-  );
+  return stubStrictFetch("PageLinks", (call) => {
+    if (call.url === "/api/pages/p1/links" && call.method === "GET") {
+      return json(pageLinks);
+    }
+    if (call.url === "/api/pages/p1/records" && call.method === "GET") {
+      return json(recordLinks);
+    }
+    return undefined;
+  });
 }
 
 test("PageLinks renders linked pages, backlinks, and linked records", async () => {
@@ -90,13 +97,18 @@ test("PageLinks only offers pages that are not already linked", async () => {
 
 test("PageLinks posts a new link and refreshes the list", async () => {
   let links = [{ id: "p2", title: "Other" }];
-  const calls = stubFetch((call) => {
-    if (call.url.endsWith("/records")) return json({ records: [], options: [] });
-    if (call.method === "POST") {
+  const calls = stubStrictFetch("PageLinks", (call) => {
+    if (call.url === "/api/pages/p1/records" && call.method === "GET") {
+      return json({ records: [], options: [] });
+    }
+    if (call.url === "/api/pages/p1/links" && call.method === "POST") {
       links = [...links, { id: "p3", title: "Free page" }];
       return json({ ok: true });
     }
-    return json({ links, backlinks: [] });
+    if (call.url === "/api/pages/p1/links" && call.method === "GET") {
+      return json({ links, backlinks: [] });
+    }
+    return undefined;
   });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
@@ -122,13 +134,18 @@ test("PageLinks posts a new link and refreshes the list", async () => {
 
 test("PageLinks deletes a link and updates both columns", async () => {
   let links = [{ id: "p2", title: "Other" }];
-  const calls = stubFetch((call) => {
-    if (call.url.endsWith("/records")) return json({ records: [], options: [] });
-    if (call.method === "DELETE") {
+  const calls = stubStrictFetch("PageLinks", (call) => {
+    if (call.url === "/api/pages/p1/records" && call.method === "GET") {
+      return json({ records: [], options: [] });
+    }
+    if (call.url === "/api/pages/p1/links" && call.method === "DELETE") {
       links = [];
       return json({ ok: true });
     }
-    return json({ links, backlinks: [] });
+    if (call.url === "/api/pages/p1/links" && call.method === "GET") {
+      return json({ links, backlinks: [] });
+    }
+    return undefined;
   });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
@@ -146,15 +163,18 @@ test("PageLinks deletes a link and updates both columns", async () => {
 
 test("PageLinks links a record and shows it with its database", async () => {
   let records: (typeof RECORD)[] = [];
-  const calls = stubFetch((call) => {
-    if (call.url === "/api/pages/p1/records") {
-      if (call.method === "POST") {
-        records = [RECORD];
-        return json({ ok: true });
-      }
+  const calls = stubStrictFetch("PageLinks", (call) => {
+    if (call.url === "/api/pages/p1/records" && call.method === "POST") {
+      records = [RECORD];
+      return json({ ok: true });
+    }
+    if (call.url === "/api/pages/p1/records" && call.method === "GET") {
       return json({ records, options: records.length ? [] : [RECORD] });
     }
-    return json({ links: [], backlinks: [] });
+    if (call.url === "/api/pages/p1/links" && call.method === "GET") {
+      return json({ links: [], backlinks: [] });
+    }
+    return undefined;
   });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
@@ -180,15 +200,18 @@ test("PageLinks links a record and shows it with its database", async () => {
 
 test("PageLinks removes a record link", async () => {
   let records = [RECORD];
-  const calls = stubFetch((call) => {
-    if (call.url === "/api/pages/p1/records") {
-      if (call.method === "DELETE") {
-        records = [];
-        return json({ ok: true });
-      }
+  const calls = stubStrictFetch("PageLinks", (call) => {
+    if (call.url === "/api/pages/p1/records" && call.method === "DELETE") {
+      records = [];
+      return json({ ok: true });
+    }
+    if (call.url === "/api/pages/p1/records" && call.method === "GET") {
       return json({ records, options: [] });
     }
-    return json({ links: [], backlinks: [] });
+    if (call.url === "/api/pages/p1/links" && call.method === "GET") {
+      return json({ links: [], backlinks: [] });
+    }
+    return undefined;
   });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
@@ -205,7 +228,12 @@ test("PageLinks removes a record link", async () => {
 });
 
 test("PageLinks reports a failed load", async () => {
-  stubFetch(() => json({ error: "boom" }, 500));
+  stubStrictFetch("PageLinks", (call) =>
+    (call.url === "/api/pages/p1/links" || call.url === "/api/pages/p1/records") &&
+    call.method === "GET"
+      ? json({ error: "boom" }, 500)
+      : undefined,
+  );
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
 
@@ -214,9 +242,17 @@ test("PageLinks reports a failed load", async () => {
 });
 
 test("PageLinks reports a failed link creation", async () => {
-  stubFetch((call) => {
-    if (call.url.endsWith("/records")) return json({ records: [], options: [] });
-    return call.method === "POST" ? json({ error: "boom" }, 500) : json({ links: [], backlinks: [] });
+  stubStrictFetch("PageLinks", (call) => {
+    if (call.url === "/api/pages/p1/records" && call.method === "GET") {
+      return json({ records: [], options: [] });
+    }
+    if (call.url === "/api/pages/p1/links" && call.method === "POST") {
+      return json({ error: "boom" }, 500);
+    }
+    if (call.url === "/api/pages/p1/links" && call.method === "GET") {
+      return json({ links: [], backlinks: [] });
+    }
+    return undefined;
   });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);
@@ -233,13 +269,17 @@ test("PageLinks reports a failed link creation", async () => {
 });
 
 test("PageLinks reports a failed record link", async () => {
-  stubFetch((call) => {
-    if (call.url.endsWith("/records")) {
-      return call.method === "POST"
-        ? json({ error: "boom" }, 500)
-        : json({ records: [], options: [RECORD] });
+  stubStrictFetch("PageLinks", (call) => {
+    if (call.url === "/api/pages/p1/records" && call.method === "POST") {
+      return json({ error: "boom" }, 500);
     }
-    return json({ links: [], backlinks: [] });
+    if (call.url === "/api/pages/p1/records" && call.method === "GET") {
+      return json({ records: [], options: [RECORD] });
+    }
+    if (call.url === "/api/pages/p1/links" && call.method === "GET") {
+      return json({ links: [], backlinks: [] });
+    }
+    return undefined;
   });
 
   render(<PageLinks pageId="p1" pages={PAGES} />);

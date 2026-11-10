@@ -3,12 +3,21 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DashboardTimeline } from "../../src/components/dashboard-timeline";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json } from "./fetch-stub";
+import { restoreStrictFetch, stubStrictFetch } from "./strict-fetch-stub";
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
+  restoreStrictFetch();
 });
+
+function stubTimeline(response: () => Response) {
+  return stubStrictFetch("DashboardTimeline", (call) =>
+    call.url.split("?")[0] === "/api/dashboard" && call.method === "GET"
+      ? response()
+      : undefined,
+  );
+}
 
 const entries = [
   {
@@ -42,7 +51,7 @@ const timeline = {
 };
 
 test("shows dated records across databases grouped by day", async () => {
-  const calls = stubFetch(() => json({ timeline }));
+  const calls = stubTimeline(() => json({ timeline }));
   render(<DashboardTimeline />);
 
   assert.ok(screen.getByRole("heading", { name: "Timeline" }));
@@ -65,7 +74,7 @@ test("shows dated records across databases grouped by day", async () => {
 });
 
 test("changing the range asks for the new horizon", async () => {
-  const calls = stubFetch(() => json({ timeline }));
+  const calls = stubTimeline(() => json({ timeline }));
   render(<DashboardTimeline />);
 
   await screen.findByRole("link", { name: "Ship the beta" });
@@ -82,7 +91,7 @@ test("changing the range asks for the new horizon", async () => {
 });
 
 test("explains an empty timeline and a workspace with no date property", async () => {
-  stubFetch(() => json({ timeline: { ...timeline, entries: [], total: 0, dateProperties: 0 } }));
+  stubTimeline(() => json({ timeline: { ...timeline, entries: [], total: 0, dateProperties: 0 } }));
   render(<DashboardTimeline />);
   assert.ok(
     await screen.findByText("Add a date property to a database to build a timeline."),
@@ -90,7 +99,7 @@ test("explains an empty timeline and a workspace with no date property", async (
 
   cleanup();
 
-  stubFetch(() => json({ timeline: { ...timeline, entries: [], total: 0, dateProperties: 2 } }));
+  stubTimeline(() => json({ timeline: { ...timeline, entries: [], total: 0, dateProperties: 2 } }));
   render(<DashboardTimeline />);
   assert.ok(
     await screen.findByText("No dated records in the last 7 days or the next 30."),
@@ -98,7 +107,7 @@ test("explains an empty timeline and a workspace with no date property", async (
 });
 
 test("offers a retry when the timeline cannot load", async () => {
-  const calls = stubFetch(() => json({ error: "nope" }, 500));
+  const calls = stubTimeline(() => json({ error: "nope" }, 500));
   render(<DashboardTimeline />);
 
   assert.ok(await screen.findByRole("alert"));

@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CopyPlus, Download, Eye, EyeOff, Plus, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { DatabaseCalendar } from "@/components/database-calendar";
+import { DatabaseChart } from "@/components/database-chart";
+import { DatabaseList } from "@/components/database-list";
+import { DatabaseTimeline } from "@/components/database-timeline";
 import { FileCell } from "@/components/file-cell";
 import { MediaImage } from "@/components/media-image";
 import { DatabaseViewControls } from "@/components/database-view-controls";
@@ -33,6 +36,18 @@ import {
   type ViewProperty,
   type ViewSort,
 } from "@/lib/database-view";
+import {
+  chartData,
+  chartDateSpanLabel,
+  chartDateWindow,
+  chartSeries,
+  chartDatePresetWindow,
+  parseChartDateBound,
+  parseChartDateOffset,
+  parseChartDatePreset,
+  parseChartType,
+} from "@/lib/database-chart";
+import { listRows } from "@/lib/database-list";
 import { formatFormulaValue } from "@/lib/database-formula";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
 import { getDashboardWidgetsSnapshot } from "@/lib/dashboard";
@@ -41,6 +56,8 @@ import {
   parseFilePropertyValue,
   type FilePropertyValue,
 } from "@/lib/media";
+import { dateKey, todayKey } from "@/lib/calendar";
+import { parseTimelineRange } from "@/lib/timeline";
 import { DateCell, SelectCell } from "@/components/database-cell-editors";
 
 type PropertyType = "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select" | "relation" | "rollup" | "formula" | "file";
@@ -67,6 +84,69 @@ function viewControlsFromConfig(config: Record<string, unknown> | undefined) {
   };
 }
 
+type AdHocFilter =
+  | { kind: "record"; recordId: string }
+  | { kind: "value"; propertyId: string; value: string }
+  | { kind: "range"; propertyId: string; from: string; to: string; outside?: boolean };
+
+/**
+ * A temporary chart filter carried by the URL, never written to the view. A
+ * single-record bar filters by record id; a grouped bar or pie slice filters by
+ * the same bucket label chartData groups on.
+ */
+function adHocFilterFromParams(
+  params: URLSearchParams,
+  properties: Property[],
+  records: RecordRow[],
+): AdHocFilter | null {
+  const recordId = params.get("record") ?? "";
+  if (recordId) {
+    return records.some((record) => record.id === recordId)
+      ? { kind: "record", recordId }
+      : null;
+  }
+  const propertyId = params.get("filterProperty") ?? "";
+  const value = params.get("filterValue");
+  if (propertyId && value !== null) {
+    return properties.some((property) => property.id === propertyId)
+      ? { kind: "value", propertyId, value }
+      : null;
+  }
+  return null;
+}
+
+/** A date window that can narrow a chart slice without replacing its filter. */
+function adHocRangeFilterFromParams(
+  params: URLSearchParams,
+  properties: Property[],
+): Extract<AdHocFilter, { kind: "range" }> | null {
+  const propertyId = params.get("rangeProperty") ?? "";
+  const from = parseChartDateBound(params.get("rangeStart"));
+  const to = parseChartDateBound(params.get("rangeEnd"));
+  if (!propertyId || !from || !to || from > to) return null;
+  if (!properties.some((property) => property.id === propertyId && property.type === "date")) {
+    return null;
+  }
+  return {
+    kind: "range",
+    propertyId,
+    from,
+    to,
+    outside: params.get("rangeMode") === "outside",
+  };
+}
+
+function matchesAdHocFilter(record: RecordRow, filter: AdHocFilter): boolean {
+  if (filter.kind === "record") return record.id === filter.recordId;
+  if (filter.kind === "value") {
+    return (String(record.values[filter.propertyId] ?? "").trim() || "No value") === filter.value;
+  }
+  const date = dateKey(record.values[filter.propertyId]);
+  if (date === null) return false;
+  const inWindow = date >= filter.from && date <= filter.to;
+  return filter.outside ? !inWindow : inWindow;
+}
+
 function downloadFile(filename: string, content: string, mimeType: string) {
   const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
   const anchor = document.createElement("a");
@@ -84,6 +164,8 @@ function csvCell(value: unknown) {
 
 export function DatabaseWorkspace({ id }: { id: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rangeParamsKey = searchParams.toString();
   const [database, setDatabase] = useState<DatabaseData | null>(null);
   const [pages, setPages] = useState<PageOption[]>([]);
   const [allDatabases, setAllDatabases] = useState<DatabaseOption[]>([]);
@@ -92,6 +174,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [chartToday] = useState(() => todayKey());
   const [showPropertyForm, setShowPropertyForm] = useState(false);
   const [propertyName, setPropertyName] = useState("");
   const [propertyType, setPropertyType] = useState<PropertyType>("text");
@@ -197,6 +280,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     const timer = window.setTimeout(() => void loadDatabase(), 0);
     return () => window.clearTimeout(timer);
   }, [loadDatabase, reloadKey]);
+
 
   async function renameDatabase(name: string) {
     if (!name.trim() || !database || name === database.name) return;
@@ -462,6 +546,92 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
+  async function addListView() {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/databases/${id}/views`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "List", type: "list", config: {} }),
+      });
+      if (!response.ok) throw new Error("Could not create list view.");
+      const view: DatabaseView = await response.json();
+      setDatabase((current) => current ? { ...current, views: [...current.views, view] } : current);
+      selectView(view);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create list view.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addChartView() {
+    const valueProperty = database?.properties.find((property) =>
+      property.type === "number" || property.type === "formula" || property.type === "rollup",
+    );
+    if (!valueProperty) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/databases/${id}/views`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Chart",
+          type: "chart",
+          config: { chartPropertyId: valueProperty.id },
+        }),
+      });
+      if (!response.ok) throw new Error("Could not create chart view.");
+      const view: DatabaseView = await response.json();
+      setDatabase((current) => current ? { ...current, views: [...current.views, view] } : current);
+      selectView(view);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create chart view.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addTimelineView() {
+    const dateProperty = database?.properties.find((property) => property.type === "date");
+    if (!dateProperty) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/databases/${id}/views`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Timeline",
+          type: "timeline",
+          config: { datePropertyId: dateProperty.id, timelineRange: 30 },
+        }),
+      });
+      if (!response.ok) throw new Error("Could not create timeline view.");
+      const view: DatabaseView = await response.json();
+      setDatabase((current) => current ? { ...current, views: [...current.views, view] } : current);
+      selectView(view);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create timeline view.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function clearAdHocFilter() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("record");
+    params.delete("filterProperty");
+    params.delete("filterValue");
+    params.delete("rangeProperty");
+    params.delete("rangeStart");
+    params.delete("rangeEnd");
+    const query = params.toString();
+    router.replace(query ? `/databases/${id}?${query}` : `/databases/${id}`, { scroll: false });
+  }
+
   function selectView(view: DatabaseView) {
     setActiveViewId(view.id);
     const controls = viewControlsFromConfig(view.config);
@@ -716,6 +886,30 @@ export function DatabaseWorkspace({ id }: { id: string }) {
 
   const normalizedFilter = filterText.trim().toLocaleLowerCase();
   const activeView = database.views.find((view) => view.id === activeViewId) ?? database.views[0];
+  const rangeRecordsView = database.views.find((view) =>
+    view.type === "table" || view.type === "list" || view.type === "gallery"
+  );
+  const rangeParams = new URLSearchParams(rangeParamsKey);
+  const adHocFilter = adHocFilterFromParams(
+    rangeParams,
+    database.properties,
+    database.records,
+  );
+  const adHocRangeFilter = adHocRangeFilterFromParams(
+    rangeParams,
+    database.properties,
+  );
+  const sourceViewId = rangeParams.get("from") ?? "";
+  const sourceView = sourceViewId
+    ? database.views.find((view) => view.id === sourceViewId)
+    : undefined;
+  const fromDashboard = rangeParams.get("origin") === "dashboard";
+  const returnHref = fromDashboard
+    ? "/"
+    : sourceView
+      ? `/databases/${id}?view=${sourceView.id}`
+      : "";
+  const returnLabel = fromDashboard ? "dashboard" : sourceView?.name ?? "";
   const activeViewIndex = activeView
     ? database.views.findIndex((view) => view.id === activeView.id)
     : -1;
@@ -741,6 +935,43 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     ? boardProperties.find((property) => property.id === activeView.config.groupBy) ?? boardProperties[0]
     : undefined;
   const dateViewPropertyId = typeof activeView?.config.datePropertyId === "string" ? activeView.config.datePropertyId : "";
+  const timelineRange = parseTimelineRange(activeView?.config.timelineRange);
+  const chartNumericProperties = database.properties.filter((property) =>
+    property.type === "number" || property.type === "formula" || property.type === "rollup",
+  );
+  const chartSelectProperties = database.properties.filter((property) => property.type === "select");
+  const chartPropertyId = typeof activeView?.config.chartPropertyId === "string" ? activeView.config.chartPropertyId : "";
+  const chartGroupPropertyId = typeof activeView?.config.chartGroupPropertyId === "string" ? activeView.config.chartGroupPropertyId : "";
+  const chartProperty = chartNumericProperties.find((property) => property.id === chartPropertyId) ?? chartNumericProperties[0];
+  const chartGroupProperty = chartSelectProperties.find((property) => property.id === chartGroupPropertyId);
+  const chartType = parseChartType(activeView?.config.chartType);
+  const chartDateProperties = database.properties.filter((property) => property.type === "date");
+  const chartDatePropertyId = typeof activeView?.config.chartDatePropertyId === "string"
+    ? activeView.config.chartDatePropertyId
+    : "";
+  const chartDateProperty = chartDateProperties.find((property) => property.id === chartDatePropertyId);
+  const chartDateRange = parseTimelineRange(activeView?.config.chartDateRange);
+  const chartDateOffset = parseChartDateOffset(activeView?.config.chartDateOffset);
+  const chartDatePreset = parseChartDatePreset(activeView?.config.chartDatePreset);
+  const chartPresetWindow = chartDatePreset
+    ? chartDatePresetWindow(chartToday, chartDatePreset)
+    : null;
+  const chartDateStart = chartPresetWindow?.from
+    ?? parseChartDateBound(activeView?.config.chartDateStart)
+    ?? "";
+  const chartDateEnd = chartPresetWindow?.to
+    ?? parseChartDateBound(activeView?.config.chartDateEnd)
+    ?? "";
+  const chartWindow = chartDateProperty
+    ? chartDateWindow(
+        chartToday,
+        chartDateRange,
+        chartDateOffset,
+        chartDateStart,
+        chartDateEnd,
+        chartDatePreset,
+      )
+    : null;
   const valueFor = (record: RecordRow, property: ViewProperty) => {
     const matchedProperty = database.properties.find((candidate) => candidate.id === property.id);
     if (property.type === "rollup" && matchedProperty) return getRollupValue(record, matchedProperty);
@@ -754,7 +985,44 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       ...database.properties.filter((property) => property.type === "formula").map((property) => formatFormulaValue(getFormulaValue(record, property)))]
       .some((value) => value.toLocaleLowerCase().includes(normalizedFilter));
   });
-  const visibleRecords = applyView(matchingRecords, database.properties, filters, sorts, { valueFor });
+  const sortedRecords = applyView(matchingRecords, database.properties, filters, sorts, { valueFor });
+  const visibleRecords = sortedRecords.filter(
+    (record) =>
+      (!adHocFilter || matchesAdHocFilter(record, adHocFilter)) &&
+      (!adHocRangeFilter || matchesAdHocFilter(record, adHocRangeFilter)),
+  );
+  const adHocFilterProperty = adHocFilter && adHocFilter.kind !== "record"
+    ? database.properties.find((property) => property.id === adHocFilter.propertyId)
+    : undefined;
+  const adHocRangeProperty = adHocRangeFilter
+    ? database.properties.find((property) => property.id === adHocRangeFilter.propertyId)
+    : undefined;
+  const adHocTextParts: string[] = [];
+  if (adHocFilter?.kind === "record") {
+    const record = database.records.find((candidate) => candidate.id === adHocFilter.recordId);
+    if (record) adHocTextParts.push(`Showing only ${record.title || "Untitled"}.`);
+  } else if (adHocFilter?.kind === "value" && adHocFilterProperty) {
+    adHocTextParts.push(`Showing records with ${adHocFilterProperty.name} is ${adHocFilter.value}.`);
+  }
+  if (adHocRangeFilter && adHocRangeProperty) {
+    adHocTextParts.push(
+      `Showing records with ${adHocRangeProperty.name} ${adHocRangeFilter.outside ? "outside" : "in"} ${chartDateSpanLabel(adHocRangeFilter.from, adHocRangeFilter.to)}.`,
+    );
+  }
+  const adHocFilterText = adHocTextParts.join(" ");
+  const listRowsForView = listRows(visibleRecords, visibleProperties, { valueFor });
+  const chartRows = chartProperty
+    ? chartData(visibleRecords, chartProperty, { valueFor, groupBy: chartGroupProperty })
+    : null;
+  // A line follows the view's saved sorts or a chosen date property, so either
+  // the record order or real time shapes it.
+  const chartSeriesForView = chartType === "line" && chartProperty
+    ? chartSeries(visibleRecords, chartProperty, {
+        valueFor,
+        dateProperty: chartDateProperty ?? null,
+        dateWindow: chartWindow,
+      })
+    : null;
 
   // Record pages are not offered in the page picker, so keep a record's own
   // page in its options while that page is the current value.
@@ -999,6 +1267,49 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   <span className="ml-auto text-[11px] text-muted-foreground">needs a Date property</span>
                 )}
               </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  void addListView();
+                }}
+                disabled={busy}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-40"
+              >
+                List view
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  void addTimelineView();
+                }}
+                disabled={busy || dateProperties.length === 0}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-40"
+              >
+                Timeline view
+                {dateProperties.length === 0 && (
+                  <span className="ml-auto text-[11px] text-muted-foreground">needs a Date property</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  void addChartView();
+                }}
+                disabled={busy || database.properties.every((property) =>
+                  property.type !== "number" && property.type !== "formula" && property.type !== "rollup",
+                )}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-40"
+              >
+                Chart view
+                {database.properties.every((property) =>
+                  property.type !== "number" && property.type !== "formula" && property.type !== "rollup",
+                ) && (
+                  <span className="ml-auto text-[11px] text-muted-foreground">needs a Number property</span>
+                )}
+              </button>
             </div>
           </details>
         </div>
@@ -1113,6 +1424,35 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         {viewSaveError && <p role="status" aria-live="polite" className={`text-xs ${viewSaveError.includes("could not") ? "text-destructive" : "text-muted-foreground"}`}>{viewSaveError}</p>}
 
+        {returnHref && (
+          <Link
+            href={returnHref}
+            onClick={
+              !fromDashboard && sourceView ? () => selectView(sourceView) : undefined
+            }
+            className="inline-flex w-fit items-center gap-1 text-xs font-medium text-brand hover:underline"
+          >
+            <ArrowLeft size={13} aria-hidden="true" /> Back to {returnLabel}
+          </Link>
+        )}
+
+        {(adHocFilter || adHocRangeFilter) && adHocFilterText && (
+          <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2 text-xs">
+            <span>{adHocFilterText}</span>
+            <button
+              type="button"
+              onClick={clearAdHocFilter}
+              className="rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {adHocFilter && adHocRangeFilter
+                ? "Clear filters"
+                : adHocRangeFilter
+                  ? "Clear date filter"
+                  : "Clear filter"}
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-start gap-2">
           <div className="min-w-0 flex-1">
             <DatabaseViewControls
@@ -1142,6 +1482,67 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             records={visibleRecords}
             datePropertyId={dateViewPropertyId}
             onDatePropertyChange={(propertyId) => void changeViewConfig(activeView, { datePropertyId: propertyId })}
+          />
+        ) : activeView?.type === "list" ? (
+          <DatabaseList databaseId={id} rows={listRowsForView} />
+        ) : activeView?.type === "timeline" ? (
+          <DatabaseTimeline
+            databaseId={id}
+            properties={database.properties}
+            records={visibleRecords}
+            datePropertyId={dateViewPropertyId}
+            range={timelineRange}
+            onDatePropertyChange={(propertyId) => void changeViewConfig(activeView, { datePropertyId: propertyId })}
+            onRangeChange={(range) => void changeViewConfig(activeView, { timelineRange: range })}
+          />
+        ) : activeView?.type === "chart" ? (
+          <DatabaseChart
+            databaseId={id}
+            rangeViewId={rangeRecordsView?.id}
+            sourceViewId={activeView.id}
+            onRangeOpen={rangeRecordsView ? () => selectView(rangeRecordsView) : undefined}
+            chart={chartRows}
+            series={chartSeriesForView}
+            properties={chartNumericProperties}
+            groupProperties={chartSelectProperties}
+            dateProperties={chartDateProperties}
+            propertyId={chartProperty?.id ?? ""}
+            groupPropertyId={chartGroupProperty?.id ?? ""}
+            datePropertyId={chartDateProperty?.id ?? ""}
+            dateRange={chartDateRange}
+            dateOffset={chartDateOffset}
+            dateStart={chartDateStart}
+            dateEnd={chartDateEnd}
+            datePreset={chartDatePreset}
+            type={chartType}
+            onPropertyChange={(propertyId) => void changeViewConfig(activeView, { chartPropertyId: propertyId })}
+            onGroupChange={(propertyId) => void changeViewConfig(activeView, { chartGroupPropertyId: propertyId })}
+            onDatePropertyChange={(propertyId) => void changeViewConfig(activeView, { chartDatePropertyId: propertyId })}
+            onDateRangeChange={(range) => void changeViewConfig(activeView, {
+              chartDateRange: range,
+              chartDateStart: null,
+              chartDateEnd: null,
+              chartDatePreset: null,
+            })}
+            onDateOffsetChange={(offset) => void changeViewConfig(activeView, { chartDateOffset: offset })}
+            onDateChange={(start, end) => void changeViewConfig(activeView, {
+              chartDateStart: start || null,
+              chartDateEnd: end || null,
+              chartDatePreset: null,
+            })}
+            onDatePresetChange={(preset) => void changeViewConfig(activeView, {
+              chartDatePreset: preset,
+              chartDateStart: null,
+              chartDateEnd: null,
+            })}
+            onDateWindowClear={() => void changeViewConfig(activeView, {
+              chartDatePropertyId: "",
+              chartDateStart: null,
+              chartDateEnd: null,
+              chartDatePreset: null,
+              chartDateOffset: 0,
+            })}
+            onTypeChange={(chartType) => void changeViewConfig(activeView, { chartType })}
           />
         ) : activeView?.type === "gallery" ? (
           <section aria-label="Gallery view" className="space-y-3">

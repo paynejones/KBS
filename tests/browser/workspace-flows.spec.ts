@@ -270,3 +270,439 @@ test("adds a database record and edits its title and number value", async ({ pag
     await cleanupDatabase(request, database.id);
   }
 });
+
+test("pins chart views to the home dashboard with their saved shape", async ({ page, request }) => {
+  const token = `chart-widget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const database = await createDatabase(request, `${token} database`);
+  const score = await createProperty(request, database.id, { name: "Score", type: "number" });
+  const effort = await createProperty(request, database.id, { name: "Effort", type: "number" });
+  const status = await createProperty(request, database.id, {
+    name: "Status",
+    type: "select",
+    options: { choices: ["Todo", "Done"] },
+  });
+  const when = await createProperty(request, database.id, { name: "When", type: "date" });
+  const fixture = await createPage(request, { title: `${token} page` });
+
+  try {
+    for (const [title, scoreValue, effortValue, statusValue, date] of [
+      [`${token} Alpha`, 7, 2, "Done", "2026-11-20"],
+      [`${token} Beta`, 3, 8, "Todo", "2026-11-10"],
+    ] as const) {
+      const record = await createRecord(request, database.id, title);
+      assert.equal((await request.patch(`/api/databases/${database.id}/records/${record.id}`, {
+        data: {
+          values: {
+            [score.id]: scoreValue,
+            [effort.id]: effortValue,
+            [status.id]: statusValue,
+            [when.id]: date,
+          },
+        },
+      })).status(), 200);
+    }
+    await createRecord(request, database.id, `${token} Gamma`);
+
+    const createChartView = async (name: string, chartType: string) =>
+      await json<{ id: string; name: string }>(await request.post(`/api/databases/${database.id}/views`, {
+        data: { name, type: "chart", config: { chartPropertyId: score.id, chartType } },
+      }));
+    const pie = await createChartView(`${token} pie`, "pie");
+    const line = await createChartView(`${token} line`, "line");
+
+    await page.goto("/");
+    const picker = page.locator("#dashboard-widget-picker");
+    await expect(picker).toBeEnabled();
+    await picker.selectOption({ label: `${database.name} — ${pie.name}` });
+    await page.getByRole("button", { name: "Pin", exact: true }).click();
+    await picker.selectOption({ label: `${database.name} — ${line.name}` });
+    await page.getByRole("button", { name: "Pin", exact: true }).click();
+
+    const pieWidget = page.locator("article").filter({
+      has: page.getByRole("heading", { name: pie.name }),
+    });
+    await expect(pieWidget).toBeVisible();
+    await expect(pieWidget.getByText("70% · 7")).toBeVisible();
+    await expect(pieWidget.getByText("30% · 3")).toBeVisible();
+    await expect(pieWidget.getByText("1 record has no Score value.")).toBeVisible();
+    await expect(
+      pieWidget.getByRole("link", { name: `Open database filtered to ${token} Alpha` }),
+    ).toHaveAttribute("href", /origin=dashboard/);
+
+    // Value and grouping picks save to the view and redraw from fresh data.
+    const savedValue = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByLabel(`Chart value for ${pie.name}`).selectOption(effort.id);
+    assert.equal((await savedValue).status(), 200);
+    await expect(pieWidget.getByText("20% · 2")).toBeVisible();
+    await expect(pieWidget.getByText("80% · 8")).toBeVisible();
+
+    const savedGroup = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByLabel(`Chart group for ${pie.name}`).selectOption(status.id);
+    assert.equal((await savedGroup).status(), 200);
+    await expect(pieWidget.locator("ul").getByText("Done", { exact: true })).toBeVisible();
+    await expect(pieWidget.locator("ul").getByText("Todo", { exact: true })).toBeVisible();
+
+    const lineWidget = page.locator("article").filter({
+      has: page.getByRole("heading", { name: line.name }),
+    });
+    await expect(lineWidget).toBeVisible();
+    await expect(lineWidget.getByText("2 points")).toBeVisible();
+    await expect(lineWidget.getByText("High 7")).toBeVisible();
+    await expect(lineWidget.getByText("Low 0")).toBeVisible();
+
+    // Switching the shape in place saves it to the shared view.
+    const savedShape = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByLabel(`Chart type for ${pie.name}`).selectOption("line");
+    assert.equal((await savedShape).status(), 200);
+    await expect(pieWidget.getByText("2 points")).toBeVisible();
+    await expect(pieWidget.getByText("High 8")).toBeVisible();
+
+    const savedDates = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByLabel(`Chart dates for ${pie.name}`).selectOption(when.id);
+    assert.equal((await savedDates).status(), 200);
+    await expect(pieWidget.getByText("2 points")).toBeVisible();
+
+    const savedWindow = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByLabel(`Chart window for ${pie.name}`).selectOption("7");
+    assert.equal((await savedWindow).status(), 200);
+    await expect(pieWidget.getByLabel(`Chart window for ${pie.name}`)).toHaveValue("7");
+
+    const shiftedWindow = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByRole("button", { name: `Previous window for ${pie.name}` }).click();
+    assert.equal((await shiftedWindow).status(), 200);
+    await expect(pieWidget.getByText("7 days back")).toBeVisible();
+
+    const rangeStart = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByLabel(`Chart range start for ${pie.name}`).fill("2026-10-01");
+    assert.equal((await rangeStart).status(), 200);
+
+    const rangeEnd = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByLabel(`Chart range end for ${pie.name}`).fill("2026-10-31");
+    assert.equal((await rangeEnd).status(), 200);
+    await expect(pieWidget.getByText("Custom range")).toBeVisible();
+    await expect(pieWidget.getByText("Custom range · Oct 1–31, 2026 · 0 records")).toBeVisible();
+
+    const now = new Date();
+    const monthKey = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const thisMonthFrom = monthKey(new Date(now.getFullYear(), now.getMonth(), 1));
+    const thisMonthTo = monthKey(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+
+    const monthRange = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await pieWidget.getByRole("button", { name: `This month for ${pie.name}` }).click();
+    assert.equal((await monthRange).status(), 200);
+    await expect(pieWidget.getByLabel(`Chart range start for ${pie.name}`)).toHaveValue(thisMonthFrom);
+    await expect(pieWidget.getByLabel(`Chart range end for ${pie.name}`)).toHaveValue(thisMonthTo);
+    const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const expectedRecords = now.getFullYear() === 2026 && now.getMonth() === 10 ? 2 : 0;
+    await expect(
+      pieWidget.getByText(
+        `This month · ${shortMonths[now.getMonth()]} 1–${monthDays}, ${now.getFullYear()} · ${expectedRecords} records`,
+      ),
+    ).toBeVisible();
+
+    const detail = await json<{
+      views: {
+        id: string;
+        config: {
+          chartType?: string;
+          chartPropertyId?: string;
+          chartGroupPropertyId?: string;
+          chartDatePropertyId?: string;
+          chartDateRange?: number;
+          chartDateOffset?: number;
+          chartDateStart?: string | null;
+          chartDateEnd?: string | null;
+          chartDatePreset?: string | null;
+        };
+      }[];
+    }>(await request.get(`/api/databases/${database.id}`));
+    const savedConfig = detail.views.find((view) => view.id === pie.id)?.config;
+    assert.equal(savedConfig?.chartType, "line", "the chosen shape is saved on the view");
+    assert.equal(savedConfig?.chartPropertyId, effort.id, "the value property is saved");
+    assert.equal(
+      savedConfig?.chartGroupPropertyId,
+      status.id,
+      "the grouping property is saved",
+    );
+    assert.equal(
+      savedConfig?.chartDatePropertyId,
+      when.id,
+      "the line's date axis is saved",
+    );
+    assert.equal(savedConfig?.chartDateRange, 7, "the line's window is saved");
+    assert.equal(savedConfig?.chartDateOffset, -7, "the window's step back is saved");
+    assert.equal(
+      savedConfig?.chartDatePreset,
+      "this-month",
+      "the shortcut is saved as a calendar-following preset",
+    );
+    assert.equal(savedConfig?.chartDateStart, null);
+    assert.equal(savedConfig?.chartDateEnd, null);
+    const rangeRecords = pieWidget.getByRole("link", { name: `${expectedRecords} records` });
+    await expect(rangeRecords).toHaveAttribute(
+      "href",
+      new RegExp(`/databases/${database.id}\\?.*rangeProperty=${when.id}`),
+    );
+    await rangeRecords.click();
+    await expect(page.getByRole("link", { name: "Back to dashboard" })).toBeVisible();
+    await page.getByRole("link", { name: "Back to dashboard" }).click();
+    await expect(page.locator("#dashboard-widget-picker")).toBeVisible();
+
+    // A fixed one-day window proves bars total only the records in it.
+    const barsWidget = page.locator("article").filter({
+      has: page.getByRole("heading", { name: pie.name }),
+    });
+    const fixedStart = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await barsWidget.getByLabel(`Chart range start for ${pie.name}`).fill("2026-11-20");
+    assert.equal((await fixedStart).status(), 200);
+    const fixedEnd = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await barsWidget.getByLabel(`Chart range end for ${pie.name}`).fill("2026-11-20");
+    assert.equal((await fixedEnd).status(), 200);
+
+    // Pie and bars both surface the same date selection, window, and summary.
+    const savedPie = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await barsWidget.getByLabel(`Chart type for ${pie.name}`).selectOption("pie");
+    assert.equal((await savedPie).status(), 200);
+    await expect(barsWidget.getByLabel(`Chart dates for ${pie.name}`)).toHaveValue(when.id);
+    await expect(barsWidget.getByLabel(`Chart window for ${pie.name}`)).toBeVisible();
+    await expect(
+      barsWidget.getByText(/Custom range.*Nov 20.*1 record · 1 outside/),
+    ).toBeVisible();
+
+    const savedBars = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await barsWidget.getByLabel(`Chart type for ${pie.name}`).selectOption("bars");
+    assert.equal((await savedBars).status(), 200);
+    await expect(barsWidget.getByLabel(`Chart dates for ${pie.name}`)).toHaveValue(when.id);
+    await expect(barsWidget.getByLabel(`Chart window for ${pie.name}`)).toBeVisible();
+    await expect(
+      barsWidget.getByText(/Custom range.*Nov 20.*1 record · 1 outside/),
+    ).toBeVisible();
+    await expect(barsWidget.locator("ul").getByText("2", { exact: true })).toBeVisible();
+    await expect(
+      barsWidget.getByRole("link", { name: "Open database filtered to Todo" }),
+    ).toHaveCount(0);
+    const doneSlice = barsWidget.getByRole("link", {
+      name: "Open database filtered to Done",
+    });
+    await expect(doneSlice).toHaveAttribute(
+      "href",
+      new RegExp(`rangeProperty=${when.id}.*rangeStart=2026-11-20`),
+    );
+    await doneSlice.click();
+    await expect(page).toHaveURL(new RegExp(`filterProperty=${status.id}`));
+    await expect(page).toHaveURL(new RegExp(`rangeProperty=${when.id}`));
+    const combinedFilter = page.getByRole("status").filter({
+      hasText: "Showing records with Status is Done.",
+    });
+    await expect(combinedFilter).toContainText("When in");
+    await expect(page.getByRole("button", { name: "Clear filters" })).toBeVisible();
+    await page.getByRole("link", { name: "Back to dashboard" }).click();
+    await expect(page.locator("#dashboard-widget-picker")).toBeVisible();
+
+    await barsWidget.getByRole("link", { name: "1 outside" }).click();
+    await expect(page).toHaveURL(/rangeMode=outside/);
+    await expect(page.getByRole("link", { name: "Back to dashboard" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Record name" })).toHaveCount(1);
+    await page.getByRole("link", { name: "Back to dashboard" }).click();
+    await expect(page.locator("#dashboard-widget-picker")).toBeVisible();
+
+    const clearedWindow = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await barsWidget
+      .getByRole("button", { name: `Clear date window for ${pie.name}` })
+      .click();
+    assert.equal((await clearedWindow).status(), 200);
+    await expect(barsWidget.getByLabel(`Chart dates for ${pie.name}`)).toHaveValue("");
+    await expect(barsWidget.getByLabel(`Chart window for ${pie.name}`)).toHaveCount(0);
+    await expect(
+      barsWidget.getByRole("link", { name: "Open database filtered to Todo" }),
+    ).toBeVisible();
+    await expect(barsWidget.locator("ul").getByText("8", { exact: true })).toBeVisible();
+  } finally {
+    await purgePage(request, fixture.id);
+    await cleanupDatabase(request, database.id);
+  }
+});
+
+test("shows outside-window counts on grouped dashboard bars and pies", async ({ page, request }) => {
+  const token = `chart-slice-outside-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const database = await createDatabase(request, `${token} database`);
+  const score = await createProperty(request, database.id, { name: "Score", type: "number" });
+  const status = await createProperty(request, database.id, {
+    name: "Status",
+    type: "select",
+    options: { choices: ["Todo", "Done", "Archived"] },
+  });
+  const when = await createProperty(request, database.id, { name: "When", type: "date" });
+  const fixture = await createPage(request, { title: `${token} page` });
+
+  try {
+    for (const [title, value, statusValue, date] of [
+      [`${token} Done in`, 2, "Done", "2026-11-20"],
+      [`${token} Todo in`, 8, "Todo", "2026-11-10"],
+      [`${token} Todo out`, 4, "Todo", "2026-09-15"],
+      [`${token} Archived out`, 3, "Archived", "2026-09-16"],
+    ] as const) {
+      const record = await createRecord(request, database.id, title);
+      assert.equal((await request.patch(`/api/databases/${database.id}/records/${record.id}`, {
+        data: { values: { [score.id]: value, [status.id]: statusValue, [when.id]: date } },
+      })).status(), 200);
+    }
+
+    const view = await json<{ id: string; name: string }>(await request.post(
+      `/api/databases/${database.id}/views`,
+      {
+        data: {
+          name: `${token} chart`,
+          type: "chart",
+          config: {
+            chartPropertyId: score.id,
+            chartType: "pie",
+            chartGroupPropertyId: status.id,
+            chartDatePropertyId: when.id,
+            chartDateStart: "2026-11-10",
+            chartDateEnd: "2026-11-20",
+          },
+        },
+      },
+    ));
+
+    await page.goto("/");
+    const picker = page.locator("#dashboard-widget-picker");
+    await expect(picker).toBeEnabled();
+    await picker.selectOption({ label: `${database.name} — ${view.name}` });
+    await page.getByRole("button", { name: "Pin", exact: true }).click();
+
+    const widget = page.locator("article").filter({
+      has: page.getByRole("heading", { name: view.name }),
+    });
+    await expect(widget).toBeVisible();
+    await expect(widget.getByText(/20% · 2/)).toBeVisible();
+    await expect(widget.getByText(/80% · 8 · 1 outside/)).toBeVisible();
+    await expect(widget.getByText("Only outside this window:")).toBeVisible();
+    await expect(widget.getByRole("link", { name: "Archived", exact: true })).toBeVisible();
+    await expect(widget.locator("ul").getByText("Archived", { exact: true })).toHaveCount(0);
+
+    const todoSliceOutside = widget.locator("ul").getByRole("link", {
+      name: "Open database filtered to Todo record outside this date window",
+      exact: true,
+    });
+    await expect(todoSliceOutside).toBeVisible();
+    const todoOutsideHref = await todoSliceOutside.getAttribute("href");
+    assert.ok(todoOutsideHref);
+    const todoOutsideUrl = new URL(todoOutsideHref, "https://example.test");
+    assert.equal(todoOutsideUrl.searchParams.get("filterProperty"), status.id);
+    assert.equal(todoOutsideUrl.searchParams.get("filterValue"), "Todo");
+    assert.equal(todoOutsideUrl.searchParams.get("rangeProperty"), when.id);
+    assert.equal(todoOutsideUrl.searchParams.get("rangeStart"), "2026-11-10");
+    assert.equal(todoOutsideUrl.searchParams.get("rangeEnd"), "2026-11-20");
+    assert.equal(todoOutsideUrl.searchParams.get("rangeMode"), "outside");
+    assert.equal(todoOutsideUrl.searchParams.get("from"), view.id);
+    assert.equal(todoOutsideUrl.searchParams.get("origin"), "dashboard");
+
+    await todoSliceOutside.click();
+    await expect(page).toHaveURL(/rangeMode=outside/);
+    const todoOutsideBanner = page.getByRole("status");
+    await expect(todoOutsideBanner).toContainText("Showing records with Status is Todo.");
+    await expect(todoOutsideBanner).toContainText("Showing records with When outside");
+    const todoOutsideNames = page.getByRole("textbox", { name: "Record name" });
+    await expect(todoOutsideNames).toHaveCount(1);
+    await expect(todoOutsideNames).toHaveValue(`${token} Todo out`);
+    await page.getByRole("link", { name: "Back to dashboard" }).click();
+    await expect(page.locator("#dashboard-widget-picker")).toBeVisible();
+
+    const savedBars = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${view.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await widget.getByLabel(`Chart type for ${view.name}`).selectOption("bars");
+    assert.equal((await savedBars).status(), 200);
+    await expect(widget.locator("ul").getByText(/8 · 1 outside/)).toBeVisible();
+    await expect(widget.locator("ul").getByText(/^2$/)).toBeVisible();
+    await expect(widget.locator("ul").getByText("Archived", { exact: true })).toHaveCount(0);
+
+    const todoBarOutside = widget.locator("ul").getByRole("link", {
+      name: "Open database filtered to Todo record outside this date window",
+      exact: true,
+    });
+    await expect(todoBarOutside).toBeVisible();
+    assert.equal(await todoBarOutside.getAttribute("href"), todoOutsideHref);
+    await todoBarOutside.click();
+    await expect(page).toHaveURL(/rangeMode=outside/);
+    await expect(todoOutsideBanner).toContainText("Showing records with Status is Todo.");
+    await expect(todoOutsideBanner).toContainText("Showing records with When outside");
+    await expect(todoOutsideNames).toHaveCount(1);
+    await expect(todoOutsideNames).toHaveValue(`${token} Todo out`);
+    await page.getByRole("link", { name: "Back to dashboard" }).click();
+    await expect(page.locator("#dashboard-widget-picker")).toBeVisible();
+
+    const outsideGroupLink = widget.getByRole("link", { name: "Archived", exact: true });
+    await expect(outsideGroupLink).toBeVisible();
+    const outsideHref = await outsideGroupLink.getAttribute("href");
+    assert.ok(outsideHref);
+    const outsideUrl = new URL(outsideHref, "https://example.test");
+    assert.equal(outsideUrl.searchParams.get("filterProperty"), status.id);
+    assert.equal(outsideUrl.searchParams.get("filterValue"), "Archived");
+    assert.equal(outsideUrl.searchParams.get("rangeProperty"), when.id);
+    assert.equal(outsideUrl.searchParams.get("rangeStart"), "2026-11-10");
+    assert.equal(outsideUrl.searchParams.get("rangeEnd"), "2026-11-20");
+    assert.equal(outsideUrl.searchParams.get("rangeMode"), "outside");
+    assert.equal(outsideUrl.searchParams.get("from"), view.id);
+    assert.equal(outsideUrl.searchParams.get("origin"), "dashboard");
+
+    await outsideGroupLink.click();
+    await expect(page).toHaveURL(/rangeMode=outside/);
+    const outsideBanner = page.getByRole("status");
+    await expect(outsideBanner).toContainText("Showing records with Status is Archived.");
+    await expect(outsideBanner).toContainText("Showing records with When outside");
+    const outsideNames = page.getByRole("textbox", { name: "Record name" });
+    await expect(outsideNames).toHaveCount(1);
+    await expect(outsideNames).toHaveValue(`${token} Archived out`);
+  } finally {
+    await purgePage(request, fixture.id);
+    await cleanupDatabase(request, database.id);
+  }
+});

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PageEditor } from "../../src/components/page-editor";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json, type FetchCall } from "./fetch-stub";
+import { restorePageEditorFetch, stubPageEditor } from "./page-editor-stub";
 
 const PAGE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const UPDATED_AT = "2026-01-01T00:00:00.000Z";
@@ -29,34 +30,20 @@ function serverPage(selectedText: string | null) {
   };
 }
 
-function stubEditor(page: ReturnType<typeof serverPage>) {
-  return stubFetch((call) => {
-    if (call.url === "/api/pages") {
-      return json([{ id: PAGE_ID, title: page.title, parentId: null }]);
-    }
-    if (call.url === "/api/databases") return json([]);
-    if (call.url === `/api/pages/${PAGE_ID}`) return json(page);
-    if (call.url === `/api/pages/${PAGE_ID}/links`) return json({ links: [], backlinks: [] });
-    if (call.url === `/api/pages/${PAGE_ID}/records`) return json({ records: [], options: [] });
-    if (call.url === `/api/pages/${PAGE_ID}/tags` || call.url === "/api/tags") return json([]);
-    return json({ ok: true });
-  });
-}
-
-function pagePatches(calls: ReturnType<typeof stubEditor>) {
+function pagePatches(calls: FetchCall[]) {
   return calls.filter(
     (call) => call.method === "PATCH" && call.url === `/api/pages/${PAGE_ID}`,
   );
 }
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
   localStorage.clear();
+  restorePageEditorFetch();
 });
 
 test("PageEditor opens with the passage captured from its source", async () => {
-  stubEditor(serverPage("A passage worth keeping."));
+  stubPageEditor({ page: serverPage("A passage worth keeping.") });
 
   render(<PageEditor id={PAGE_ID} />);
 
@@ -69,7 +56,7 @@ test("PageEditor opens with the passage captured from its source", async () => {
 });
 
 test("PageEditor shows no quote for a page captured without one", async () => {
-  stubEditor(serverPage(null));
+  stubPageEditor({ page: serverPage(null) });
 
   render(<PageEditor id={PAGE_ID} />);
 
@@ -79,7 +66,7 @@ test("PageEditor shows no quote for a page captured without one", async () => {
 });
 
 test("editing the quote saves the correction in place", async () => {
-  const calls = stubEditor(serverPage("A passage worth keeping."));
+  const calls = stubPageEditor({ page: serverPage("A passage worth keeping.") });
 
   render(<PageEditor id={PAGE_ID} />);
   await screen.findByText("A passage worth keeping.");
@@ -105,7 +92,7 @@ test("editing the quote saves the correction in place", async () => {
 });
 
 test("removing the quote clears it from the page", async () => {
-  const calls = stubEditor(serverPage("A passage worth keeping."));
+  const calls = stubPageEditor({ page: serverPage("A passage worth keeping.") });
 
   render(<PageEditor id={PAGE_ID} />);
   await screen.findByText("A passage worth keeping.");
@@ -120,17 +107,12 @@ test("removing the quote clears it from the page", async () => {
 });
 
 test("a failed quote save keeps the editor open with the draft intact", async () => {
-  stubFetch((call) => {
-    if (call.url === "/api/pages") return json([{ id: PAGE_ID, title: "Saved article", parentId: null }]);
-    if (call.url === "/api/databases") return json([]);
-    if (call.url === `/api/pages/${PAGE_ID}` && call.method === "PATCH") {
-      return json({ error: "Failed to update page" }, 500);
-    }
-    if (call.url === `/api/pages/${PAGE_ID}`) return json(serverPage("A passage worth keeping."));
-    if (call.url === `/api/pages/${PAGE_ID}/links`) return json({ links: [], backlinks: [] });
-    if (call.url === `/api/pages/${PAGE_ID}/records`) return json({ records: [], options: [] });
-    if (call.url === `/api/pages/${PAGE_ID}/tags` || call.url === "/api/tags") return json([]);
-    return json({ ok: true });
+  stubPageEditor({
+    page: serverPage("A passage worth keeping."),
+    route: (call) =>
+      call.url === `/api/pages/${PAGE_ID}` && call.method === "PATCH"
+        ? json({ error: "Failed to update page" }, 500)
+        : undefined,
   });
 
   render(<PageEditor id={PAGE_ID} />);

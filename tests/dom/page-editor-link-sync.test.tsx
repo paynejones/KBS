@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PageEditor } from "../../src/components/page-editor";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json } from "./fetch-stub";
+import { restorePageEditorFetch, stubPageEditor } from "./page-editor-stub";
 
 const PAGE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TARGET_ID = "11111111-1111-4111-8111-111111111111";
@@ -48,9 +49,9 @@ const recoveredDraft = {
 };
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
   localStorage.clear();
+  restorePageEditorFetch();
 });
 
 test("PageEditor reports a failed background connection sync without blocking", async () => {
@@ -58,23 +59,16 @@ test("PageEditor reports a failed background connection sync without blocking", 
   // document, which is the background sync losing its connection.
   localStorage.setItem(`kbs:page-draft:${PAGE_ID}`, JSON.stringify(recoveredDraft));
 
-  const calls = stubFetch((call) => {
-    if (call.url === "/api/pages") {
-      return json([
-        { id: PAGE_ID, title: "Draft page", parentId: null },
-        { id: TARGET_ID, title: "Roadmap", parentId: null },
-      ]);
-    }
-    if (call.url === "/api/databases") return json([]);
-    if (call.url === `/api/pages/${PAGE_ID}/links`) {
-      return call.method === "DELETE"
+  const calls = stubPageEditor({
+    page: serverPage,
+    pages: [
+      { id: PAGE_ID, title: "Draft page", parentId: null },
+      { id: TARGET_ID, title: "Roadmap", parentId: null },
+    ],
+    route: (call) =>
+      call.url === `/api/pages/${PAGE_ID}/links` && call.method === "DELETE"
         ? json({ error: "the connection could not be removed" }, 500)
-        : json({ links: [], backlinks: [] });
-    }
-    if (call.url === `/api/pages/${PAGE_ID}/records`) return json({ records: [], options: [] });
-    if (call.url === `/api/pages/${PAGE_ID}`) return json(serverPage);
-    if (call.url === `/api/pages/${PAGE_ID}/tags` || call.url === "/api/tags") return json([]);
-    return json({ ok: true });
+        : undefined,
   });
 
   render(<PageEditor id={PAGE_ID} />);

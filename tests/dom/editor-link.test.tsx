@@ -6,6 +6,7 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorToolbar } from "../../src/components/editor-toolbar";
 import { collectLinkedPageIds, diffLinkedPageIds } from "../../src/lib/page-link-sync";
+import { restoreStrictFetch, stubStrictFetch } from "./strict-fetch-stub";
 
 let editor: Editor;
 
@@ -32,21 +33,22 @@ function findLinkMark(document: Record<string, unknown>, text: string) {
 }
 
 function stubFetch() {
-  const originalFetch = globalThis.fetch;
-  const requests: { url: string; method?: string; body?: string }[] = [];
-  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-    requests.push({
-      url: String(input),
-      method: init?.method,
-      body: String(init?.body ?? ""),
-    });
-    return { ok: true, status: 201 } as Response;
-  }) as unknown as typeof fetch;
+  const calls = stubStrictFetch("EditorToolbar", (call) =>
+    call.url === `/api/pages/${CURRENT_PAGE_ID}/links` &&
+    (call.method === "POST" || call.method === "DELETE")
+      ? ({ ok: true, status: 201 } as Response)
+      : undefined,
+  );
+
   return {
-    requests,
-    restore: () => {
-      globalThis.fetch = originalFetch;
+    get requests() {
+      return calls.map((call) => ({
+        url: call.url,
+        method: call.method,
+        body: call.body === null ? "" : JSON.stringify(call.body),
+      }));
     },
+    restore: restoreStrictFetch,
   };
 }
 
@@ -61,6 +63,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   editor.destroy();
+  restoreStrictFetch();
 });
 
 test("the toolbar links the selected text", () => {

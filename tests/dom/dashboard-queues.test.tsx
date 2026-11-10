@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DashboardQueues } from "../../src/components/dashboard-queues";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json } from "./fetch-stub";
+import { restoreStrictFetch, stubStrictFetch } from "./strict-fetch-stub";
 
 const QUEUES_KEY = "kbs:dashboard-queues";
 
@@ -74,16 +75,19 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
+  restoreStrictFetch();
 });
 
 test("choosing a database and property remembers the due-soon queue", async () => {
-  const calls = stubFetch((call) =>
-    call.url.includes("taskPropertyId=due")
+  const calls = stubStrictFetch("DashboardQueues", (call) => {
+    if (call.url.split("?")[0] !== "/api/dashboard" || call.method !== "GET") {
+      return undefined;
+    }
+    return call.url.includes("taskPropertyId=due")
       ? json({ databases, tasks: taskQueue, projects: null })
-      : json({ databases, tasks: null, projects: null }),
-  );
+      : json({ databases, tasks: null, projects: null });
+  });
 
   render(<DashboardQueues />);
 
@@ -160,8 +164,10 @@ test("a saved queue renders its rows with the chosen sources", async () => {
       projects: { databaseId: "db-projects", propertyId: "" },
     }),
   );
-  const calls = stubFetch(() =>
-    json({ databases, tasks: taskQueue, projects: projectQueue }),
+  const calls = stubStrictFetch("DashboardQueues", (call) =>
+    call.url.split("?")[0] === "/api/dashboard" && call.method === "GET"
+      ? json({ databases, tasks: taskQueue, projects: projectQueue })
+      : undefined,
   );
 
   render(<DashboardQueues />);
@@ -190,7 +196,11 @@ test("the project queue skips a chosen set of statuses", async () => {
     QUEUES_KEY,
     JSON.stringify({ tasks: null, projects: { databaseId: "db-projects", propertyId: "" } }),
   );
-  const calls = stubFetch(() => json({ databases, tasks: null, projects: projectQueue }));
+  const calls = stubStrictFetch("DashboardQueues", (call) =>
+    call.url.split("?")[0] === "/api/dashboard" && call.method === "GET"
+      ? json({ databases, tasks: null, projects: projectQueue })
+      : undefined,
+  );
 
   render(<DashboardQueues />);
 
@@ -219,7 +229,11 @@ test("the project queue skips a chosen set of statuses", async () => {
 });
 
 test("a database without a date property explains what is missing", async () => {
-  stubFetch(() => json({ databases, tasks: null, projects: null }));
+  stubStrictFetch("DashboardQueues", (call) =>
+    call.url.split("?")[0] === "/api/dashboard" && call.method === "GET"
+      ? json({ databases, tasks: null, projects: null })
+      : undefined,
+  );
 
   render(<DashboardQueues />);
 

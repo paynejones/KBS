@@ -15,6 +15,7 @@ type ApiModules = {
   revisions: typeof import("../../src/app/api/pages/[id]/revisions/route");
   pageTags: typeof import("../../src/app/api/pages/[id]/tags/route");
   links: typeof import("../../src/app/api/pages/[id]/links/route");
+  related: typeof import("../../src/app/api/pages/[id]/related/route");
   pageRecords: typeof import("../../src/app/api/pages/[id]/records/route");
   recordPages: typeof import("../../src/app/api/records/[recordId]/pages/route");
   connections: typeof import("../../src/app/api/orphans/route");
@@ -152,6 +153,7 @@ before(async () => {
     revisions,
     pageTags,
     links,
+    related,
     tags,
     graph,
     records,
@@ -189,6 +191,7 @@ before(async () => {
     import("../../src/app/api/pages/[id]/revisions/route"),
     import("../../src/app/api/pages/[id]/tags/route"),
     import("../../src/app/api/pages/[id]/links/route"),
+    import("../../src/app/api/pages/[id]/related/route"),
     import("../../src/app/api/tags/route"),
     import("../../src/app/api/graph/route"),
     import("../../src/app/api/databases/[id]/records/route"),
@@ -220,7 +223,7 @@ before(async () => {
     import("../../src/app/api/orphans/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
+  api = { pages, page, move, reorder, revisions, pageTags, links, related, tags, graph, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
 });
 
 after(async () => {
@@ -2105,7 +2108,7 @@ describe("database view mutations API", () => {
     );
     assert.equal(
       (await api.views.POST(
-        jsonRequest(`/api/databases/${database.id}/views`, "POST", { name: "Timeline", type: "timeline" }),
+        jsonRequest(`/api/databases/${database.id}/views`, "POST", { name: "Map", type: "map" }),
         routeContext({ id: database.id }),
       )).status,
       400,
@@ -2304,6 +2307,325 @@ describe("dashboard API", () => {
       widget.records.map((record) => record.values[score.id]).sort((left, right) => Number(left) - Number(right)),
       [20, 30],
     );
+  });
+
+  it("computes chart widgets with their saved shape and calculated values", async () => {
+    const database = await createDatabase("Dashboard chart database");
+    const score = await createDatabaseProperty(database.id, { name: "Score", type: "number" });
+    const status = await createDatabaseProperty(database.id, {
+      name: "Status",
+      type: "select",
+      options: { choices: ["Todo", "Done"] },
+    });
+    const when = await createDatabaseProperty(database.id, { name: "When", type: "date" });
+    const recordIds: string[] = [];
+    for (const [title, value, statusValue, date] of [
+      ["Alpha", 7, "Done", "2026-11-20"],
+      ["Beta", 3, "Todo", "2026-11-10"],
+    ] as const) {
+      const record = await createDatabaseRecord(database.id, { title });
+      recordIds.push(record.id);
+      const updated = await api.record.PATCH(
+        jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+          values: { [score.id]: value, [status.id]: statusValue, [when.id]: date },
+        }),
+        routeContext({ id: database.id, recordId: record.id }),
+      );
+      assert.equal(updated.status, 200);
+    }
+    await createDatabaseRecord(database.id, { title: "Gamma" });
+
+    const createChartView = async (
+      name: string,
+      chartType: string,
+      config: Record<string, unknown> = {},
+    ) => {
+      const response = await api.views.POST(
+        jsonRequest(`/api/databases/${database.id}/views`, "POST", {
+          name,
+          type: "chart",
+          config: { chartPropertyId: score.id, chartType, ...config },
+        }),
+        routeContext({ id: database.id }),
+      );
+      assert.equal(response.status, 201);
+      return await body<{ id: string }>(response);
+    };
+    const pie = await createChartView("Dashboard pie", "pie");
+    const line = await createChartView("Dashboard line", "line");
+    const grouped = await createChartView("Dashboard grouped", "pie", {
+      chartGroupPropertyId: status.id,
+    });
+    const datedLine = await createChartView("Dashboard dated line", "line", {
+      chartDatePropertyId: when.id,
+    });
+    const datedWindow = await createChartView("Dashboard dated window", "line", {
+      chartDatePropertyId: when.id,
+      chartDateRange: 7,
+    });
+    const datedPie = await createChartView("Dashboard dated pie", "pie", {
+      chartGroupPropertyId: status.id,
+      chartDatePropertyId: when.id,
+      chartDateRange: 7,
+    });
+    const datedBars = await createChartView("Dashboard dated bars", "bars", {
+      chartGroupPropertyId: status.id,
+      chartDatePropertyId: when.id,
+      chartDateRange: 7,
+    });
+
+    const data = await body<{
+      widgets: {
+        view: { id: string };
+        chart: {
+          type: string;
+          property: { name: string };
+          groupProperty: { name: string } | null;
+          dateProperty: { name: string } | null;
+          dateRange: number;
+          dateOffset: number;
+          chart: { data: { label: string; value: number }[]; skipped: number };
+          series: {
+            points: { label: string; value: number; date?: string }[];
+            min: number;
+            max: number;
+            from?: string;
+            to?: string;
+            undated?: number;
+            outside?: number;
+          } | null;
+        } | null;
+      }[];
+    }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?viewIds=${pie.id},${line.id},${grouped.id},${datedLine.id},${datedWindow.id}&today=2026-11-08`,
+        ),
+      ),
+    );
+
+    const pieWidget = data.widgets.find((widget) => widget.view.id === pie.id);
+    assert.ok(pieWidget?.chart, "a chart view should return its chart payload");
+    assert.equal(pieWidget.chart.type, "pie");
+    assert.equal(pieWidget.chart.property.name, "Score");
+    assert.deepEqual(
+      pieWidget.chart.chart.data.map((datum) => [datum.label, datum.value]),
+      [["Alpha", 7], ["Beta", 3]],
+    );
+    assert.equal(pieWidget.chart.chart.skipped, 1);
+    assert.equal(
+      pieWidget.chart.series?.points.length,
+      2,
+      "a chart widget carries line points so its shape can switch in place",
+    );
+
+    const lineWidget = data.widgets.find((widget) => widget.view.id === line.id);
+    assert.ok(lineWidget?.chart?.series, "a line view should return series points");
+    assert.equal(lineWidget.chart.type, "line");
+    assert.deepEqual(
+      lineWidget.chart.series.points.map((point) => [point.label, point.value]),
+      [["Alpha", 7], ["Beta", 3]],
+    );
+    assert.equal(lineWidget.chart.series.min, 0);
+    assert.equal(lineWidget.chart.series.max, 7);
+
+    const groupedWidget = data.widgets.find((widget) => widget.view.id === grouped.id);
+    assert.ok(groupedWidget?.chart, "a grouped chart should return its payload");
+    assert.equal(groupedWidget.chart.groupProperty?.name, "Status");
+    assert.deepEqual(
+      groupedWidget.chart.chart.data.map((datum) => [datum.label, datum.value]),
+      [["Done", 7], ["Todo", 3]],
+      "a dashboard chart groups values by the saved select property",
+    );
+    assert.equal(recordIds.length, 2);
+
+    const datedWidget = data.widgets.find((widget) => widget.view.id === datedLine.id);
+    assert.ok(datedWidget?.chart?.series, "a dated line should return series points");
+    assert.equal(datedWidget.chart.dateProperty?.name, "When");
+    assert.deepEqual(
+      datedWidget.chart.series.points.map((point) => [point.label, point.date, point.value]),
+      [["Beta", "2026-11-10", 3], ["Alpha", "2026-11-20", 7]],
+      "a dated line sorts chronologically",
+    );
+    assert.equal(datedWidget.chart.series.from, "2026-11-10");
+    assert.equal(datedWidget.chart.series.to, "2026-11-20");
+    assert.equal(datedWidget.chart.dateRange, 30, "the default window is 30 days");
+    assert.equal(datedWidget.chart.dateOffset, 0, "the default window ends today");
+
+    const windowWidget = data.widgets.find((widget) => widget.view.id === datedWindow.id);
+    assert.ok(windowWidget?.chart?.series, "a dated line should keep its series");
+    assert.equal(windowWidget.chart.dateRange, 7);
+    assert.deepEqual(
+      windowWidget.chart.series.points.map((point) => [point.label, point.date]),
+      [["Beta", "2026-11-10"]],
+      "a seven-day window keeps the near date and leaves the far one out",
+    );
+    assert.equal(windowWidget.chart.series.outside, 1);
+
+    const windowData = await body<{
+      widgets: {
+        view: { id: string };
+        chart: {
+          chart: { data: { label: string; value: number }[] };
+        } | null;
+      }[];
+    }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?viewIds=${datedPie.id},${datedBars.id}&today=2026-11-08`,
+        ),
+      ),
+    );
+    for (const [view, name] of [
+      [datedPie, "Dashboard dated pie"],
+      [datedBars, "Dashboard dated bars"],
+    ] as const) {
+      const widget = windowData.widgets.find((candidate) => candidate.view.id === view.id);
+      assert.ok(widget?.chart, `${name} should return its chart payload`);
+      assert.deepEqual(
+        widget.chart.chart.data.map((datum) => [datum.label, datum.value]),
+        [["Todo", 3]],
+        `${name} totals stay inside the active date window`,
+      );
+    }
+  });
+
+  it("shifts a chart window into the past", async () => {
+    const database = await createDatabase("Dashboard window history database");
+    const score = await createDatabaseProperty(database.id, { name: "Score", type: "number" });
+    const when = await createDatabaseProperty(database.id, { name: "When", type: "date" });
+    for (const [title, value, date] of [
+      ["Old", 5, "2026-10-05"],
+      ["New", 9, "2026-11-07"],
+    ] as const) {
+      const record = await createDatabaseRecord(database.id, { title });
+      const updated = await api.record.PATCH(
+        jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+          values: { [score.id]: value, [when.id]: date },
+        }),
+        routeContext({ id: database.id, recordId: record.id }),
+      );
+      assert.equal(updated.status, 200);
+    }
+
+    const response = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", {
+        name: "Shifted window",
+        type: "chart",
+        config: {
+          chartPropertyId: score.id,
+          chartType: "line",
+          chartDatePropertyId: when.id,
+          chartDateRange: 30,
+          chartDateOffset: -30,
+        },
+      }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(response.status, 201);
+    const view = await body<{ id: string }>(response);
+
+    const octoberResponse = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", {
+        name: "October window",
+        type: "chart",
+        config: {
+          chartPropertyId: score.id,
+          chartType: "line",
+          chartDatePropertyId: when.id,
+          chartDateStart: "2026-10-01",
+          chartDateEnd: "2026-10-31",
+        },
+      }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(octoberResponse.status, 201);
+    const october = await body<{ id: string }>(octoberResponse);
+
+    const presetResponse = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", {
+        name: "Preset window",
+        type: "chart",
+        config: {
+          chartPropertyId: score.id,
+          chartType: "line",
+          chartDatePropertyId: when.id,
+          chartDatePreset: "last-month",
+          // Saved dates are ignored while a preset is active.
+          chartDateStart: "2026-01-01",
+          chartDateEnd: "2026-01-31",
+        },
+      }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(presetResponse.status, 201);
+    const preset = await body<{ id: string }>(presetResponse);
+
+    const data = await body<{
+      widgets: {
+        view: { id: string };
+        chart: {
+          dateOffset: number;
+          dateStart: string | null;
+          dateEnd: string | null;
+          datePreset: string | null;
+          series: {
+            points: { label: string; value: number; date?: string }[];
+            outside?: number;
+            inWindow?: number;
+          } | null;
+        } | null;
+      }[];
+    }>(
+      await api.dashboard.GET(
+        new Request(
+          `http://localhost/api/dashboard?viewIds=${view.id},${october.id},${preset.id}&today=2026-11-08`,
+        ),
+      ),
+    );
+    const widget = data.widgets.find((candidate) => candidate.view.id === view.id);
+    assert.ok(widget?.chart?.series, "a shifted window should keep its series");
+    assert.equal(widget.chart.dateOffset, -30);
+    assert.deepEqual(
+      widget.chart.series.points.map((point) => [point.label, point.date]),
+      [["Old", "2026-10-05"], ["New", "2026-11-07"]],
+      "shifting back thirty days brings the earlier record into the window",
+    );
+    assert.equal(widget.chart.series.outside, 0, "both records fall inside the shifted window");
+    assert.equal(widget.chart.series.inWindow, 2);
+
+    const octoberWidget = data.widgets.find((candidate) => candidate.view.id === october.id);
+    assert.ok(octoberWidget?.chart?.series, "an explicit range should keep its series");
+    assert.equal(octoberWidget.chart.dateStart, "2026-10-01");
+    assert.equal(octoberWidget.chart.dateEnd, "2026-10-31");
+    assert.deepEqual(
+      octoberWidget.chart.series.points.map((point) => point.label),
+      ["Old"],
+      "an explicit range overrides the rolling window",
+    );
+    assert.equal(
+      octoberWidget.chart.series.outside,
+      1,
+      "the newer record falls outside the explicit October range",
+    );
+    assert.equal(octoberWidget.chart.series.inWindow, 1, "only the October record is in range");
+
+    const presetWidget = data.widgets.find((candidate) => candidate.view.id === preset.id);
+    assert.ok(presetWidget?.chart?.series, "a month preset should keep its series");
+    assert.equal(presetWidget.chart.datePreset, "last-month");
+    assert.equal(
+      presetWidget.chart.dateStart,
+      "2026-10-01",
+      "Last month follows the request's today",
+    );
+    assert.equal(presetWidget.chart.dateEnd, "2026-10-31");
+    assert.deepEqual(
+      presetWidget.chart.series.points.map((point) => point.label),
+      ["Old"],
+      "the preset window replaces the saved explicit dates",
+    );
+    assert.equal(presetWidget.chart.series.outside, 1);
+    assert.equal(presetWidget.chart.series.inWindow, 1);
   });
 
   it("lists databases with their properties for the dashboard pickers", async () => {
@@ -2775,5 +3097,133 @@ describe("trash API", () => {
       (await api.trashItem.DELETE(jsonRequest("/api/trash/nope", "DELETE"), routeContext({ id: "nope" }))).status,
       400,
     );
+  });
+});
+
+describe("related pages API", () => {
+  it("suggests pages with reasons and skips pages already connected", async () => {
+    const stamp = Date.now();
+    const subject = await createPage({ title: `Related subject ${stamp}` });
+    const byTag = await createPage({ title: `Tag neighbour ${stamp}` });
+    const byLink = await createPage({ title: `Link neighbour ${stamp}` });
+    const byRecord = await createPage({ title: `Record neighbour ${stamp}` });
+    const connected = await createPage({ title: `Already connected ${stamp}` });
+    const unrelated = await createPage({ title: `Unrelated ${stamp}` });
+    const sharedTarget = await createPage({ title: `Shared target ${stamp}` });
+
+    const tagResponse = await api.tags.POST(
+      jsonRequest("/api/tags", "POST", { name: `related-${stamp}` }),
+    );
+    assert.ok(tagResponse.ok);
+    const tag = await body<TagRow>(tagResponse);
+
+    for (const page of [subject, byTag]) {
+      const assigned = await api.pageTags.POST(
+        jsonRequest(`/api/pages/${page.id}/tags`, "POST", { tagId: tag.id }),
+        routeContext({ id: page.id }),
+      );
+      assert.ok(assigned.ok);
+    }
+
+    for (const page of [subject, byLink, connected]) {
+      const linked = await api.links.POST(
+        jsonRequest(`/api/pages/${page.id}/links`, "POST", { targetPageId: sharedTarget.id }),
+        routeContext({ id: page.id }),
+      );
+      assert.equal(linked.status, 201);
+    }
+
+    const linkedToConnected = await api.links.POST(
+      jsonRequest(`/api/pages/${subject.id}/links`, "POST", { targetPageId: connected.id }),
+      routeContext({ id: subject.id }),
+    );
+    assert.equal(linkedToConnected.status, 201);
+
+    const database = await createDatabase(`Related database ${stamp}`);
+    const record = await createDatabaseRecord(database.id, { title: `Shared record ${stamp}` });
+    for (const page of [subject, byRecord]) {
+      const linked = await api.pageRecords.POST(
+        jsonRequest(`/api/pages/${page.id}/records`, "POST", { recordId: record.id }),
+        routeContext({ id: page.id }),
+      );
+      assert.ok(linked.ok);
+    }
+
+    const response = await api.related.GET(
+      jsonRequest(`/api/pages/${subject.id}/related`, "GET"),
+      routeContext({ id: subject.id }),
+    );
+    assert.equal(response.status, 200);
+    const { suggestions } = await body<{
+      suggestions: { id: string; title: string; score: number; reasons: string[] }[];
+    }>(response);
+
+    const ids = suggestions.map((suggestion) => suggestion.id);
+    assert.ok(ids.includes(byTag.id), "a shared tag is enough to suggest a page");
+    assert.ok(ids.includes(byLink.id), "a shared link target is enough to suggest a page");
+    assert.ok(ids.includes(byRecord.id), "a shared record is enough to suggest a page");
+    assert.ok(!ids.includes(unrelated.id), "pages with nothing in common are left out");
+    assert.ok(!ids.includes(connected.id), "already connected pages are not suggested");
+    assert.ok(!ids.includes(subject.id), "a page never suggests itself");
+    assert.ok(!ids.includes(sharedTarget.id), "a page it already links to is not suggested");
+
+    assert.equal(suggestions[0].id, byRecord.id, "records rank above links and tags");
+    assert.match(suggestions[0].reasons[0], /Shared record/);
+    assert.ok(
+      suggestions.some(
+        (suggestion) =>
+          suggestion.id === byLink.id
+          && suggestion.reasons.some((reason) => reason.includes("Shared target")),
+      ),
+    );
+    assert.ok(
+      suggestions.some(
+        (suggestion) =>
+          suggestion.id === byTag.id
+          && suggestion.reasons.some((reason) => reason.includes(tag.name)),
+      ),
+    );
+  });
+
+  it("rejects unknown and malformed page IDs", async () => {
+    assert.equal(
+      (await api.related.GET(
+        jsonRequest(`/api/pages/${MISSING_ID}/related`, "GET"),
+        routeContext({ id: MISSING_ID }),
+      )).status,
+      404,
+    );
+    assert.equal(
+      (await api.related.GET(
+        jsonRequest("/api/pages/nope/related", "GET"),
+        routeContext({ id: "nope" }),
+      )).status,
+      400,
+    );
+  });
+});
+
+describe("database view types API", () => {
+  it("creates list, timeline, and chart views and rejects unknown types", async () => {
+    const database = await createDatabase(`View types ${Date.now()}`);
+
+    async function createView(type: string) {
+      const response = await api.views.POST(
+        jsonRequest(`/api/databases/${database.id}/views`, "POST", { name: type, type }),
+        routeContext({ id: database.id }),
+      );
+      assert.equal(response.status, 201);
+      return await body<{ id: string; type: string }>(response);
+    }
+
+    assert.equal((await createView("list")).type, "list");
+    assert.equal((await createView("timeline")).type, "timeline");
+    assert.equal((await createView("chart")).type, "chart");
+
+    const invalid = await api.views.POST(
+      jsonRequest(`/api/databases/${database.id}/views`, "POST", { name: "Map", type: "map" }),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(invalid.status, 400);
   });
 });

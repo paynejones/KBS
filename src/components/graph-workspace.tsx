@@ -4,11 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Link2, Minus, Plus, Search, Star } from "lucide-react";
+import {
+  DEFAULT_GRAPH_FILTERS,
+  filterGraph,
+  graphListItems,
+  type GraphEdge,
+  type GraphFilters,
+  type GraphNode,
+  type GraphData,
+} from "@/lib/graph";
 
-type GraphNode = { id: string; title: string; isFavorite: boolean };
-type GraphEdge = { source: string; target: string; type: "link" | "hierarchy" };
 type Point = { x: number; y: number };
-type GraphData = { nodes: GraphNode[]; edges: GraphEdge[] };
 
 function neighborhoodIds(data: GraphData, focusId: string, depth: number) {
   const adjacent = new Map<string, string[]>();
@@ -105,6 +111,7 @@ export function GraphWorkspace() {
   const [data, setData] = useState<GraphData>({ nodes: [], edges: [] });
   const [positions, setPositions] = useState<Record<string, Point>>({});
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<GraphFilters>(DEFAULT_GRAPH_FILTERS);
   const [focusId, setFocusId] = useState("");
   const [depth, setDepth] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -159,6 +166,16 @@ export function GraphWorkspace() {
     const normalized = query.trim().toLocaleLowerCase();
     return new Set(data.nodes.filter((node) => node.title.toLocaleLowerCase().includes(normalized)).map((node) => node.id));
   }, [data.nodes, query]);
+  const filteredGraph = useMemo(
+    () => filterGraph({ nodes: visibleNodes, edges: visibleEdges }, filters),
+    [visibleNodes, visibleEdges, filters],
+  );
+  const listNodes = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    return graphListItems(
+      filteredGraph.nodes.filter((node) => !normalized || matchingIds.has(node.id)),
+    );
+  }, [filteredGraph.nodes, matchingIds, query]);
 
   const updateFocus = (nextFocusId: string, nextDepth = depth) => {
     setFocusId(nextFocusId);
@@ -241,6 +258,34 @@ export function GraphWorkspace() {
             </select>
           </label>
         )}
+        <fieldset className="flex flex-wrap items-center gap-3 text-xs">
+          <legend className="sr-only">Graph filters</legend>
+          <span className="font-medium text-muted-foreground">Show</span>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={filters.links}
+              onChange={(event) => setFilters((current) => ({ ...current, links: event.target.checked }))}
+            />
+            Page links
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={filters.hierarchy}
+              onChange={(event) => setFilters((current) => ({ ...current, hierarchy: event.target.checked }))}
+            />
+            Parent / child
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={filters.favoritesOnly}
+              onChange={(event) => setFilters((current) => ({ ...current, favoritesOnly: event.target.checked }))}
+            />
+            Favorites only
+          </label>
+        </fieldset>
         <div className="ml-auto flex items-center gap-1">
           <button type="button" aria-label="Zoom out" onClick={() => setZoom((value) => Math.max(0.45, value - 0.15))} className="rounded-md border p-2 hover:bg-accent"><Minus size={16} /></button>
           <span className="w-12 text-center text-xs text-muted-foreground">{Math.round(zoom * 100)}%</span>
@@ -255,10 +300,41 @@ export function GraphWorkspace() {
           <h2 className="font-medium">No pages to map yet</h2>
           <p className="mt-1 text-sm text-muted-foreground">Create pages and connect them to see your knowledge graph.</p>
         </div>
-      ) : visibleNodes.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No connected pages at this neighborhood depth.</div>
+      ) : filteredGraph.nodes.length === 0 ? (
+        <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+          {filters.favoritesOnly || !filters.links || !filters.hierarchy
+            ? "No pages match these filters."
+            : "No connected pages at this neighborhood depth."}
+        </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="space-y-3">
+          <nav aria-label="Graph pages list" className="rounded-xl border bg-card p-3 md:hidden">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">
+              {listNodes.length} {listNodes.length === 1 ? "page" : "pages"}
+            </p>
+            {listNodes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pages match these filters.</p>
+            ) : (
+              <ul className="space-y-1">
+                {listNodes.map((node) => (
+                  <li key={node.id}>
+                    <Link
+                      href={`/pages/${node.id}`}
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+                    >
+                      {node.isFavorite ? (
+                        <Star size={12} className="fill-amber-500 text-amber-500" aria-hidden="true" />
+                      ) : (
+                        <Link2 size={12} className="text-muted-foreground" aria-hidden="true" />
+                      )}
+                      <span className="min-w-0 truncate">{node.title || "Untitled"}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </nav>
+          <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
           <svg
             ref={svgRef}
             viewBox="0 0 1000 700"
@@ -271,13 +347,13 @@ export function GraphWorkspace() {
             onPointerCancel={stopPointer}
           >
             <g transform={`translate(${pan.x} ${pan.y}) translate(500 350) scale(${zoom * fitScale}) translate(${-graphCenter.x} ${-graphCenter.y})`}>
-              {visibleEdges.map((edge, index) => {
+              {filteredGraph.edges.map((edge, index) => {
                 const source = positions[edge.source];
                 const target = positions[edge.target];
                 if (!source || !target) return null;
                 return <line key={`${edge.type}-${edge.source}-${edge.target}-${index}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={edge.type === "link" ? "var(--primary)" : "var(--border)"} strokeWidth={edge.type === "link" ? 1.8 : 1.2} strokeDasharray={edge.type === "hierarchy" ? "5 5" : undefined} opacity={edge.type === "link" ? 0.65 : 0.8} />;
               })}
-              {visibleNodes.map((node) => {
+              {filteredGraph.nodes.map((node) => {
                 const point = positions[node.id];
                 if (!point) return null;
                 const matched = !query || matchingIds.has(node.id);
@@ -303,10 +379,11 @@ export function GraphWorkspace() {
             </g>
           </svg>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t px-4 py-3 text-xs text-muted-foreground">
-            <span>{visibleNodes.length} pages</span>
+            <span>{filteredGraph.nodes.length} pages</span>
             <span className="flex items-center gap-2"><span className="inline-block w-5 border-t-2 border-primary" />Page link</span>
             <span className="flex items-center gap-2"><span className="inline-block w-5 border-t border-dashed border-muted-foreground" />Parent / child</span>
             <span className="ml-auto">Drag to pan or move a page · Select a node to open</span>
+          </div>
           </div>
         </div>
       )}

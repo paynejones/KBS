@@ -54,6 +54,14 @@ Run the pure reliability tests with:
 npm test
 ```
 
+Run the DOM component tests with:
+
+```bash
+npm run test:dom
+```
+
+DOM tests that replace `fetch` must use the strict route-table helper described in [DOM testing](docs/dom-testing.md): every method and URL is explicit, and cleanup fails on any unhandled request.
+
 Run the browser-level workflow checks with:
 
 ```bash

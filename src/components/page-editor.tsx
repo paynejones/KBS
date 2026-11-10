@@ -6,7 +6,6 @@ import { ChevronDown, Download, GripVertical, Pencil, Plus, SlidersHorizontal, S
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DragHandle } from "@tiptap/extension-drag-handle-react";
 import { Extension, type Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { DatabaseEmbedExtension, DatabaseEmbedPicker } from "@/components/database-embed";
 import { CalloutExtension, TaskItemExtension, TaskListExtension, ToggleExtension } from "@/components/task-list-extension";
@@ -28,11 +27,14 @@ import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
 import { PageTags } from "@/components/page-tags";
 import { PageLinks } from "@/components/page-links";
+import { RelatedPages } from "@/components/related-pages";
 import { PageRail } from "@/components/page-rail";
 import { tiptapToMarkdown } from "@/lib/markdown";
 import { readRecoverablePageDraft, type PageDraft } from "@/lib/page-draft";
 import { recordRecentPage } from "@/lib/recents";
 import { clampEditorPopover } from "@/lib/editor-popover";
+import { moveBlockAtSelection, selectedBlockGroup } from "@/lib/editor-block-move";
+import { buildBlockDragImage } from "@/lib/editor-drag-image";
 import { collectLinkedPageIds, diffLinkedPageIds } from "@/lib/page-link-sync";
 import { describeSaveState, type SaveStatusView } from "@/lib/save-status";
 
@@ -105,33 +107,10 @@ const slashCommands: SlashCommand[] = [
   { label: "Strikethrough", detail: "Crossed out text", keywords: "strike", run: (editor) => editor.chain().focus().toggleStrike().run() },
 ];
 
-function moveTopLevelBlock(editor: Editor, direction: -1 | 1) {
-  const { state } = editor;
-  const { selection } = state;
-  const from = selection.$from;
-  const to = selection.$to;
-  const index = from.index(0);
-  if (index !== to.index(0) || from.depth < 1) return false;
-
-  const block = state.doc.child(index);
-  const blockStart = from.before(1);
-  const beforeSize = Array.from({ length: index }, (_, i) => state.doc.child(i).nodeSize)
-    .reduce((sum, size) => sum + size, 0);
-  if (beforeSize !== blockStart) return false;
-
-  const neighborIndex = index + direction;
-  if (neighborIndex < 0 || neighborIndex >= state.doc.childCount) return false;
-  const neighbor = state.doc.child(neighborIndex);
-  const destination = direction < 0
-    ? blockStart - neighbor.nodeSize
-    : blockStart + neighbor.nodeSize;
-  const relativeFrom = selection.from - blockStart;
-  const relativeTo = selection.to - blockStart;
-  const transaction = state.tr.delete(blockStart, blockStart + block.nodeSize).insert(destination, block);
-  const selectionFrom = Math.max(destination + 1, Math.min(destination + relativeFrom, transaction.doc.content.size - 1));
-  const selectionTo = Math.max(selectionFrom, Math.min(destination + relativeTo, transaction.doc.content.size - 1));
-  transaction.setSelection(TextSelection.create(transaction.doc, selectionFrom, selectionTo));
-  editor.view.dispatch(transaction.scrollIntoView());
+function moveSelectedBlock(editor: Editor, direction: -1 | 1) {
+  const transaction = moveBlockAtSelection(editor.state, direction);
+  if (!transaction) return false;
+  editor.view.dispatch(transaction);
   return true;
 }
 
@@ -147,8 +126,8 @@ const EditorBlockShortcuts = Extension.create({
       "Mod-Shift-9": () => this.editor.chain().focus().toggleBlockquote().run(),
       "Mod-Alt-c": () => this.editor.chain().focus().toggleCodeBlock().run(),
       "Mod-Alt-d": () => this.editor.chain().focus().setHorizontalRule().run(),
-      "Alt-Shift-ArrowUp": () => moveTopLevelBlock(this.editor, -1),
-      "Alt-Shift-ArrowDown": () => moveTopLevelBlock(this.editor, 1),
+      "Alt-Shift-ArrowUp": () => moveSelectedBlock(this.editor, -1),
+      "Alt-Shift-ArrowDown": () => moveSelectedBlock(this.editor, 1),
     };
   },
 });
@@ -314,6 +293,8 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
       attributes: {
         class:
           "min-h-[45vh] outline-none prose prose-neutral max-w-none dark:prose-invert sm:min-h-[400px]",
+        "aria-label": "Page content",
+        "aria-keyshortcuts": "Alt+Shift+ArrowUp Alt+Shift+ArrowDown",
       },
       handleKeyDown: (_view, event) => {
         const wikiMenu = wikiMenuRef.current;
@@ -810,9 +791,33 @@ function recoverLocalDraft() {
   setPendingDraft(null);
 }
 
-function scrollToHeading(index: number) {
-  const nodes = editor?.view.dom.querySelectorAll("h1, h2, h3");
-  nodes?.[index]?.scrollIntoView({ behavior: "smooth", block: "start" });
+/** The document position of the nth outline heading, matching PageRail's list. */
+function findHeadingPosition(target: Editor, index: number): number | null {
+  let seen = 0;
+  let found: number | null = null;
+  target.state.doc.descendants((node, pos) => {
+    if (found !== null) return false;
+    if (node.type.name !== "heading" || !node.textContent.trim()) return true;
+    if (seen === index) {
+      found = pos + 1;
+      return false;
+    }
+    seen += 1;
+    return true;
+  });
+  return found;
+}
+
+function focusHeading(index: number) {
+  if (!editor) return;
+  const position = findHeadingPosition(editor, index);
+  if (position === null) return;
+  // An outline entry is a jump within the document, so put the caret in the
+  // heading as well as scrolling to it.
+  editor.chain().focus().setTextSelection(position).run();
+  editor.view.dom
+    .querySelectorAll("h1, h2, h3")[index]
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function discardLocalDraft() {
@@ -1040,6 +1045,15 @@ while (foundDescendant) {
                 recordRecentPage({ id, title: title.trim() || "Untitled" });
                 void savePage({ title: title.trim() || "Untitled" });
               }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                // Enter in the title starts the body instead of doing nothing:
+                // the caret lands at the first block, ready to write.
+                event.preventDefault();
+                recordRecentPage({ id, title: title.trim() || "Untitled" });
+                void savePage({ title: title.trim() || "Untitled" });
+                editor?.commands.focus("start");
+              }}
               aria-label="Page title"
               className="w-full min-w-0 bg-transparent text-3xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/50 sm:text-4xl lg:flex-1"
             />
@@ -1229,6 +1243,7 @@ while (foundDescendant) {
             </div>
             <PageTags pageId={id} />
             <PageLinks pageId={id} pages={allPages} />
+            <RelatedPages pageId={id} />
           </section>
 
           <section aria-labelledby="page-history-heading" className="space-y-3 border-t pt-6">
@@ -1283,7 +1298,42 @@ while (foundDescendant) {
           <EditorToolbar editor={editor} pageId={id} pages={allPages} />
         </div>
         {editor?.isEditable && (
-          <DragHandle editor={editor} className="text-muted-foreground">
+          <DragHandle
+            editor={editor}
+            className="text-muted-foreground"
+            onElementDragStart={(event) => {
+              if (!editor) return;
+              // Capture the selection before the handle plugin swaps it for the
+              // single node it is hovering.
+              const group = selectedBlockGroup(editor.state);
+              if (!group) return;
+              const image = buildBlockDragImage(editor, group.positions);
+              if (image) {
+                const removeImage = () => image.remove();
+                document.addEventListener("dragend", removeImage, { once: true });
+                document.addEventListener("drop", removeImage, { once: true });
+              }
+              queueMicrotask(() => {
+                if (group.doc !== editor.state.doc) return;
+                // The handle drags one block by default. Hand the drop the whole
+                // covered range and move the selection with it, so ProseMirror
+                // removes exactly the blocks it inserts.
+                editor.view.dragging = { slice: group.slice, move: true };
+                editor.view.dispatch(editor.state.tr.setSelection(group.selection));
+                if (image && event.dataTransfer) {
+                  try {
+                    // Replaces the handle's single-block ghost with the group's
+                    // blocks. The handle sets its own image later in this same
+                    // dragstart, so this has to wait for the next microtask.
+                    event.dataTransfer.setDragImage(image, 0, 0);
+                  } catch {
+                    // A browser that refuses a later drag image still moves the
+                    // group; only the ghost stays single-block.
+                  }
+                }
+              });
+            }}
+          >
             <div
               title="Drag to reorder block (Alt+Shift+↑ / ↓)"
               className="flex h-6 w-5 cursor-grab items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground active:cursor-grabbing"
@@ -1432,7 +1482,7 @@ while (foundDescendant) {
             allPages.find((page) => page.id === parentId)?.title ?? null
           }
           isFavorite={isFavorite}
-          onSelectHeading={scrollToHeading}
+          onSelectHeading={focusHeading}
         />
       </div>
 

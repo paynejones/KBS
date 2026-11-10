@@ -3,20 +3,26 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PageTags } from "../../src/components/page-tags";
-import { json, restoreFetch, stubFetch } from "./fetch-stub";
+import { json } from "./fetch-stub";
+import { restoreStrictFetch, stubStrictFetch } from "./strict-fetch-stub";
 
 type Tag = { id: string; name: string };
 
 afterEach(() => {
-  restoreFetch();
   cleanup();
+  restoreStrictFetch();
 });
 
 test("PageTags shows assigned tags and offers only unassigned ones", async () => {
-  const calls = stubFetch((call) =>
-    call.url === "/api/tags"
-      ? json([{ id: "t1", name: "Ideas" }, { id: "t2", name: "Work" }])
-      : json([{ id: "t2", name: "Work" }]));
+  const calls = stubStrictFetch("PageTags", (call) => {
+    if (call.url === "/api/tags" && call.method === "GET") {
+      return json([{ id: "t1", name: "Ideas" }, { id: "t2", name: "Work" }]);
+    }
+    if (call.url === "/api/pages/p1/tags" && call.method === "GET") {
+      return json([{ id: "t2", name: "Work" }]);
+    }
+    return undefined;
+  });
 
   render(<PageTags pageId="p1" />);
 
@@ -31,7 +37,13 @@ test("PageTags shows assigned tags and offers only unassigned ones", async () =>
 });
 
 test("PageTags reports when no tags are assigned", async () => {
-  stubFetch((call) => json(call.url === "/api/tags" ? [{ id: "t1", name: "Ideas" }] : []));
+  stubStrictFetch("PageTags", (call) => {
+    if (call.url === "/api/tags" && call.method === "GET") {
+      return json([{ id: "t1", name: "Ideas" }]);
+    }
+    if (call.url === "/api/pages/p1/tags" && call.method === "GET") return json([]);
+    return undefined;
+  });
 
   render(<PageTags pageId="p1" />);
 
@@ -41,7 +53,7 @@ test("PageTags reports when no tags are assigned", async () => {
 test("PageTags creates a tag and assigns it to the page", async () => {
   let tags: Tag[] = [{ id: "t1", name: "Ideas" }];
   let assigned: Tag[] = [];
-  const calls = stubFetch((call) => {
+  const calls = stubStrictFetch("PageTags", (call) => {
     if (call.method === "POST" && call.url === "/api/tags") {
       const tag = { id: "t2", name: "Reading" };
       tags = [...tags, tag];
@@ -52,7 +64,11 @@ test("PageTags creates a tag and assigns it to the page", async () => {
       assigned = tags.filter((tag) => tag.id === tagId);
       return json({ ok: true });
     }
-    return json(call.url === "/api/tags" ? tags : assigned);
+    if (call.method === "GET" && call.url === "/api/tags") return json(tags);
+    if (call.method === "GET" && call.url === "/api/pages/p1/tags") {
+      return json(assigned);
+    }
+    return undefined;
   });
 
   render(<PageTags pageId="p1" />);
@@ -78,12 +94,18 @@ test("PageTags creates a tag and assigns it to the page", async () => {
 
 test("PageTags assigns an existing tag from the picker", async () => {
   let assigned: Tag[] = [];
-  const calls = stubFetch((call) => {
+  const calls = stubStrictFetch("PageTags", (call) => {
     if (call.method === "POST" && call.url === "/api/pages/p1/tags") {
       assigned = [{ id: "t1", name: "Ideas" }];
       return json({ ok: true });
     }
-    return json(call.url === "/api/tags" ? [{ id: "t1", name: "Ideas" }] : assigned);
+    if (call.method === "GET" && call.url === "/api/tags") {
+      return json([{ id: "t1", name: "Ideas" }]);
+    }
+    if (call.method === "GET" && call.url === "/api/pages/p1/tags") {
+      return json(assigned);
+    }
+    return undefined;
   });
 
   render(<PageTags pageId="p1" />);
@@ -107,12 +129,18 @@ test("PageTags assigns an existing tag from the picker", async () => {
 
 test("PageTags removes a tag from the page", async () => {
   let assigned: Tag[] = [{ id: "t2", name: "Work" }];
-  const calls = stubFetch((call) => {
-    if (call.method === "DELETE") {
+  const calls = stubStrictFetch("PageTags", (call) => {
+    if (call.method === "DELETE" && call.url === "/api/pages/p1/tags") {
       assigned = [];
       return json({ ok: true });
     }
-    return json(call.url === "/api/tags" ? [{ id: "t2", name: "Work" }] : assigned);
+    if (call.method === "GET" && call.url === "/api/tags") {
+      return json([{ id: "t2", name: "Work" }]);
+    }
+    if (call.method === "GET" && call.url === "/api/pages/p1/tags") {
+      return json(assigned);
+    }
+    return undefined;
   });
 
   render(<PageTags pageId="p1" />);
@@ -127,7 +155,12 @@ test("PageTags removes a tag from the page", async () => {
 });
 
 test("PageTags reports a failed load", async () => {
-  stubFetch(() => json({ error: "boom" }, 500));
+  stubStrictFetch("PageTags", (call) =>
+    (call.url === "/api/tags" || call.url === "/api/pages/p1/tags") &&
+    call.method === "GET"
+      ? json({ error: "boom" }, 500)
+      : undefined,
+  );
 
   render(<PageTags pageId="p1" />);
 
@@ -136,8 +169,16 @@ test("PageTags reports a failed load", async () => {
 });
 
 test("PageTags reports a failed tag creation", async () => {
-  stubFetch((call) =>
-    call.method === "POST" ? json({ error: "boom" }, 500) : json([]));
+  stubStrictFetch("PageTags", (call) => {
+    if (call.method === "POST") return json({ error: "boom" }, 500);
+    if (
+      call.method === "GET" &&
+      (call.url === "/api/tags" || call.url === "/api/pages/p1/tags")
+    ) {
+      return json([]);
+    }
+    return undefined;
+  });
 
   render(<PageTags pageId="p1" />);
   await screen.findByText("No tags assigned.");

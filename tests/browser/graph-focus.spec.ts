@@ -229,3 +229,35 @@ test("releases a graph drag that ends outside the graph", async ({ page, request
     await purgePage(request, target.id);
   }
 });
+
+test("replaces the canvas with a filterable page list on small screens", async ({ page, request }) => {
+  const token = `graph-mobile-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const source = await createPage(request, `${token} source`);
+  const target = await createPage(request, `${token} target`);
+
+  try {
+    await json<{ id: string }>(
+      await request.post(`/api/pages/${source.id}/links`, {
+        data: { targetPageId: target.id },
+      }),
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/graph");
+
+    const list = page.getByRole("navigation", { name: "Graph pages list" });
+    await expect(list).toBeVisible();
+    await expect(list.getByRole("link", { name: source.title })).toBeVisible();
+    await expect(list.getByRole("link", { name: target.title })).toBeVisible();
+    await expect(page.locator('svg[role="application"]')).toBeHidden();
+
+    const edges = page.locator('svg[role="application"] line');
+    await expect(edges).toHaveCount(1);
+    await page.getByLabel("Page links").uncheck();
+    await page.getByLabel("Parent / child").uncheck();
+    await expect(edges).toHaveCount(0);
+  } finally {
+    await purgePage(request, source.id);
+    await purgePage(request, target.id);
+  }
+});

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import {
   databaseProperties,
+  databaseRecordRelations,
   databaseRecords,
   databaseViews,
   databases,
@@ -16,6 +17,22 @@ import {
   NO_STATUS_FILTER,
   type DueBucket,
 } from "@/lib/dashboard-queues";
+import {
+  chartData,
+  chartDateWindow,
+  chartSeries,
+  chartDatePresetWindow,
+  parseChartDateBound,
+  parseChartDateOffset,
+  parseChartDatePreset,
+  parseChartType,
+} from "@/lib/database-chart";
+import {
+  formulaValue,
+  rollupValue,
+  type CalculationProperty,
+  type RelationTargetMap,
+} from "@/lib/database-calculations";
 import { applyView, parseViewFilters, parseViewSorts } from "@/lib/database-view";
 import {
   parseTimelineRange,
@@ -66,11 +83,12 @@ export async function GET(request: Request) {
   const timelineRange = parseTimelineRange(searchParams.get("timelineDays"));
 
   try {
-    const [databaseRows, propertyRows, recordRows, viewRows] = await Promise.all([
+    const [databaseRows, propertyRows, recordRows, viewRows, relationRows] = await Promise.all([
       db.select({ id: databases.id, name: databases.name }).from(databases).orderBy(asc(databases.name)),
       db.select().from(databaseProperties).orderBy(asc(databaseProperties.sortOrder)),
       db.select().from(databaseRecords).orderBy(asc(databaseRecords.sortOrder)),
       db.select().from(databaseViews).orderBy(asc(databaseViews.sortOrder)),
+      db.select().from(databaseRecordRelations),
     ]);
 
     const databaseNames = new Map(databaseRows.map((database) => [database.id, database.name]));
@@ -91,6 +109,31 @@ export async function GET(request: Request) {
       ]);
     }
 
+    const relationsByRecord = new Map<string, Record<string, string[]>>();
+    for (const relation of relationRows) {
+      const recordRelations = relationsByRecord.get(relation.sourceRecordId) ?? {};
+      recordRelations[relation.propertyId] = [
+        ...(recordRelations[relation.propertyId] ?? []),
+        relation.targetRecordId,
+      ];
+      relationsByRecord.set(relation.sourceRecordId, recordRelations);
+    }
+
+    // Chart widgets resolve formulas and rollups the same way the database page
+    // does, so a calculated column charts the number it displays.
+    const relationTargets: RelationTargetMap = {};
+    for (const database of databaseRows) {
+      for (const property of propertiesByDatabase.get(database.id) ?? []) {
+        if (property.type !== "relation") continue;
+        const relatedId = property.options.relatedDatabaseId;
+        if (typeof relatedId !== "string") continue;
+        relationTargets[property.id] = {
+          properties: (propertiesByDatabase.get(relatedId) ?? []) as unknown as CalculationProperty[],
+          records: (recordsByDatabase.get(relatedId) ?? []).map(({ id, values }) => ({ id, values })),
+        };
+      }
+    }
+
     const views = viewRows
       .filter((view) => databaseNames.has(view.databaseId))
       .map((view) => ({
@@ -106,13 +149,113 @@ export async function GET(request: Request) {
       if (!view) return [];
 
       const properties = propertiesByDatabase.get(view.databaseId) ?? [];
-      const records = recordsByDatabase.get(view.databaseId) ?? [];
+      const records = (recordsByDatabase.get(view.databaseId) ?? []).map((record) => ({
+        ...record,
+        relations: relationsByRecord.get(record.id) ?? {},
+      }));
+      const valueFor = (
+        record: (typeof records)[number],
+        property: { id: string; type: string },
+      ) => {
+        const calculationProperty = property as unknown as CalculationProperty;
+        if (property.type === "rollup") {
+          return rollupValue(record, calculationProperty, relationTargets);
+        }
+        if (property.type === "formula") {
+          return formulaValue(
+            record,
+            calculationProperty,
+            properties as unknown as CalculationProperty[],
+            relationTargets,
+          );
+        }
+        return record.values[property.id];
+      };
       const visible = applyView(
         records,
         properties,
         parseViewFilters(view.config),
         parseViewSorts(view.config),
+        { valueFor },
       );
+
+      // A chart widget keeps the view's saved shape and is computed from every
+      // record the view includes, not from the five-record list preview.
+      const chart = (() => {
+        if (view.type !== "chart") return null;
+        const numeric = properties.filter((property) =>
+          property.type === "number" || property.type === "formula" || property.type === "rollup",
+        );
+        const propertyId = typeof view.config.chartPropertyId === "string"
+          ? view.config.chartPropertyId
+          : "";
+        const property = numeric.find((candidate) => candidate.id === propertyId) ?? numeric[0];
+        if (!property) return null;
+
+        const groupId = typeof view.config.chartGroupPropertyId === "string"
+          ? view.config.chartGroupPropertyId
+          : "";
+        const group = properties.find((candidate) =>
+          candidate.id === groupId && candidate.type === "select",
+        );
+        const choices = group && Array.isArray(group.options.choices)
+          ? group.options.choices.filter((choice): choice is string => typeof choice === "string")
+          : [];
+        const dateId = typeof view.config.chartDatePropertyId === "string"
+          ? view.config.chartDatePropertyId
+          : "";
+        const dateProperty = properties.find((candidate) =>
+          candidate.id === dateId && candidate.type === "date",
+        );
+        const dateRange = parseTimelineRange(view.config.chartDateRange);
+        const dateOffset = parseChartDateOffset(view.config.chartDateOffset);
+        const dateStart = parseChartDateBound(view.config.chartDateStart);
+        const dateEnd = parseChartDateBound(view.config.chartDateEnd);
+        const datePreset = parseChartDatePreset(view.config.chartDatePreset);
+        const dateWindow = dateProperty
+          ? chartDateWindow(today, dateRange, dateOffset, dateStart, dateEnd, datePreset)
+          : null;
+        const presetWindow = datePreset
+          ? chartDatePresetWindow(today, datePreset)
+          : null;
+        const valueProperty = { id: property.id, name: property.name, type: property.type };
+        const groupProperty = group
+          ? { id: group.id, name: group.name, type: group.type, options: { choices } }
+          : null;
+        // Chart data keeps only in-window values but returns an outside count
+        // per group, so a slice's total and its excluded records agree.
+        const bars = chartData(visible, valueProperty, {
+          valueFor,
+          groupBy: groupProperty,
+          dateProperty,
+          dateWindow,
+        });
+        const type = parseChartType(view.config.chartType);
+
+        return {
+          type,
+          property: { id: property.id, name: property.name, type: property.type },
+          groupProperty: group ? { id: group.id, name: group.name } : null,
+          dateProperty: dateProperty
+            ? { id: dateProperty.id, name: dateProperty.name, type: dateProperty.type }
+            : null,
+          dateRange,
+          dateOffset,
+          dateStart: presetWindow?.from ?? dateStart,
+          dateEnd: presetWindow?.to ?? dateEnd,
+          datePreset,
+          chart: bars,
+          // A widget can switch shape in place, so every chart widget carries
+          // the line points even while another shape is saved.
+          series: chartSeries(visible, valueProperty, {
+            valueFor,
+            dateProperty: dateProperty
+              ? { id: dateProperty.id, name: dateProperty.name, type: dateProperty.type }
+              : null,
+            dateWindow,
+          }),
+        };
+      })();
 
       return [{
         view: {
@@ -130,6 +273,7 @@ export async function GET(request: Request) {
           values: record.values,
           pageId: record.pageId,
         })),
+        chart,
         total: visible.length,
       }];
     });
