@@ -5,31 +5,26 @@ import {
   SignInAttemptLimiter,
   createSessionToken,
   readAuthConfig,
+  requestClientAddress,
   safeNextPath,
   sessionCookieOptions,
   shouldUseSecureCookies,
   verifyPassword,
 } from "@/lib/auth";
+import { readStoredPassword } from "@/lib/password-store";
 
 const limiter = new SignInAttemptLimiter();
 
 const signInSchema = z.object({
   password: z.string().min(1).max(1024),
-  next: z.string().max(2048).optional(),
+  // The sign-in form sends `null` when the URL has no `next` parameter, which
+  // is the normal case for a direct visit to /signin. Rejecting it turned
+  // every such sign-in into a 400.
+  next: z.string().max(2048).nullish(),
 });
 
-function clientAddress(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
-  }
-
-  return request.headers.get("x-real-ip")?.trim() || "unknown";
-}
-
 export async function POST(request: Request) {
-  const configResult = readAuthConfig();
+  const configResult = readAuthConfig(process.env, readStoredPassword());
   if (!configResult.ok) {
     return NextResponse.json(
       { error: "Sign-in is not configured on this server." },
@@ -37,7 +32,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const client = clientAddress(request);
+  const client = requestClientAddress(request);
   if (limiter.isBlocked(client)) {
     return NextResponse.json(
       { error: "Too many attempts. Wait a few minutes and try again." },

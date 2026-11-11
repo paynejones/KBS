@@ -8,6 +8,7 @@ import {
   safeNextPath,
   verifySessionToken,
 } from "@/lib/auth";
+import { readStoredPassword } from "@/lib/password-store";
 
 let warnedAboutMissingAuth = false;
 
@@ -25,7 +26,9 @@ export function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(REQUEST_ID_HEADER, requestId);
 
-  const configResult = readAuthConfig();
+  // A password changed in Settings is picked up here on the next request, so
+  // no restart is needed to enforce it.
+  const configResult = readAuthConfig(process.env, readStoredPassword());
   const configured = configResult.ok;
   const session = request.cookies.get(SESSION_COOKIE)?.value;
   const hasSession = configResult.ok && verifySessionToken(session, configResult.config);

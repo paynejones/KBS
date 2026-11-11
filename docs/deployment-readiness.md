@@ -26,6 +26,8 @@ Server-side behaviour:
 - With either variable missing, or the secret shorter than 32 characters, a production build returns `503` for every request rather than serving data. A development server stays open so local work and the existing test suites need no credentials.
 - Failed sign-ins are throttled per client address in memory (8 attempts per 10 minutes). The counter belongs to one server process, so it is a speed bump rather than a lockout; add request-level rate limiting at the proxy for a public host.
 
+Passwords can also be changed from **Settings** (`/settings`) while signed in. The app writes a salted scrypt hash to `data/auth-credential.json`, or to the file named by `KBS_AUTH_CREDENTIAL_PATH`, and the proxy prefers it over `KBS_AUTH_PASSWORD` on every request. The change therefore applies without a restart and without a database round trip, and every existing session except the browser that made the change is signed out. Keep `KBS_AUTH_PASSWORD` set: it remains the recovery credential, and deleting the stored file returns to it. Because the credential is a server-local file, like the attachments directory, a multi-instance deployment must share it or change the password through a single instance.
+
 The gate answers who may enter, not what they may see. Before multi-user support, every query and mutation still needs a workspace scope.
 
 ## Before choosing a host

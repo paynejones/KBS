@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
-import { BookOpenText, Search, SlidersHorizontal } from "lucide-react";
+import { BookOpenText, Search, Settings, SlidersHorizontal } from "lucide-react";
 import { PageTree } from "@/components/page-tree";
 import { CommandPalette } from "@/components/command-palette";
 import { MobileSearchButton } from "@/components/mobile-search-button";
@@ -82,6 +82,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             K
           </span>
           <span className="min-w-0 flex-1 truncate">My workspace</span>
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            title="Settings"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Settings size={14} aria-hidden="true" />
+          </Link>
           <SignOutButton />
         </div>
       </aside>
@@ -110,6 +118,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <SlidersHorizontal size={18} aria-hidden="true" />
             </button>
+            <Link
+              href="/settings"
+              aria-label="Settings"
+              title="Settings"
+              className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+            >
+              <Settings size={18} aria-hidden="true" />
+            </Link>
             <CommandPalette showTrigger={false} />
             <ThemePicker />
           </div>

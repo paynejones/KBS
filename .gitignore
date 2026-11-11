@@ -18,6 +18,7 @@
 /tests/.tmp-attachments-*
 /tests/.browser-test-database.json
 /tests/.browser-auth-state.json
+/tests/.browser-auth-credential.json
 
 # next.js
 /.next/

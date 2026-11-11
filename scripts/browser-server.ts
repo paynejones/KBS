@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { createTestDatabase } from "../tests/api/db-harness";
 import {
@@ -61,6 +62,15 @@ async function main() {
   // A previous run may have been killed before its teardown could clean up.
   await dropRecordedTestDatabase();
 
+  // The suite keeps its own credential file, so a password changed in the
+  // developer's workspace never breaks its throwaway sign-in.
+  const authCredentialPath = path.join(
+    process.cwd(),
+    "tests",
+    ".browser-auth-credential.json",
+  );
+  await rm(authCredentialPath, { force: true });
+
   database = await createTestDatabase();
   await recordTestDatabase({
     databaseUrl: database.url,
@@ -78,6 +88,7 @@ async function main() {
     // sign-in configured. The suite signs in with these throwaway credentials.
     KBS_AUTH_PASSWORD: BROWSER_TEST_PASSWORD,
     KBS_AUTH_SECRET: BROWSER_TEST_SECRET,
+    KBS_AUTH_CREDENTIAL_PATH: authCredentialPath,
   };
 
   server = spawn(process.execPath, [nextBin, "build"], {

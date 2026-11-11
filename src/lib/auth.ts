@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { isPasswordHash, verifyPasswordHash } from "@/lib/password-hash";
 
 export const SESSION_COOKIE = "kbs_session";
 export const SIGN_IN_PATH = "/signin";
@@ -21,19 +22,25 @@ export type AuthConfigResult =
 
 export function readAuthConfig(
   env: Record<string, string | undefined> = process.env,
+  storedPassword?: string | null,
 ): AuthConfigResult {
   const password = env.KBS_AUTH_PASSWORD?.trim() ?? "";
   const secret = env.KBS_AUTH_SECRET?.trim() ?? "";
 
+  // The environment password is what makes sign-in configured; a password set
+  // from Settings overrides it but never stands in for it, so removing the
+  // stored credential always falls back to a known value.
   if (!password || !secret) return { ok: false, reason: "missing" };
   if (secret.length < MIN_SECRET_LENGTH) return { ok: false, reason: "weak-secret" };
 
-  return { ok: true, config: { password, secret } };
+  return { ok: true, config: { password: storedPassword?.trim() || password, secret } };
 }
 
 /**
- * Sessions are signed over the password as well as the expiry, so rotating
- * either the password or the secret invalidates every cookie immediately.
+ * Sessions are signed over the password credential as well as the expiry, so
+ * changing the password (or the secret) invalidates every cookie immediately.
+ * A password set from Settings is signed over its stored hash, which changes
+ * with every rotation.
  */
 function passwordFingerprint(password: string) {
   return createHash("sha256").update(password, "utf8").digest("base64url");
@@ -77,10 +84,25 @@ export function verifySessionToken(
 }
 
 export function verifyPassword(input: string, expected: string): boolean {
+  // A password set from Settings arrives as its stored hash; the environment
+  // password arrives as plain text and is compared by digest.
+  if (isPasswordHash(expected)) return verifyPasswordHash(input, expected);
+
   const provided = createHash("sha256").update(input, "utf8").digest();
   const wanted = createHash("sha256").update(expected, "utf8").digest();
 
   return timingSafeEqual(provided, wanted);
+}
+
+/** Best-effort client identity for per-address sign-in throttling. */
+export function requestClientAddress(request: Request) {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
+  return request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 /** Only same-origin absolute paths may be used as a post-sign-in destination. */

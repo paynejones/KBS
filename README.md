@@ -46,6 +46,10 @@ KBS_AUTH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toStrin
 
 `/signin` then issues a 30-day signed, httpOnly session cookie, and every page, API route, and attachment request needs it. With either variable unset the development server stays open for local work; a production build returns `503` instead of serving unauthenticated data. See [the deployment readiness runbook](docs/deployment-readiness.md) for the full behaviour and release steps.
 
+## Changing the password
+
+Once signed in, open **Settings** (`/settings`) to change the workspace password. It is stored as a salted scrypt hash in `data/auth-credential.json` (`KBS_AUTH_CREDENTIAL_PATH` overrides the location), the change applies on the next request without a restart, and every other browser is signed out. Keep `KBS_AUTH_PASSWORD` set: deleting that file falls back to the environment password, which is the recovery path if the new one is forgotten.
+
 ## Reliability checks
 
 Run the pure reliability tests with:
