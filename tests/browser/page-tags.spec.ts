@@ -121,8 +121,11 @@ async function collectChipTabStops(page: Page): Promise<FocusStop[]> {
 test("shows the tag chip tooltip only when the name is truncated", async ({ page, request }) => {
   const token = `tag-chip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const longName = `tip-${Date.now().toString().slice(-6)}${Math.random().toString(36).slice(2, 5)} long tag name for tooltip`;
-  // Fits the chip at 1280px but overflows the 254px-wide column at 320px.
-  const mediumName = `${token.slice(-6)}-${"x".repeat(24)}`;
+  // Fits the 734px-wide column at 1280px but overflows the 254px-wide column at
+  // 320px by a wide margin: the chip only has ~213px for its label there, so a
+  // name this long cannot come close to fitting by a pixel or two. The tag API
+  // caps names at 50 characters, which is what limits the length below.
+  const mediumName = `${token.slice(-6)}-${"x".repeat(43)}`;
   const shortName = `short-${Math.random().toString(36).slice(2, 8)}`;
   const tagged = await createPage(request, `${token} page`);
   const longTag = await createTag(request, longName);
