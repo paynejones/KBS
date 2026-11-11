@@ -68,6 +68,16 @@ For a scheduled backup, run the command from cron, a systemd timer, or Windows T
 0 3 * * * cd /srv/kbs && npm run backup -- --keep 14 >> /var/log/kbs-backup.log 2>&1
 ```
 
+In a container deployment the `backup` service does this from inside the stack, so the host needs no cron entry. It runs the same command with `--keep`, writes to `BACKUPS_DIR` on the data volume, and logs one line per run:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BACKUP_KEEP` | `7` | Dated backup folders to keep; older ones are deleted after a successful, verified run |
+| `BACKUP_INTERVAL_HOURS` | `24` | Hours between runs |
+| `BACKUP_ON_START` | `true` | Take one backup as soon as the service starts |
+
+A failed run keeps its folder for investigation and retries on the next interval instead of stopping the service. Check on it with `docker compose logs -f backup`, and verify a stored backup with `docker compose run --rm backup npm run backup -- --verify /data/backups/<id>`. Copy the backups off the volume: it is not off-site storage.
+
 ```bash
 npm run backup -- --verify data/backups/2026-11-07T22-21-03-123Z
 ```

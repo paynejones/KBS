@@ -1,0 +1,24 @@
+# Dependencies and build output are rebuilt inside the image
+node_modules
+.next
+.next-browser-test
+.next-preview-ui
+out
+build
+
+# Local workspace data, secrets, and test artifacts
+data
+.env
+.env.*
+test-results
+playwright-report
+blob-report
+*.tsbuildinfo
+
+# Nothing in these is served or needed by the build
+.git
+.github
+.freebuff
+docs
+preview-*.png
+*.md

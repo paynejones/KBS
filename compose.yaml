@@ -1,11 +1,27 @@
+x-database-environment: &database-environment
+  # Deliberately not read from DATABASE_URL: the development .env sets that to
+  # localhost, which is wrong inside a container. Set KBS_DATABASE_URL to point
+  # at a managed PostgreSQL instance; the bundled `db` service is used otherwise.
+  DATABASE_URL: ${KBS_DATABASE_URL:-postgresql://${POSTGRES_USER:-kbs}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-kbs}}
+
+x-storage-environment: &storage-environment
+  # Everything the app writes lives on the persistent volume.
+  ATTACHMENTS_DIR: /data/attachments
+  KBS_AUTH_CREDENTIAL_PATH: /data/auth-credential.json
+  BACKUPS_DIR: /data/backups
+
+x-auth-environment: &auth-environment
+  KBS_AUTH_PASSWORD: ${KBS_AUTH_PASSWORD:?Set KBS_AUTH_PASSWORD in .env}
+  KBS_AUTH_SECRET: ${KBS_AUTH_SECRET:?Set KBS_AUTH_SECRET to at least 32 characters}
+
 services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-kbs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-kbs}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -18,5 +34,56 @@ services:
       timeout: 5s
       retries: 5
 
+  # Applies the schema migrations once per release, then exits. The app waits
+  # for it so a new version never serves against an old schema.
+  migrate:
+    build:
+      context: .
+      target: migrate
+    image: ${KBS_MIGRATE_IMAGE:-kbs-migrate}
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *database-environment
+
+  app:
+    build:
+      context: .
+      target: runner
+    image: ${KBS_APP_IMAGE:-kbs-app}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${KBS_PORT:-3000}:3000"
+    environment:
+      <<: [*database-environment, *storage-environment, *auth-environment]
+    volumes:
+      - kbs_data:/data
+
+  # Writes a verified workspace backup (database export plus attachment files)
+  # to the data volume on an interval, keeping BACKUP_KEEP copies. The schedule
+  # runs in the container, so the host needs no cron entry.
+  backup:
+    build:
+      context: .
+      target: backup
+    image: ${KBS_BACKUP_IMAGE:-kbs-backup}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: [*database-environment, *storage-environment]
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_ON_START: ${BACKUP_ON_START:-true}
+    volumes:
+      - kbs_data:/data
+
 volumes:
   postgres_data:
+  kbs_data:

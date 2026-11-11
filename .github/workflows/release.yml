@@ -1,0 +1,117 @@
+name: Release
+
+# A push to main becomes a release in this order: CI must pass, the three images
+# are pushed to GHCR tagged with the commit SHA, and the deployment host pulls
+# them and applies migrations before the app is recreated.
+#
+# Repository secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY.
+# Repository variable: DEPLOY_PATH (default /srv/kbs), a checkout of this repo.
+# Until DEPLOY_HOST is set, a release only publishes images.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      repository: ${{ steps.names.outputs.repository }}
+      tag: ${{ steps.names.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Name the images
+        id: names
+        run: |
+          echo "repository=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: ${{ steps.names.outputs.repository }}/app:${{ steps.names.outputs.tag }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+      - name: Build and push the migration image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrate
+          push: true
+          tags: ${{ steps.names.outputs.repository }}/migrate:${{ steps.names.outputs.tag }}
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,mode=max,scope=migrate
+      - name: Build and push the backup image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: backup
+          push: true
+          tags: ${{ steps.names.outputs.repository }}/backup:${{ steps.names.outputs.tag }}
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,mode=max,scope=backup
+
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the deploy configuration
+        id: check
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -n "$DEPLOY_HOST" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DEPLOY_HOST is not set, so this release only published images."
+          fi
+      - name: Configure SSH
+        if: steps.check.outputs.configured == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Migrate, then deploy
+        if: steps.check.outputs.configured == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          KBS_IMAGE_REPOSITORY: ${{ needs.images.outputs.repository }}
+          KBS_IMAGE_TAG: ${{ needs.images.outputs.tag }}
+        run: |
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          path="${DEPLOY_PATH:-/srv/kbs}"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$target" \
+            "cd '$path' && git fetch --quiet origin && git checkout --quiet --detach '$KBS_IMAGE_TAG' && KBS_IMAGE_REPOSITORY='$KBS_IMAGE_REPOSITORY' KBS_IMAGE_TAG='$KBS_IMAGE_TAG' sh scripts/deploy-release.sh"

@@ -3,6 +3,9 @@ name: CI
 on:
   push:
   pull_request:
+  # The release workflow calls this file, so a release cannot ship a commit
+  # that fails these checks.
+  workflow_call:
 
 jobs:
   verify:
