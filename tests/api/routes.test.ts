@@ -2969,7 +2969,7 @@ describe("search API", () => {
   it("handles empty and oversized queries", async () => {
     assert.deepEqual(
       await body(await api.search.GET(new Request("http://localhost/api/search"))),
-      { pages: [], records: [] },
+      { results: [] },
     );
     assert.equal(
       (await api.search.GET(new Request(`http://localhost/api/search?q=${"x".repeat(201)}`))).status,
@@ -2997,12 +2997,112 @@ describe("search API", () => {
     );
     assert.equal(response.status, 200);
     const results = await body<{
-      pages: { id: string; title: string }[];
-      records: { id: string; title: string; databaseName: string }[];
+      results: { type: string; id: string; title: string; databaseName?: string }[];
     }>(response);
-    assert.ok(results.pages.some((result) => result.id === page.id));
-    assert.ok(!results.pages.some((result) => result.id === trashed.id));
-    assert.ok(results.records.some((result) => result.id === record.id && result.databaseName === `${token} database`));
+    const pageHits = results.results.filter((hit) => hit.type === "page");
+    const recordHits = results.results.filter((hit) => hit.type === "record");
+    assert.ok(pageHits.some((hit) => hit.id === page.id));
+    assert.ok(!pageHits.some((hit) => hit.id === trashed.id));
+    assert.ok(recordHits.some((hit) => hit.id === record.id && hit.databaseName === `${token} database`));
+  });
+
+  it("ranks title matches above body mentions, regardless of recency", async () => {
+    const token = "TungstenRankToken";
+    // The body-only page and the value-only record are created last, so
+    // ordering by updated_at alone would put both of them first.
+    const exact = await createPage({ title: token, content: "An exact title." });
+    const prefix = await createPage({ title: `${token} planning`, content: "No mention here." });
+    const bodyOnly = await createPage({ title: "Weekly review", content: `Passing ${token} mention.` });
+
+    const database = await createDatabase(`${token} ranking database`);
+    const notes = await createDatabaseProperty(database.id, { name: "Notes", type: "text" });
+    const titleRecord = await createDatabaseRecord(database.id, {
+      title: `${token} record`,
+      values: { [notes.id]: "No mention here." },
+    });
+    // Record values are written by PATCH, not at creation.
+    const valueOnly = await createDatabaseRecord(database.id, { title: "Unrelated record" });
+    const patched = await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${valueOnly.id}`, "PATCH", {
+        values: { [notes.id]: `${token} buried in a property` },
+      }),
+      routeContext({ id: database.id, recordId: valueOnly.id }),
+    );
+    assert.equal(patched.status, 200);
+
+    const results = await body<{
+      results: { type: string; id: string; score: number; match: string }[];
+    }>(
+      await api.search.GET(
+        new Request(`http://localhost/api/search?q=${encodeURIComponent(token)}`),
+      ),
+    );
+
+    // Pages and records come back in one list, so compare positions in it.
+    // A record's own page is also a title-prefix match, so assert relative
+    // order instead of the whole list.
+    const order = results.results.map((hit) => hit.id);
+    assert.equal(order[0], exact.id, "an exact title outranks every other title match");
+    assert.ok(
+      order.indexOf(prefix.id) < order.indexOf(bodyOnly.id),
+      "a title prefix outranks a body mention",
+    );
+    assert.ok(
+      order.indexOf(titleRecord.id) < order.indexOf(valueOnly.id),
+      "a record title match ranks above a value match",
+    );
+    assert.ok(
+      results.results.every((hit, index) => index === 0 || results.results[index - 1].score >= hit.score),
+      "the merged list descends by relevance score",
+    );
+    assert.ok(
+      results.results.every((hit) => Number.isFinite(hit.score)),
+      "every hit carries a numeric relevance score",
+    );
+
+    // The reason travels with the score so the palette can explain the order.
+    const reasonFor = new Map(results.results.map((hit) => [hit.id, hit.match]));
+    assert.equal(reasonFor.get(exact.id), "title");
+    assert.equal(reasonFor.get(prefix.id), "title");
+    assert.equal(reasonFor.get(bodyOnly.id), "content");
+    assert.equal(reasonFor.get(titleRecord.id), "title");
+    assert.equal(reasonFor.get(valueOnly.id), "content");
+  });
+
+  it("nudges favorites up inside a match bucket without crossing buckets", async () => {
+    const token = "CobaltFavoriteToken";
+    const favoriteBody = await createPage({
+      title: "Reading notes",
+      content: `A quiet mention of ${token}.`,
+    });
+    await api.page.PATCH(
+      jsonRequest(`/api/pages/${favoriteBody.id}`, "PATCH", { isFavorite: true }),
+      routeContext({ id: favoriteBody.id }),
+    );
+    // Created after the favorite, so recency alone would order it first; both
+    // titles share no trigrams with the term, so only the favorite bonus can
+    // separate them.
+    const plainBody = await createPage({
+      title: "Errand notes",
+      content: `Another mention of ${token}.`,
+    });
+    const titleMatch = await createPage({ title: `${token} brief`, content: "No mention here." });
+
+    const results = await body<{ results: { id: string }[] }>(
+      await api.search.GET(
+        new Request(`http://localhost/api/search?q=${encodeURIComponent(token)}`),
+      ),
+    );
+    const order = results.results.map((hit) => hit.id);
+
+    assert.ok(
+      order.indexOf(favoriteBody.id) < order.indexOf(plainBody.id),
+      "a favorite outranks an equally matching page that is merely newer",
+    );
+    assert.ok(
+      order.indexOf(titleMatch.id) < order.indexOf(favoriteBody.id),
+      "a favorite body mention stays below a page named after the term",
+    );
   });
 });
 

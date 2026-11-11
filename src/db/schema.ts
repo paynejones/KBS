@@ -1,4 +1,5 @@
 
+import { sql } from "drizzle-orm";
 import type { CapturedAttachment } from "@/lib/media";
 import {
   pgTable,
@@ -85,6 +86,13 @@ export const pages = pgTable(
     index("pages_updated_at_idx").on(table.updatedAt),
     index("pages_parent_id_idx").on(table.parentId),
     index("pages_deleted_at_idx").on(table.deletedAt),
+    // Trigram indexes let global search and the page browser answer the
+    // substring patterns below from an index instead of reading every page
+    // body. Terms shorter than three characters carry no trigrams and still
+    // fall back to a scan, as does a term common enough that the planner
+    // prefers one.
+    index("pages_title_trgm_idx").using("gin", sql`${table.title} gin_trgm_ops`),
+    index("pages_content_trgm_idx").using("gin", sql`${table.content} gin_trgm_ops`),
   ],
 );
 
@@ -368,6 +376,13 @@ export const databaseRecords = pgTable(
   (table) => [
     index("database_records_database_id_idx").on(table.databaseId),
     index("database_records_updated_at_idx").on(table.updatedAt),
+    // Search reads record titles and every property value as text; both keep
+    // their trigram index so record lookups stay indexed as a workspace grows.
+    index("database_records_title_trgm_idx").using("gin", sql`${table.title} gin_trgm_ops`),
+    index("database_records_values_trgm_idx").using(
+      "gin",
+      sql`(${table.values}::text) gin_trgm_ops`,
+    ),
   ],
 );
 

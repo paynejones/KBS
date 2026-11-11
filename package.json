@@ -14,6 +14,7 @@
     "test:browser": "playwright test",
     "test:browser:server": "tsx scripts/browser-server.ts",
     "test:db": "tsx scripts/test-db-reliability.ts",
+    "bench:search": "tsx scripts/search-benchmark.ts",
     "db:check": "tsx scripts/check-db.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

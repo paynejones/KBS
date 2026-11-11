@@ -38,11 +38,29 @@ import {
 type PageOption = { id: string; title: string; isFavorite: boolean; isRecordPage?: boolean };
 type DatabaseOption = { id: string; name: string };
 type PageTemplateOption = { id: string; name: string; title: string; icon: string | null };
-type SearchRecord = { id: string; title: string; databaseId: string; databaseName: string };
-type SearchResults = {
-  pages: { id: string; title: string; updatedAt: string }[];
-  records: SearchRecord[];
-};
+// The search API scores pages and records on the same scale and returns one
+// list, so the palette can show them interleaved by relevance. Each hit also
+// says whether the title or the body/properties carried the match.
+type SearchHit =
+  | {
+      type: "page";
+      id: string;
+      title: string;
+      updatedAt: string;
+      score: number;
+      match: "title" | "content";
+    }
+  | {
+      type: "record";
+      id: string;
+      title: string;
+      updatedAt: string;
+      score: number;
+      match: "title" | "content";
+      databaseId: string;
+      databaseName: string;
+    };
+type SearchResults = { results: SearchHit[] };
 
 type PaletteItem = {
   key: string;
@@ -53,7 +71,7 @@ type PaletteItem = {
   run: () => void;
 };
 
-const emptyResults: SearchResults = { pages: [], records: [] };
+const emptyResults: SearchResults = { results: [] };
 
 export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }) {
   const router = useRouter();
@@ -526,25 +544,35 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
         alreadyShown.add(page.id);
       }
     }
-    for (const page of activeResults.pages) {
-      if (alreadyShown.has(page.id) || recordPageIds.has(page.id)) continue;
+    for (const hit of activeResults.results) {
+      // The reason and score explain the order in one line: where the term
+      // matched, then how strongly.
+      const reason = hit.match === "title"
+        ? "title match"
+        : hit.type === "record"
+          ? "value match"
+          : "body match";
+      const score = hit.score.toFixed(2);
+
+      if (hit.type === "page") {
+        if (alreadyShown.has(hit.id) || recordPageIds.has(hit.id)) continue;
+        searchItems.push({
+          key: `search-page-${hit.id}`,
+          label: hit.title || "Untitled",
+          detail: `${reason} · ${score}`,
+          group: "Search results",
+          icon: <FileText size={16} />,
+          run: () => go(`/pages/${hit.id}`),
+        });
+        continue;
+      }
       searchItems.push({
-        key: `search-page-${page.id}`,
-        label: page.title || "Untitled",
-        detail: `Page · ${new Date(page.updatedAt).toLocaleDateString()}`,
-        group: "Search results",
-        icon: <FileText size={16} />,
-        run: () => go(`/pages/${page.id}`),
-      });
-    }
-    for (const record of activeResults.records) {
-      searchItems.push({
-        key: `search-record-${record.id}`,
-        label: record.title || "Untitled",
-        detail: `Record · ${record.databaseName}`,
+        key: `search-record-${hit.id}`,
+        label: hit.title || "Untitled",
+        detail: `${hit.databaseName} · ${reason} · ${score}`,
         group: "Search results",
         icon: <Database size={16} />,
-        run: () => go(`/databases/${record.databaseId}/records/${record.id}`),
+        run: () => go(`/databases/${hit.databaseId}/records/${hit.id}`),
       });
     }
   }

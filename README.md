@@ -78,6 +78,14 @@ npm run test:db
 
 The database check uses `DATABASE_URL` only to create a uniquely named temporary database, applies the project migrations there, runs the checks, and drops that temporary database afterward. It requires permission to create databases and connect to the PostgreSQL `postgres` database. It does not run mutations against the configured application database.
 
+Measure search against a large workspace with:
+
+```bash
+npm run bench:search
+```
+
+It also uses only a temporary database: it applies the migrations, seeds 20,000 pages and 5,000 records (`SEARCH_BENCH_PAGES` overrides the page count), and reports the median time for each search query before and after the trigram indexes are built, with the query plan it used. Global search and the page browser match with `ILIKE '%term%'`, so migration `0023` enables the `pg_trgm` extension and indexes page titles, page bodies, record titles, and record values as trigrams. Terms of two characters or fewer carry no trigrams and still scan.
+
 See [the deployment readiness runbook](docs/deployment-readiness.md) for migration, security, and monitoring requirements before hosting.
 
 See [backup and restore](docs/backup-and-restore.md) for the workspace JSON export, the attachments directory, and the `npm run restore:export` restore path.

@@ -153,8 +153,8 @@ async function main() {
     assert.ok(favoritePages.some((page) => page.id === smokePage.id), "favorites filter should include the edited page");
 
     const smokeSearchResponse = await search(makeRequest("/api/search?q=browser-flow%20marker", "GET"));
-    const smokeSearch = await smokeSearchResponse.json() as { pages: { id: string }[] };
-    assert.ok(smokeSearch.pages.some((page) => page.id === smokePage.id), "global search should find page content");
+    const smokeSearch = await smokeSearchResponse.json() as { results: { type: string; id: string }[] };
+    assert.ok(smokeSearch.results.some((hit) => hit.type === "page" && hit.id === smokePage.id), "global search should find page content");
 
     const smokePageReloadResponse = await getPage(makeRequest(`/api/pages/${smokePage.id}`, "GET"), smokePageContext);
     const reloadedSmokePage = await smokePageReloadResponse.json() as { title: string; content: string; isFavorite: boolean };

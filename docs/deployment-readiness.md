@@ -37,7 +37,7 @@ The gate answers who may enter, not what they may see. Before multi-user support
 ## Release checklist
 
 1. Set `DATABASE_URL`, `KBS_AUTH_PASSWORD`, and `KBS_AUTH_SECRET` in the host's secret manager. Use a dedicated production database and the provider's TLS connection string. Never commit `.env` or production credentials.
-2. Provision the production database, then run `npm run db:migrate` as a release step before starting the new application version. Do not run `db:generate` in production.
+2. Provision the production database, then run `npm run db:migrate` as a release step before starting the new application version. Do not run `db:generate` in production. The latest migration enables the `pg_trgm` extension that backs search, so the migration role must be allowed to create extensions (`pg_trgm` is a trusted extension from PostgreSQL 13 onward, so the database owner can do it without superuser rights).
 3. Require the GitHub Actions workflow to pass before deployment. Its first run has passed. The database job creates and drops a uniquely named test database, so its CI role must be allowed to create databases.
 4. Build with `npm ci` and `npm run build`, then start with `npm run start`.
 5. Confirm that the deployed service can reach PostgreSQL, that an unauthenticated request is redirected to `/signin` (and `/api/*` returns `401`), and that signing in with `KBS_AUTH_PASSWORD` returns the expected page, database, and search results.

@@ -162,6 +162,13 @@
       "when": 1794323363218,
       "tag": "0022_legal_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794324070488,
+      "tag": "0023_search_trgm_indexes",
+      "breakpoints": true
     }
   ]
 }
