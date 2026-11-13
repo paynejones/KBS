@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { PageEditor } from "../../src/components/page-editor";
 import { json, type FetchCall } from "./fetch-stub";
 import { restorePageEditorFetch, stubPageEditor } from "./page-editor-stub";
+import { withAppRouter } from "./app-router";
 
 const PAGE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const UPDATED_AT = "2026-01-01T00:00:00.000Z";
@@ -45,7 +46,7 @@ afterEach(() => {
 test("PageEditor opens with the passage captured from its source", async () => {
   stubPageEditor({ page: serverPage("A passage worth keeping.") });
 
-  render(<PageEditor id={PAGE_ID} />);
+  render(withAppRouter(<PageEditor id={PAGE_ID} />));
 
   const quote = await screen.findByText("A passage worth keeping.");
   assert.equal(
@@ -58,7 +59,7 @@ test("PageEditor opens with the passage captured from its source", async () => {
 test("PageEditor shows no quote for a page captured without one", async () => {
   stubPageEditor({ page: serverPage(null) });
 
-  render(<PageEditor id={PAGE_ID} />);
+  render(withAppRouter(<PageEditor id={PAGE_ID} />));
 
   await screen.findByDisplayValue("Saved article");
   assert.equal(screen.queryByText("A passage worth keeping."), null);
@@ -68,7 +69,7 @@ test("PageEditor shows no quote for a page captured without one", async () => {
 test("editing the quote saves the correction in place", async () => {
   const calls = stubPageEditor({ page: serverPage("A passage worth keeping.") });
 
-  render(<PageEditor id={PAGE_ID} />);
+  render(withAppRouter(<PageEditor id={PAGE_ID} />));
   await screen.findByText("A passage worth keeping.");
 
   fireEvent.click(screen.getByRole("button", { name: "Edit quote" }));
@@ -94,7 +95,7 @@ test("editing the quote saves the correction in place", async () => {
 test("removing the quote clears it from the page", async () => {
   const calls = stubPageEditor({ page: serverPage("A passage worth keeping.") });
 
-  render(<PageEditor id={PAGE_ID} />);
+  render(withAppRouter(<PageEditor id={PAGE_ID} />));
   await screen.findByText("A passage worth keeping.");
 
   await act(async () => {
@@ -115,7 +116,7 @@ test("a failed quote save keeps the editor open with the draft intact", async ()
         : undefined,
   });
 
-  render(<PageEditor id={PAGE_ID} />);
+  render(withAppRouter(<PageEditor id={PAGE_ID} />));
   await screen.findByText("A passage worth keeping.");
 
   fireEvent.click(screen.getByRole("button", { name: "Edit quote" }));

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
+import { RootFailureProbe } from "@/components/root-failure-probe";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
+        <RootFailureProbe />
         {children}
         <Script id="kbs-theme-init" strategy="beforeInteractive">
           {themeInitialization}

@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 export function MediaImage({
   src,
   alt,
   className,
+  style,
 }: {
   src: string;
   alt: string;
   className?: string;
+  style?: CSSProperties;
 }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const failed = failedSrc === src;
@@ -28,6 +30,7 @@ export function MediaImage({
       src={src}
       alt={alt}
       className={className}
+      style={style}
       onError={() => setFailedSrc(src)}
     />
   );

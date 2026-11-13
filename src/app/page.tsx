@@ -5,18 +5,41 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  Check,
   Database,
   FileText,
+  LayoutGrid,
+  Lock,
   Plus,
+  RotateCcw,
   Search,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { DashboardDatabases } from "@/components/dashboard-databases";
+import { DashboardFavorites } from "@/components/dashboard-favorites";
+import { DashboardGrid } from "@/components/dashboard-grid";
+import { DashboardInbox } from "@/components/dashboard-inbox";
 import { DashboardPinnedProjects } from "@/components/dashboard-pinned-projects";
+import { DashboardReading } from "@/components/dashboard-reading";
+import { DashboardSavedSearches } from "@/components/dashboard-saved-searches";
 import { DashboardQueues } from "@/components/dashboard-queues";
 import { DashboardTimeline } from "@/components/dashboard-timeline";
 import { DashboardWidgets } from "@/components/dashboard-widgets";
 import { RecentPages } from "@/components/recent-pages";
 import { Button } from "@/components/ui/button";
+import {
+  defaultDashboardLayout,
+  getDashboardLayoutSnapshot,
+  getServerDashboardLayoutSnapshot,
+  setDashboardLocked,
+  storeDashboardLayout,
+  subscribeToDashboardLayout,
+} from "@/lib/dashboard-layout";
+import {
+  getNavigationSnapshot,
+  getServerNavigationSnapshot,
+  subscribeToNavigation,
+} from "@/lib/navigation";
 
 type PageSummary = {
   id: string;
@@ -86,6 +109,19 @@ function snippetFrom(content: string | null | undefined): string {
 
 export default function Home() {
   const router = useRouter();
+  const showDatabasePages = useSyncExternalStore(
+    subscribeToNavigation,
+    getNavigationSnapshot,
+    getServerNavigationSnapshot,
+  ).showDatabasePages;
+  const layout = useSyncExternalStore(
+    subscribeToDashboardLayout,
+    getDashboardLayoutSnapshot,
+    getServerDashboardLayoutSnapshot,
+  );
+  const [editing, setEditing] = useState(false);
+  // A lock always wins: even a stale "editing" flag cannot draw controls.
+  const layoutEditing = editing && !layout.locked;
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -108,7 +144,9 @@ export default function Home() {
       setLoading(true);
       setLoadError("");
       try {
-        const response = await fetch("/api/pages");
+        const response = await fetch(
+          `/api/pages${showDatabasePages ? "?includeRecordPages=true" : ""}`,
+        );
         if (!response.ok) throw new Error("Could not load your pages.");
         const data: PageSummary[] = await response.json();
         if (!cancelled) {
@@ -137,7 +175,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [retryKey]);
+  }, [retryKey, showDatabasePages]);
 
   async function createPage() {
     setCreating(true);
@@ -221,12 +259,81 @@ export default function Home() {
                 Ctrl K
               </kbd>
             </Button>
+            {!loading && !loadError && pages.length > 0 && (
+              layout.locked ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Unlock homepage editing"
+                  title="Homepage layout is locked"
+                  onClick={() => {
+                    setEditing(false);
+                    storeDashboardLayout(setDashboardLocked(layout, false));
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Lock size={14} aria-hidden="true" />
+                  Locked
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant={layoutEditing ? "default" : "ghost"}
+                  size="sm"
+                  aria-pressed={layoutEditing}
+                  onClick={() => setEditing((current) => !current)}
+                  className={layoutEditing ? undefined : "text-muted-foreground hover:text-foreground"}
+                >
+                  {layoutEditing ? (
+                    <Check size={15} aria-hidden="true" />
+                  ) : (
+                    <LayoutGrid size={15} aria-hidden="true" />
+                  )}
+                  {layoutEditing ? "Done" : "Customize"}
+                </Button>
+              )
+            )}
             <Button onClick={() => void createPage()} disabled={creating}>
               <Plus size={16} aria-hidden="true" />
               {creating ? "Creating…" : "New page"}
             </Button>
           </div>
         </header>
+
+        {layoutEditing && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card px-3 py-2 text-xs">
+            <p className="text-muted-foreground">
+              Drag a widget by its handle, or use the arrows. Hidden widgets can be
+              restored at the bottom.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => {
+                  setEditing(false);
+                  storeDashboardLayout(setDashboardLocked(layout, true));
+                }}
+              >
+                <Lock size={12} aria-hidden="true" />
+                Lock layout
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => storeDashboardLayout(defaultDashboardLayout())}
+              >
+                <RotateCcw size={12} aria-hidden="true" />
+                Reset layout
+              </Button>
+            </div>
+          </div>
+        )}
 
         {createError && (
           <p role="alert" className="text-sm text-destructive">
@@ -283,76 +390,86 @@ export default function Home() {
             </Button>
           </div>
         ) : (
-          <>
-            <section aria-labelledby="resume-heading" className="space-y-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <h2
-                  id="resume-heading"
-                  className="text-sm font-semibold tracking-tight"
-                >
-                  Pick up where you left off
-                </h2>
-                <Link
-                  href="/pages"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand"
-                >
-                  All pages <ArrowRight size={13} aria-hidden="true" />
-                </Link>
-              </div>
+          <DashboardGrid
+            layout={layout}
+            editing={layoutEditing}
+            locked={layout.locked}
+            onRequestEdit={() => {
+              if (!layout.locked) setEditing(true);
+            }}
+            onLayoutChange={storeDashboardLayout}
+            widgets={{
+              resume: (
+                <section aria-labelledby="resume-heading" className="space-y-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h2
+                      id="resume-heading"
+                      className="text-sm font-semibold tracking-tight"
+                    >
+                      Pick up where you left off
+                    </h2>
+                    <Link
+                      href="/pages"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand"
+                    >
+                      All pages <ArrowRight size={13} aria-hidden="true" />
+                    </Link>
+                  </div>
 
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                {resumePages.map((page, index) => (
-                  <Link
-                    key={page.id}
-                    href={`/pages/${page.id}`}
-                    className={`group min-w-0 flex-col gap-2 rounded-xl border bg-card p-3.5 transition-colors hover:border-brand/40 hover:shadow-sm ${
-                      index > 0 ? "hidden sm:flex" : "flex"
-                    }`}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand">
-                        <FileText size={12} aria-hidden="true" />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:text-brand">
-                        {page.title || "Untitled"}
-                      </span>
-                    </span>
-                    <span className="line-clamp-2 min-h-[2.1rem] text-xs leading-relaxed text-muted-foreground">
-                      {snippets[page.id] || "No content yet."}
-                    </span>
-                    <span className="mt-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      Edited {formatEdited(page.updatedAt, referenceTime)}
-                      {page.tags?.[0] && (
-                        <>
-                          <span className="size-0.5 rounded-full bg-current" />
-                          <span className="truncate">{page.tags[0].name}</span>
-                        </>
-                      )}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            </section>
-
-            <DashboardQueues />
-
-            <DashboardPinnedProjects />
-
-            <DashboardTimeline />
-
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] lg:items-start">
-              <section aria-labelledby="recent-pages-heading" className="min-w-0">
-                <RecentPages
-                  snippets={snippets}
-                  fallback={pages.slice(3, 7)}
-                />
-              </section>
-
-              <section aria-labelledby="pinned-views-heading" className="min-w-0">
-                <DashboardWidgets />
-              </section>
-            </div>
-          </>
+                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {resumePages.map((page, index) => (
+                      <Link
+                        key={page.id}
+                        href={`/pages/${page.id}`}
+                        className={`group min-w-0 flex-col gap-2 rounded-xl border bg-card p-3.5 transition-colors hover:border-brand/40 hover:shadow-sm ${
+                          index > 0 ? "hidden sm:flex" : "flex"
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand">
+                            <FileText size={12} aria-hidden="true" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium group-hover:text-brand">
+                            {page.title || "Untitled"}
+                          </span>
+                        </span>
+                        <span className="line-clamp-2 min-h-[2.1rem] text-xs leading-relaxed text-muted-foreground">
+                          {snippets[page.id] || "No content yet."}
+                        </span>
+                        <span className="mt-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          Edited {formatEdited(page.updatedAt, referenceTime)}
+                          {page.tags?.[0] && (
+                            <>
+                              <span className="size-0.5 rounded-full bg-current" />
+                              <span className="truncate">{page.tags[0].name}</span>
+                            </>
+                          )}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              ),
+              queues: <DashboardQueues />,
+              "pinned-projects": <DashboardPinnedProjects />,
+              timeline: <DashboardTimeline />,
+              recent: (
+                <section aria-labelledby="recent-pages-heading" className="min-w-0">
+                  <RecentPages snippets={snippets} fallback={pages.slice(3, 7)} />
+                </section>
+              ),
+              views: (
+                <section aria-labelledby="pinned-views-heading" className="min-w-0">
+                  <DashboardWidgets />
+                </section>
+              ),
+              favorites: <DashboardFavorites />,
+              reading: <DashboardReading />,
+              inbox: <DashboardInbox />,
+              "saved-searches": <DashboardSavedSearches />,
+              databases: <DashboardDatabases />,
+            }}
+          />
         )}
 
         <p className="flex items-center gap-2 text-xs text-muted-foreground">

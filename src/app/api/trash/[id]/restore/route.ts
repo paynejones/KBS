@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
@@ -33,12 +33,17 @@ export async function POST(request: Request, context: Context) {
 
       await tx
         .update(pages)
-        .set({
-          deletedAt: null,
-          updatedAt: new Date(),
-          ...(restoreParentId !== page.parentId ? { parentId: restoreParentId } : {}),
-        })
+        .set({ deletedAt: null, updatedAt: new Date() })
         .where(inArray(pages.id, ids));
+
+      // Only the restored root may move: the subtree inside it keeps its own
+      // parent links, or every descendant would be flattened to the top level.
+      if (restoreParentId !== page.parentId) {
+        await tx
+          .update(pages)
+          .set({ parentId: restoreParentId })
+          .where(eq(pages.id, id));
+      }
 
       return ids.length;
     });

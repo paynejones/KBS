@@ -4,6 +4,8 @@ export type ListValue = {
   id: string;
   name: string;
   display: string;
+  /** Set only for a button, which renders as an action instead of text. */
+  type?: "button";
 };
 
 export type ListRow = {
@@ -47,6 +49,12 @@ export function listRows<T extends ListRecord>(
   return records.map((record) => {
     const values: ListValue[] = [];
     for (const property of properties.slice(0, limit)) {
+      // A button has no stored value, but it still belongs in the list so it
+      // can be run from there.
+      if (property.type === "button") {
+        values.push({ id: property.id, name: property.name, display: "", type: "button" });
+        continue;
+      }
       const display = formatListValue(valueFor(record, property));
       if (hideEmpty && display === "") continue;
       values.push({ id: property.id, name: property.name, display });

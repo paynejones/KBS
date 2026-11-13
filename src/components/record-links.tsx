@@ -18,7 +18,13 @@ async function fetchRecordConnections(recordId: string): Promise<RecordConnectio
  * The record side of a page/record connection. It writes the same rows the
  * page panel writes, so either side can create or remove the connection.
  */
-export function RecordPageLinks({ recordId }: { recordId: string }) {
+export function RecordPageLinks({
+  recordId,
+  readOnly = false,
+}: {
+  recordId: string;
+  readOnly?: boolean;
+}) {
   const [pages, setPages] = useState<PageRef[]>([]);
   const [options, setOptions] = useState<PageRef[]>([]);
   const [targetId, setTargetId] = useState("");
@@ -129,17 +135,19 @@ export function RecordPageLinks({ recordId }: { recordId: string }) {
               <Link href={`/pages/${page.id}`} className="min-w-0 flex-1 truncate hover:underline">
                 {page.title || "Untitled"}
               </Link>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => void removeLink(page.id)}
-                disabled={saving}
-                aria-label={`Remove link to ${page.title || "Untitled"}`}
-                title="Remove page link"
-              >
-                <Unlink size={15} />
-              </Button>
+              {!readOnly && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void removeLink(page.id)}
+                  disabled={saving}
+                  aria-label={`Remove link to ${page.title || "Untitled"}`}
+                  title="Remove page link"
+                >
+                  <Unlink size={15} />
+                </Button>
+              )}
             </li>
           ))}
         </ul>
@@ -147,6 +155,7 @@ export function RecordPageLinks({ recordId }: { recordId: string }) {
         <p className="mt-4 text-sm text-muted-foreground">No linked pages yet.</p>
       )}
 
+      {!readOnly && (
       <div className="mt-4 flex gap-2">
         <select
           aria-label="Linked pages: choose a page to link"
@@ -170,6 +179,7 @@ export function RecordPageLinks({ recordId }: { recordId: string }) {
           Link page
         </Button>
       </div>
+      )}
 
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
     </section>

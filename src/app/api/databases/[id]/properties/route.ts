@@ -5,6 +5,8 @@ import { db } from "@/db";
 import { databases, databaseProperties } from "@/db/schema";
 import { parseFormula } from "@/lib/database-formula";
 import { DATABASE_PROPERTY_TYPES } from "@/lib/database-property";
+import { buttonOptionsSchema } from "@/lib/database-button";
+import { validateButtonActionDefinitions } from "@/lib/database-button-server";
 import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
@@ -23,6 +25,16 @@ export async function POST(request: Request, context: Context) {
   try {
     const [database] = await db.select({ id: databases.id }).from(databases).where(eq(databases.id, id)).limit(1);
     if (!database) return NextResponse.json({ error: "Database not found" }, { status: 404 });
+    let propertyOptions = parsed.data.options ?? {};
+    if (parsed.data.type === "button") {
+      const actions = buttonOptionsSchema.safeParse(parsed.data.options ?? {});
+      if (!actions.success) {
+        return NextResponse.json({ error: "A button needs at least one valid action" }, { status: 400 });
+      }
+      const actionError = await validateButtonActionDefinitions(id, actions.data.actions);
+      if (actionError) return NextResponse.json({ error: actionError }, { status: 400 });
+      propertyOptions = { actions: actions.data.actions };
+    }
     if (parsed.data.type === "relation") {
       const relatedDatabaseId = parsed.data.options?.relatedDatabaseId;
       if (typeof relatedDatabaseId !== "string" || !z.string().uuid().safeParse(relatedDatabaseId).success) {
@@ -81,7 +93,7 @@ export async function POST(request: Request, context: Context) {
       databaseId: id,
       name: parsed.data.name,
       type: parsed.data.type,
-      options: parsed.data.options ?? {},
+      options: propertyOptions,
       sortOrder: (maxOrder?.value ?? -1) + 1,
     }).returning();
     return NextResponse.json(property, { status: 201 });

@@ -338,6 +338,87 @@ test("bars and pie slices open the database filtered to their records", async ({
   }
 });
 
+test("shows a linked page cover inside an embedded gallery", async ({ page, request }) => {
+  const token = `embed-cover-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const database = await post<{ id: string }>(request, "/api/databases", {
+    name: `${token} database`,
+  });
+  let fixtureId = "";
+
+  try {
+    const record = await post<{ id: string; pageId: string }>(
+      request,
+      `/api/databases/${database.id}/records`,
+      { title: `${token} record` },
+    );
+    const gallery = await post<{ id: string }>(request, `/api/databases/${database.id}/views`, {
+      name: "Gallery",
+      type: "gallery",
+      config: {},
+    });
+    const attachment = await json<{ url: string }>(await request.post("/api/attachments", {
+      multipart: {
+        purpose: "image",
+        file: {
+          name: `${token}.png`,
+          mimeType: "image/png",
+          // A 1x1 PNG, so the embed's image request succeeds same-origin.
+          buffer: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+            "base64",
+          ),
+        },
+      },
+    }));
+    assert.equal((await request.patch(`/api/pages/${record.pageId}`, {
+      data: { coverImageUrl: attachment.url },
+    })).status(), 200);
+
+    const fixture = await post<{ id: string }>(request, "/api/pages", { title: `${token} page` });
+    fixtureId = fixture.id;
+    await json(
+      await request.patch(`/api/pages/${fixture.id}`, {
+        data: {
+          contentJson: {
+            type: "doc",
+            content: [{
+              type: "databaseEmbed",
+              attrs: { databaseId: database.id, viewId: gallery.id },
+            }],
+          },
+        },
+      }),
+    );
+
+    await page.goto(`/pages/${fixture.id}`);
+
+    // The embed has no file properties, so the image can only be the linked
+    // record page's cover showing through the fallback.
+    const cover = page.getByRole("img", { name: `${token} record` });
+    await expect(cover).toBeVisible();
+    await expect(cover).toHaveAttribute("src", attachment.url);
+    await expect(
+      page.getByRole("button", { name: `Remove cover for ${token} record` }),
+    ).toHaveCount(0);
+  } finally {
+    if (fixtureId) {
+      await request.delete(`/api/pages/${fixtureId}`);
+      await request.delete(`/api/trash/${fixtureId}`);
+    }
+    const loaded = await request.get(`/api/databases/${database.id}`);
+    if (loaded.ok()) {
+      const data = await json<{ records: { pageId: string | null }[] }>(loaded);
+      for (const row of data.records) {
+        if (!row.pageId) continue;
+        await request.delete(`/api/pages/${row.pageId}`);
+        await request.delete(`/api/trash/${row.pageId}`);
+      }
+    }
+    await request.delete(`/api/databases/${database.id}`);
+    await request.delete("/api/attachments/orphans");
+  }
+});
+
 test("renders list, timeline, and chart views inside database embeds", async ({ page, request }) => {
   const token = `embed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const database = await post<{ id: string }>(request, "/api/databases", {

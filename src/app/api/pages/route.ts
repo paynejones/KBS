@@ -101,8 +101,22 @@ export async function GET(request: Request) {
       tagsByPage.set(tag.pageId, existing);
     }
 
+    const recordPageIds = new Set(
+      results.length === 0
+        ? []
+        : (
+            await db
+              .select({ pageId: databaseRecords.pageId })
+              .from(databaseRecords)
+              .where(inArray(databaseRecords.pageId, results.map((page) => page.id)))
+          ).map((record) => record.pageId),
+    );
+
     const pagesWithTags = results.map((page) => ({
       ...page,
+      // Listings that opt into record pages can still separate them from
+      // ordinary pages without another request.
+      isRecordPage: recordPageIds.has(page.id),
       tags: tagsByPage.get(page.id) ?? [],
     }));
 

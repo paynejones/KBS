@@ -8,9 +8,14 @@ const themes = [
   { value: "dark", label: "Dark" },
   { value: "warm", label: "Warm paper" },
   { value: "forest", label: "Forest" },
+  { value: "slate", label: "Slate" },
+  { value: "rose", label: "Rose" },
+  { value: "midnight", label: "Midnight" },
 ] as const;
 
 type Theme = (typeof themes)[number]["value"];
+/** Dark palettes also get the `.dark` class so dark-only utilities follow them. */
+const DARK_THEMES: ReadonlySet<Theme> = new Set(["dark", "midnight"]);
 const THEME_CHANGE_EVENT = "kbs:theme-change";
 let volatileTheme: Theme = "light";
 
@@ -21,7 +26,7 @@ function isTheme(value: string | null): value is Theme {
 function applyTheme(theme: Theme) {
   const root = document.documentElement;
   root.dataset.theme = theme;
-  root.classList.toggle("dark", theme === "dark");
+  root.classList.toggle("dark", DARK_THEMES.has(theme));
 }
 
 function subscribeToTheme(onChange: () => void) {

@@ -6,6 +6,8 @@ export type GraphNode = {
   isFavorite: boolean;
   parentId: string | null;
   tags: GraphTag[];
+  /** True when the page belongs to a database record rather than the tree. */
+  isRecordPage?: boolean;
 };
 
 export type GraphEdgeType = "link" | "hierarchy" | "tag";
@@ -25,6 +27,8 @@ export type GraphFilters = {
   groupRootId: string;
   /** Draw a line between pages that share a tag but no visible relation. */
   sharedTags: boolean;
+  /** Include the pages owned by database records. */
+  databasePages: boolean;
 };
 
 export const DEFAULT_GRAPH_FILTERS: GraphFilters = {
@@ -34,6 +38,7 @@ export const DEFAULT_GRAPH_FILTERS: GraphFilters = {
   tagId: "",
   groupRootId: "",
   sharedTags: false,
+  databasePages: false,
 };
 
 function pairKey(source: string, target: string) {
@@ -106,6 +111,9 @@ function sharedTagEdges(nodes: readonly GraphNode[], connected: ReadonlySet<stri
 export function filterGraph(data: GraphData, filters: GraphFilters): GraphData {
   let nodes = data.nodes;
 
+  if (!filters.databasePages) {
+    nodes = nodes.filter((node) => !node.isRecordPage);
+  }
   if (filters.groupRootId) {
     const groupIds = pageGroupIds(nodes, filters.groupRootId);
     nodes = nodes.filter((node) => groupIds.has(node.id));

@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
@@ -34,6 +35,11 @@ import {
   importMarkdownFiles,
   importMarkdownFolder,
 } from "@/lib/markdown-import-files";
+import {
+  getNavigationSnapshot,
+  getServerNavigationSnapshot,
+  subscribeToNavigation,
+} from "@/lib/navigation";
 
 type PageOption = { id: string; title: string; isFavorite: boolean; isRecordPage?: boolean };
 type DatabaseOption = { id: string; name: string };
@@ -75,6 +81,11 @@ const emptyResults: SearchResults = { results: [] };
 
 export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }) {
   const router = useRouter();
+  const showDatabasePages = useSyncExternalStore(
+    subscribeToNavigation,
+    getNavigationSnapshot,
+    getServerNavigationSnapshot,
+  ).showDatabasePages;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -158,7 +169,9 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
           graphData.nodes.filter((page) => page.isRecordPage).map((page) => page.id),
         );
         setRecordPageIds(hiddenPageIds);
-        setPages(graphData.nodes.filter((page) => !page.isRecordPage));
+        // Keep record pages in the snapshot; the shared preference decides
+        // whether they appear in the groups below.
+        setPages(graphData.nodes);
         setDatabases(databaseData);
         setTemplates(templateData);
         setError("");
@@ -347,9 +360,14 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
 
   const pageById = new Map(pages.map((page) => [page.id, page]));
   const currentPage = currentPageId ? pageById.get(currentPageId) : undefined;
-  const visibleRecents = recents.filter((entry) => !recordPageIds.has(entry.id));
+  const visiblePages = showDatabasePages
+    ? pages
+    : pages.filter((page) => !page.isRecordPage);
+  const visibleRecents = recents.filter(
+    (entry) => showDatabasePages || !recordPageIds.has(entry.id),
+  );
   const recentIds = new Set(visibleRecents.map((entry) => entry.id));
-  const favoritePages = pages.filter(
+  const favoritePages = visiblePages.filter(
     (page) => page.isFavorite && !recentIds.has(page.id),
   );
   const favoriteIds = new Set(favoritePages.map((page) => page.id));
@@ -511,14 +529,14 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
     run: () => go(`/pages/${page.id}`),
   }));
 
-  const pageItems: PaletteItem[] = pages
+  const pageItems: PaletteItem[] = visiblePages
     .filter((page) => !recentIds.has(page.id) && !favoriteIds.has(page.id))
     .filter((page) => matches(page.title || "Untitled"))
     .slice(0, 6)
     .map((page) => ({
       key: `page-${page.id}`,
       label: page.title || "Untitled",
-      detail: "Page",
+      detail: page.isRecordPage ? "Database page" : "Page",
       group: "Pages",
       icon: <FileText size={16} />,
       run: () => go(`/pages/${page.id}`),
@@ -539,12 +557,15 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
   const searchItems: PaletteItem[] = [];
   if (normalizedQuery.length >= 2) {
     const alreadyShown = new Set<string>(recentIds);
-    for (const page of pages) {
+    for (const page of visiblePages) {
       if (page.isFavorite || page.title.toLocaleLowerCase().includes(normalizedQuery)) {
         alreadyShown.add(page.id);
       }
     }
     for (const hit of activeResults.results) {
+      if (!showDatabasePages && (hit.type === "record" || recordPageIds.has(hit.id))) {
+        continue;
+      }
       // The reason and score explain the order in one line: where the term
       // matched, then how strongly.
       const reason = hit.match === "title"
@@ -555,7 +576,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
       const score = hit.score.toFixed(2);
 
       if (hit.type === "page") {
-        if (alreadyShown.has(hit.id) || recordPageIds.has(hit.id)) continue;
+        if (alreadyShown.has(hit.id)) continue;
         searchItems.push({
           key: `search-page-${hit.id}`,
           label: hit.title || "Untitled",

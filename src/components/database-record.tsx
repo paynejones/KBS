@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Trash2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, ArrowUpRight, Eye, Pencil, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { ButtonCell, buttonResultMessage, runDatabaseButton } from "@/components/button-cell";
+import { ButtonSettingsDialog } from "@/components/button-settings-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { formatFormulaValue } from "@/lib/database-formula";
 import type { DatabasePropertyType } from "@/lib/database-property";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
+import { isViewMode, viewModeHref } from "@/lib/view-mode";
 
 type Property = {
   id: string;
@@ -36,6 +39,7 @@ type Property = {
     targetPropertyId?: string;
     aggregation?: string;
     expression?: string;
+    actions?: import("@/lib/database-button").ButtonAction[];
   };
 };
 type RecordRow = {
@@ -61,6 +65,8 @@ export function DatabaseRecordWorkspace({
   recordId: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const readOnly = isViewMode(searchParams);
   const [record, setRecord] = useState<RecordRow | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [databaseName, setDatabaseName] = useState("");
@@ -71,6 +77,7 @@ export function DatabaseRecordWorkspace({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editingButtonProperty, setEditingButtonProperty] = useState<Property | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -177,6 +184,18 @@ export function DatabaseRecordWorkspace({
     return formulaValue(record, property, properties, relationTargets);
   }
 
+  async function runButton(property: Property) {
+    if (!record) return "This record is not loaded.";
+    const result = await runDatabaseButton(databaseId, record.id, property.id);
+    setRecord((current) => current ? {
+      ...current,
+      ...result.record,
+      relations: result.relations,
+    } : current);
+    setTitle(result.record.title);
+    return buttonResultMessage(result.results);
+  }
+
   // A record is often reached from an embed inside a page, so the first back
   // step returns to that page. A record opened directly falls back to its
   // database instead of leaving the app.
@@ -199,9 +218,28 @@ export function DatabaseRecordWorkspace({
     }
   }
 
+  function setViewMode(next: boolean) {
+    router.replace(
+      viewModeHref(window.location.pathname, searchParams.toString(), next),
+      { scroll: false },
+    );
+  }
+
   function renderProperty(property: Property) {
     if (!record) return null;
     const value = record.values[property.id];
+
+    if (property.type === "button") {
+      return (
+        <div className="px-3 py-2">
+          <ButtonCell
+            label={property.name}
+            onRun={() => runButton(property)}
+            onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
+          />
+        </div>
+      );
+    }
 
     if (property.type === "formula") {
       return (
@@ -216,6 +254,86 @@ export function DatabaseRecordWorkspace({
       return (
         <span className="block px-3 py-2 text-sm" aria-label={`${property.name} calculated value`}>
           {typeof rollup === "number" ? rollup.toLocaleString() : rollup}
+        </span>
+      );
+    }
+
+    if (readOnly && property.type === "relation") {
+      const targets = relationTargets[property.id]?.records ?? [];
+      const selectedIds = record.relations[property.id] ?? [];
+      const relatedDatabaseId = property.options.relatedDatabaseId;
+      return selectedIds.length === 0 ? (
+        <span className="block px-3 py-2 text-sm text-muted-foreground">—</span>
+      ) : (
+        <div className="flex flex-wrap gap-1.5 px-3 py-2">
+          {selectedIds.map((targetId) => {
+            const target = targets.find((item) => item.id === targetId);
+            const label = target?.title || "Untitled";
+            return relatedDatabaseId ? (
+              <Link
+                key={targetId}
+                href={`/databases/${relatedDatabaseId}/records/${targetId}`}
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:border-primary/30 hover:text-primary"
+              >
+                {label} <ArrowUpRight size={11} aria-hidden="true" />
+              </Link>
+            ) : (
+              <span key={targetId} className="rounded-md border bg-background px-2 py-1 text-xs">
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (readOnly && property.type === "file") {
+      return (
+        <FileCell
+          label={property.name}
+          value={value}
+          readOnly
+          onChange={() => {}}
+        />
+      );
+    }
+
+    if (readOnly && property.type === "checkbox") {
+      return (
+        <span className="block px-3 py-2 text-sm">{value ? "Checked" : "Unchecked"}</span>
+      );
+    }
+
+    if (readOnly && property.type === "multi_select") {
+      const choices = Array.isArray(value)
+        ? value.filter((choice): choice is string => typeof choice === "string")
+        : [];
+      return (
+        <span className="block px-3 py-2 text-sm">
+          {choices.length > 0 ? choices.join(", ") : <span className="text-muted-foreground">—</span>}
+        </span>
+      );
+    }
+
+    if (readOnly) {
+      const currentValue = value === null || value === undefined || value === ""
+        ? ""
+        : String(value);
+      if (property.type === "url" && currentValue) {
+        return (
+          <a
+            href={currentValue}
+            target="_blank"
+            rel="noreferrer"
+            className="block break-words px-3 py-2 text-sm text-primary hover:underline"
+          >
+            {currentValue}
+          </a>
+        );
+      }
+      return (
+        <span className="block whitespace-pre-wrap break-words px-3 py-2 text-sm">
+          {currentValue || <span className="text-muted-foreground">—</span>}
         </span>
       );
     }
@@ -374,31 +492,49 @@ export function DatabaseRecordWorkspace({
           <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-5">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground">DATABASE RECORD</p>
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                onBlur={() => void saveTitle()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
-                }}
-                aria-label="Record title"
-                className="mt-2 w-full min-w-0 bg-transparent text-3xl font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-4xl"
-              />
+              {readOnly ? (
+                <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">
+                  {title || "Untitled"}
+                </h1>
+              ) : (
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  onBlur={() => void saveTitle()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                  aria-label="Record title"
+                  className="mt-2 w-full min-w-0 bg-transparent text-3xl font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-4xl"
+                />
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span role="status" aria-live="polite" className="text-xs text-muted-foreground">
-                {saving ? "Saving…" : "Saved"}
+                {readOnly ? "View only" : saving ? "Saving…" : "Saved"}
               </span>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                disabled={deleting || saving}
-                onClick={() => setConfirmDelete(true)}
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => setViewMode(!readOnly)}
+                aria-pressed={readOnly}
               >
-                <Trash2 size={15} /> Delete
+                {readOnly ? <Pencil size={15} /> : <Eye size={15} />}
+                {readOnly ? "Edit mode" : "View mode"}
               </Button>
+              {!readOnly && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={deleting || saving}
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <Trash2 size={15} /> Delete
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -433,7 +569,7 @@ export function DatabaseRecordWorkspace({
 
         <RecordBacklinks backlinks={backlinks} />
 
-        <RecordPageLinks recordId={record.id} />
+        <RecordPageLinks recordId={record.id} readOnly={readOnly} />
 
         <section aria-labelledby="record-page-heading" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
@@ -453,13 +589,14 @@ export function DatabaseRecordWorkspace({
             )}
           </div>
           {record.pageId ? (
-            <PageEditorLoader id={record.pageId} hideTitle />
+            <PageEditorLoader id={record.pageId} hideTitle readOnly={readOnly} />
           ) : (
             <p className="text-sm text-muted-foreground">Preparing this record’s page…</p>
           )}
         </section>
       </div>
 
+      {!readOnly && (
       <AlertDialog open={confirmDelete} onOpenChange={(open) => setConfirmDelete(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -483,6 +620,20 @@ export function DatabaseRecordWorkspace({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      )}
+      {editingButtonProperty && (
+        <ButtonSettingsDialog
+          onOpenChange={(open) => { if (!open) setEditingButtonProperty(null); }}
+          databaseId={databaseId}
+          property={editingButtonProperty}
+          onSaved={(updated) => {
+            setProperties((current) => current.map((property) => property.id === updated.id
+              ? { ...property, options: { ...property.options, actions: updated.options.actions } }
+              : property));
+            setEditingButtonProperty(null);
+          }}
+        />
+      )}
     </AppShell>
   );
 }

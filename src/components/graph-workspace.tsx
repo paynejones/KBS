@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Link2, Minus, Plus, Search, Star } from "lucide-react";
@@ -13,8 +20,103 @@ import {
   type GraphNode,
   type GraphData,
 } from "@/lib/graph";
+import {
+  getNavigationSnapshot,
+  getServerNavigationSnapshot,
+  subscribeToNavigation,
+} from "@/lib/navigation";
 
 type Point = { x: number; y: number };
+
+// Fixed, theme-independent hues: tag strokes and fills need to stay
+// recognisable in every palette, including the tinted ones.
+const TAG_PALETTE = [
+  "#6366f1",
+  "#0d9488",
+  "#d97706",
+  "#e11d48",
+  "#7c3aed",
+  "#0284c7",
+  "#65a30d",
+  "#c026d3",
+];
+
+/** `zoom` above this shows every title; below it titles wait for hover. */
+const LABEL_ZOOM = 1.3;
+const LABEL_MAX_CHARS = 28;
+
+type LabelAnchor = "middle" | "start" | "end";
+type LabelPlacement = { x: number; y: number; anchor: LabelAnchor; text: string };
+type Box = { left: number; right: number; top: number; bottom: number };
+type Circle = { x: number; y: number; radius: number };
+
+function nodeRadiusFor(degree: number) {
+  return Math.min(21, 10 + Math.sqrt(degree) * 3.2);
+}
+
+/** Long titles are clamped so a single page cannot claim half the canvas. */
+function truncateLabel(title: string, max = LABEL_MAX_CHARS) {
+  return title.length > max ? `${title.slice(0, max - 1)}…` : title;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function labelBox(x: number, y: number, width: number, anchor: LabelAnchor): Box {
+  const left = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+  return { left, right: left + width, top: y - 13, bottom: y + 5 };
+}
+
+function boxesOverlap(left: Box, right: Box) {
+  return left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top;
+}
+
+/** Rectangle-to-circle check, so a title never lands on top of a node. */
+function boxHitsCircle(box: Box, circle: Circle) {
+  const closestX = clamp(circle.x, box.left, box.right);
+  const closestY = clamp(circle.y, box.top, box.bottom);
+  const dx = circle.x - closestX;
+  const dy = circle.y - closestY;
+  return dx * dx + dy * dy < circle.radius * circle.radius;
+}
+
+function edgePath(
+  source: Point,
+  target: Point,
+  sourceInset: number,
+  targetInset: number,
+  bend: number,
+) {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const start = {
+    x: source.x + (dx / length) * Math.min(sourceInset, length / 2),
+    y: source.y + (dy / length) * Math.min(sourceInset, length / 2),
+  };
+  const end = {
+    x: target.x - (dx / length) * Math.min(targetInset, length / 2),
+    y: target.y - (dy / length) * Math.min(targetInset, length / 2),
+  };
+  // A gentle bow keeps overlapping relations separable without pulling the
+  // endpoints off their nodes.
+  const control = {
+    x: (start.x + end.x) / 2 - (dy / length) * length * bend,
+    y: (start.y + end.y) / 2 + (dx / length) * length * bend,
+  };
+  return {
+    d: `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
+    mid: {
+      x: 0.25 * start.x + 0.5 * control.x + 0.25 * end.x,
+      y: 0.25 * start.y + 0.5 * control.y + 0.25 * end.y,
+    },
+  };
+}
+
+function edgeKey(edge: GraphEdge, index: number) {
+  return `${edge.type}-${edge.source}-${edge.target}-${index}`;
+}
 
 function neighborhoodIds(data: GraphData, focusId: string, depth: number) {
   const adjacent = new Map<string, string[]>();
@@ -119,8 +221,18 @@ export function GraphWorkspace() {
   const [graphCenter, setGraphCenter] = useState<Point>({ x: 500, y: 350 });
   const [fitScale, setFitScale] = useState(1);
   const [draggingNode, setDraggingNode] = useState("");
+  const [labelNodeId, setLabelNodeId] = useState("");
+  const [hoveredEdgeKey, setHoveredEdgeKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Zooming in trades overview for detail, so names appear once the zoom
+  // control is above its reset value. Hover and keyboard focus still work.
+  const showAllLabels = zoom >= LABEL_ZOOM;
+  const showDatabasePages = useSyncExternalStore(
+    subscribeToNavigation,
+    getNavigationSnapshot,
+    getServerNavigationSnapshot,
+  ).showDatabasePages;
 
   const applyLayout = useCallback((nodes: GraphNode[], edges: GraphEdge[]) => {
     const nextPositions = layoutGraph(nodes, edges);
@@ -139,7 +251,7 @@ export function GraphWorkspace() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/graph?excludeRecordPages=true")
+    void fetch("/api/graph")
       .then(async (response) => {
         if (!response.ok) throw new Error("Unable to load the page graph.");
         return await response.json() as GraphData;
@@ -147,7 +259,12 @@ export function GraphWorkspace() {
       .then((graph) => {
         if (!cancelled) {
           setData(graph);
-          applyLayout(graph.nodes, graph.edges);
+          const databasePages = getNavigationSnapshot().showDatabasePages;
+          const visible = filterGraph(graph, {
+            ...DEFAULT_GRAPH_FILTERS,
+            databasePages,
+          });
+          applyLayout(visible.nodes, visible.edges);
         }
       })
       .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load the page graph."); })
@@ -155,21 +272,137 @@ export function GraphWorkspace() {
     return () => { cancelled = true; };
   }, [applyLayout]);
 
-  const visibleIds = useMemo(() => {
-    if (!focusId) return new Set(data.nodes.map((node) => node.id));
-    return neighborhoodIds(data, focusId, depth);
-  }, [data, focusId, depth]);
+  // Edit navigation owns record-page visibility, so the graph follows the same
+  // preference instead of keeping a second, conflicting filter. The layout is
+  // recalculated from the subscription callback, not during an effect render.
+  useEffect(
+    () =>
+      subscribeToNavigation(() => {
+        const databasePages = getNavigationSnapshot().showDatabasePages;
+        const visible = filterGraph(data, {
+          ...DEFAULT_GRAPH_FILTERS,
+          databasePages,
+        });
+        applyLayout(visible.nodes, visible.edges);
+      }),
+    [applyLayout, data],
+  );
 
-  const visibleNodes = useMemo(() => data.nodes.filter((node) => visibleIds.has(node.id)), [data.nodes, visibleIds]);
-  const visibleEdges = useMemo(() => data.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)), [data.edges, visibleIds]);
+  // Record pages are drawn only when the shared preference is on, so every
+  // neighbor, tag, group and picker below works from the same node set.
+  const baseGraph = useMemo(
+    () => filterGraph(data, { ...DEFAULT_GRAPH_FILTERS, databasePages: showDatabasePages }),
+    [data, showDatabasePages],
+  );
+
+  // A hidden record page cannot stay the center of a local graph.
+  const activeFocusId =
+    !showDatabasePages &&
+    data.nodes.some((node) => node.id === focusId && node.isRecordPage)
+      ? ""
+      : focusId;
+
+  const tagsByPageId = useMemo(
+    () => new Map(baseGraph.nodes.map((node) => [node.id, node.tags])),
+    [baseGraph.nodes],
+  );
+  const nodesById = useMemo(
+    () => new Map(baseGraph.nodes.map((node) => [node.id, node])),
+    [baseGraph.nodes],
+  );
+
+  const visibleIds = useMemo(() => {
+    if (!activeFocusId) return new Set(baseGraph.nodes.map((node) => node.id));
+    return neighborhoodIds(baseGraph, activeFocusId, depth);
+  }, [baseGraph, activeFocusId, depth]);
+
+  const visibleNodes = useMemo(() => baseGraph.nodes.filter((node) => visibleIds.has(node.id)), [baseGraph.nodes, visibleIds]);
+  const visibleEdges = useMemo(() => baseGraph.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)), [baseGraph.edges, visibleIds]);
   const matchingIds = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    return new Set(data.nodes.filter((node) => node.title.toLocaleLowerCase().includes(normalized)).map((node) => node.id));
-  }, [data.nodes, query]);
-  const filteredGraph = useMemo(
-    () => filterGraph({ nodes: visibleNodes, edges: visibleEdges }, filters),
-    [visibleNodes, visibleEdges, filters],
+    return new Set(baseGraph.nodes.filter((node) => node.title.toLocaleLowerCase().includes(normalized)).map((node) => node.id));
+  }, [baseGraph.nodes, query]);
+  const effectiveFilters = useMemo(
+    () => ({ ...filters, databasePages: showDatabasePages }),
+    [filters, showDatabasePages],
   );
+  const filteredGraph = useMemo(
+    () => filterGraph({ nodes: visibleNodes, edges: visibleEdges }, effectiveFilters),
+    [visibleNodes, visibleEdges, effectiveFilters],
+  );
+  // A node grows with the number of visible connections it holds, so the
+  // busiest pages read as hubs before any title is read.
+  const nodeDegrees = useMemo(() => {
+    const degrees = new Map<string, number>();
+    for (const node of filteredGraph.nodes) degrees.set(node.id, 0);
+    for (const edge of filteredGraph.edges) {
+      if (degrees.has(edge.source)) degrees.set(edge.source, degrees.get(edge.source)! + 1);
+      if (degrees.has(edge.target)) degrees.set(edge.target, degrees.get(edge.target)! + 1);
+    }
+    return degrees;
+  }, [filteredGraph.nodes, filteredGraph.edges]);
+  // Labels are laid out greedily: the hovered page wins, then the centered one,
+  // then the busiest pages. Each label tries above, below, right and left, and
+  // is placed only where it clears both other labels and every node circle.
+  const labelPlacements = useMemo(() => {
+    const placements = new Map<string, LabelPlacement>();
+    const placedBoxes: Box[] = [];
+    const circles: Circle[] = filteredGraph.nodes.flatMap((node) => {
+      const point = positions[node.id];
+      return point
+        ? [{ x: point.x, y: point.y, radius: nodeRadiusFor(nodeDegrees.get(node.id) ?? 0) + 3 }]
+        : [];
+    });
+    const pinned = new Set([activeFocusId, labelNodeId].filter(Boolean));
+    const candidates = filteredGraph.nodes
+      .filter((node) => showAllLabels || pinned.has(node.id))
+      .sort(
+        (left, right) =>
+          Number(pinned.has(right.id)) - Number(pinned.has(left.id)) ||
+          (nodeDegrees.get(right.id) ?? 0) - (nodeDegrees.get(left.id) ?? 0) ||
+          (left.title || "Untitled").localeCompare(right.title || "Untitled", undefined, {
+            sensitivity: "base",
+          }),
+      );
+
+    for (const node of candidates) {
+      const point = positions[node.id];
+      if (!point) continue;
+      const radius = nodeRadiusFor(nodeDegrees.get(node.id) ?? 0) + 3;
+      const text = truncateLabel(node.title || "Untitled");
+      const width = text.length * 6.6 + 10;
+      const slots: { x: number; y: number; anchor: LabelAnchor }[] = [
+        { x: point.x, y: point.y - radius - 11, anchor: "middle" },
+        { x: point.x, y: point.y + radius + 21, anchor: "middle" },
+        { x: point.x + radius + 8, y: point.y + 4, anchor: "start" },
+        { x: point.x - radius - 8, y: point.y + 4, anchor: "end" },
+      ];
+
+      let chosen: { x: number; y: number; anchor: LabelAnchor; box: Box } | null = null;
+      for (const slot of slots) {
+        const box = labelBox(slot.x, slot.y, width, slot.anchor);
+        const outside = box.left < 2 || box.right > 998 || box.top < 2 || box.bottom > 698;
+        if (outside) continue;
+        if (placedBoxes.some((other) => boxesOverlap(box, other))) continue;
+        if (circles.some((circle) => boxHitsCircle(box, circle))) continue;
+        chosen = { ...slot, box };
+        break;
+      }
+
+      // A hovered or centered page must always name itself, even when the
+      // canvas is too tight for a clean placement.
+      if (!chosen && pinned.has(node.id)) {
+        const slot = slots[0];
+        chosen = { ...slot, box: labelBox(slot.x, slot.y, width, slot.anchor) };
+      }
+      if (!chosen) continue;
+
+      placedBoxes.push(chosen.box);
+      placements.set(node.id, { x: chosen.x, y: chosen.y, anchor: chosen.anchor, text });
+    }
+
+    return placements;
+  }, [activeFocusId, filteredGraph.nodes, labelNodeId, nodeDegrees, positions, showAllLabels]);
   const listNodes = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return graphListItems(
@@ -178,32 +411,52 @@ export function GraphWorkspace() {
   }, [filteredGraph.nodes, matchingIds, query]);
   const tagOptions = useMemo(() => {
     const namesById = new Map<string, string>();
-    for (const node of data.nodes) {
+    for (const node of baseGraph.nodes) {
       for (const tag of node.tags) namesById.set(tag.id, tag.name);
     }
     return [...namesById.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
-  }, [data.nodes]);
+  }, [baseGraph.nodes]);
+  // Colours follow the alphabetical tag list, not the current filter, so a tag
+  // keeps its hue while pages are filtered in and out.
+  const tagColors = useMemo(() => {
+    const colors = new Map<string, string>();
+    tagOptions.forEach((tag, index) => {
+      colors.set(tag.id, TAG_PALETTE[index % TAG_PALETTE.length]);
+    });
+    return colors;
+  }, [tagOptions]);
+  const visibleTagSwatches = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const node of filteredGraph.nodes) {
+      for (const tag of node.tags) {
+        if (tagColors.has(tag.id)) seen.set(tag.id, tag.name);
+      }
+    }
+    return [...seen.entries()]
+      .slice(0, 6)
+      .map(([id, name]) => ({ id, name, color: tagColors.get(id)! }));
+  }, [filteredGraph.nodes, tagColors]);
   const groupOptions = useMemo(() => {
-    const parentIds = new Set(data.nodes.flatMap((node) => (node.parentId ? [node.parentId] : [])));
-    return graphListItems(data.nodes.filter((node) => parentIds.has(node.id)));
-  }, [data.nodes]);
+    const parentIds = new Set(baseGraph.nodes.flatMap((node) => (node.parentId ? [node.parentId] : [])));
+    return graphListItems(baseGraph.nodes.filter((node) => parentIds.has(node.id)));
+  }, [baseGraph.nodes]);
 
   const updateFocus = (nextFocusId: string, nextDepth = depth) => {
     setFocusId(nextFocusId);
-    const ids = nextFocusId ? neighborhoodIds(data, nextFocusId, nextDepth) : new Set(data.nodes.map((node) => node.id));
-    const nextNodes = data.nodes.filter((node) => ids.has(node.id));
-    const nextEdges = data.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+    const ids = nextFocusId ? neighborhoodIds(baseGraph, nextFocusId, nextDepth) : new Set(baseGraph.nodes.map((node) => node.id));
+    const nextNodes = baseGraph.nodes.filter((node) => ids.has(node.id));
+    const nextEdges = baseGraph.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
     applyLayout(nextNodes, nextEdges);
   };
 
   const updateDepth = (nextDepth: number) => {
     setDepth(nextDepth);
-    if (focusId) {
-      const ids = neighborhoodIds(data, focusId, nextDepth);
-      const nextNodes = data.nodes.filter((node) => ids.has(node.id));
-      applyLayout(nextNodes, data.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)));
+    if (activeFocusId) {
+      const ids = neighborhoodIds(baseGraph, activeFocusId, nextDepth);
+      const nextNodes = baseGraph.nodes.filter((node) => ids.has(node.id));
+      applyLayout(nextNodes, baseGraph.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)));
     }
   };
 
@@ -238,6 +491,68 @@ export function GraphWorkspace() {
     setDraggingNode("");
   };
 
+  const nodeRadius = (id: string) => nodeRadiusFor(nodeDegrees.get(id) ?? 0);
+  // A page takes the colour of its first tag; untagged pages keep the brand
+  // stroke so they still read as pages rather than disappearing.
+  const nodeColor = (tags: GraphNode["tags"]) => {
+    for (const tag of tags) {
+      const color = tagColors.get(tag.id);
+      if (color) return color;
+    }
+    return "var(--primary)";
+  };
+  // Shared-tag edges borrow the hue of a tag both endpoints carry, so a line
+  // and the two nodes it joins agree on colour.
+  const sharedTagFor = (edge: GraphEdge) => {
+    const targetTagIds = new Set((tagsByPageId.get(edge.target) ?? []).map((tag) => tag.id));
+    for (const tag of tagsByPageId.get(edge.source) ?? []) {
+      if (targetTagIds.has(tag.id) && tagColors.has(tag.id)) return tag;
+    }
+    return null;
+  };
+  const tagEdgeColor = (edge: GraphEdge) => {
+    const tag = sharedTagFor(edge);
+    return tag ? tagColors.get(tag.id)! : "var(--muted-foreground)";
+  };
+  const edgeStyle = (edge: GraphEdge) =>
+    edge.type === "link"
+      ? { stroke: "var(--brand)", width: 2, dash: undefined, opacity: 0.8, bend: 0.14 }
+      : edge.type === "hierarchy"
+        ? { stroke: "var(--muted-foreground)", width: 1.3, dash: "6 5", opacity: 0.6, bend: 0.08 }
+        : { stroke: tagEdgeColor(edge), width: 1.3, dash: "2 4", opacity: 0.6, bend: -0.16 };
+  const hoveredEdgeView = (() => {
+    if (!hoveredEdgeKey) return null;
+    const index = filteredGraph.edges.findIndex((edge, candidateIndex) => edgeKey(edge, candidateIndex) === hoveredEdgeKey);
+    if (index < 0) return null;
+    const edge = filteredGraph.edges[index];
+    const source = positions[edge.source];
+    const target = positions[edge.target];
+    if (!source || !target) return null;
+
+    const geometry = edgePath(
+      source,
+      target,
+      nodeRadius(edge.source) + 1,
+      nodeRadius(edge.target) + (edge.type === "hierarchy" ? 8 : 1),
+      edgeStyle(edge).bend,
+    );
+    const sourceTitle = truncateLabel(nodesById.get(edge.source)?.title || "Untitled", 22);
+    const targetTitle = truncateLabel(nodesById.get(edge.target)?.title || "Untitled", 22);
+    const tag = edge.type === "tag" ? sharedTagFor(edge) : null;
+    const text = edge.type === "link"
+      ? `Page link · ${sourceTitle} → ${targetTitle}`
+      : edge.type === "hierarchy"
+        ? `Parent → child · ${sourceTitle} → ${targetTitle}`
+        : `Shared tag${tag ? ` “${tag.name}”` : ""} · ${sourceTitle} ↔ ${targetTitle}`;
+    const width = Math.min(430, text.length * 6.6 + 22);
+    return {
+      text,
+      width,
+      left: clamp(geometry.mid.x - width / 2, 8, 992 - width),
+      top: clamp(geometry.mid.y - 40 < 8 ? geometry.mid.y + 14 : geometry.mid.y - 40, 8, 668),
+    };
+  })();
+
   if (loading) return <div role="status" className="animate-pulse rounded-xl border p-8 text-sm text-muted-foreground">Building page graph…</div>;
   if (error) return <div role="alert" className="rounded-xl border border-destructive/30 p-4 text-sm text-destructive">{error}</div>;
 
@@ -258,12 +573,12 @@ export function GraphWorkspace() {
         </label>
         <label className="grid gap-1 text-xs text-muted-foreground">
           Center local graph
-          <select value={focusId} onChange={(event) => updateFocus(event.target.value)} className="min-w-48 rounded-md border bg-background px-2 py-2 text-sm text-foreground">
+          <select value={activeFocusId} onChange={(event) => updateFocus(event.target.value)} className="min-w-48 rounded-md border bg-background px-2 py-2 text-sm text-foreground">
             <option value="">Workspace graph</option>
-            {data.nodes.map((node) => <option key={node.id} value={node.id}>{node.title || "Untitled"}</option>)}
+            {baseGraph.nodes.map((node) => <option key={node.id} value={node.id}>{node.title || "Untitled"}</option>)}
           </select>
         </label>
-        {focusId && (
+        {activeFocusId && (
           <label className="grid gap-1 text-xs text-muted-foreground">
             Neighborhood depth
             <select value={depth} onChange={(event) => updateDepth(Number(event.target.value))} className="rounded-md border bg-background px-2 py-2 text-sm text-foreground">
@@ -393,20 +708,79 @@ export function GraphWorkspace() {
             onPointerUp={stopPointer}
             onPointerCancel={stopPointer}
           >
+            <defs>
+              {/* The canvas sits behind the graph and does not pan or zoom, so
+                  the grid reads as a fixed surface rather than part of the data. */}
+              <pattern id="graph-canvas-dots" width="28" height="28" patternUnits="userSpaceOnUse">
+                <circle cx="1.5" cy="1.5" r="1" fill="var(--muted-foreground)" />
+              </pattern>
+              <radialGradient id="graph-canvas-glow" cx="50%" cy="45%" r="65%">
+                <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.12" />
+                <stop offset="100%" stopColor="var(--brand)" stopOpacity="0" />
+              </radialGradient>
+              {/* Hierarchy lines point from parent to child, so direction is
+                  legible without relying on the dash pattern alone. */}
+              <marker id="graph-hierarchy-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted-foreground)" opacity="0.75" />
+              </marker>
+            </defs>
+            <rect width="1000" height="700" fill="var(--background)" pointerEvents="none" />
+            <rect width="1000" height="700" fill="url(#graph-canvas-dots)" opacity="0.22" pointerEvents="none" />
+            <rect width="1000" height="700" fill="url(#graph-canvas-glow)" pointerEvents="none" />
             <g transform={`translate(${pan.x} ${pan.y}) translate(500 350) scale(${zoom * fitScale}) translate(${-graphCenter.x} ${-graphCenter.y})`}>
               {filteredGraph.edges.map((edge, index) => {
                 const source = positions[edge.source];
                 const target = positions[edge.target];
                 if (!source || !target) return null;
-                const stroke = edge.type === "link" ? "var(--primary)" : edge.type === "tag" ? "var(--muted-foreground)" : "var(--border)";
-                const dash = edge.type === "hierarchy" ? "5 5" : edge.type === "tag" ? "2 4" : undefined;
-                return <line key={`${edge.type}-${edge.source}-${edge.target}-${index}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={stroke} strokeWidth={edge.type === "link" ? 1.8 : 1.2} strokeDasharray={dash} opacity={edge.type === "link" ? 0.65 : 0.8} />;
+                // Each relation reads differently: links are the only solid
+                // brand-coloured lines, hierarchy is a dashed parent-to-child
+                // arrow, and shared tags are a faint dotted line.
+                const style = edgeStyle(edge);
+                const key = edgeKey(edge, index);
+                const hovered = hoveredEdgeKey === key;
+                const geometry = edgePath(
+                  source,
+                  target,
+                  nodeRadius(edge.source) + 1,
+                  nodeRadius(edge.target) + (edge.type === "hierarchy" ? 8 : 1),
+                  style.bend,
+                );
+                return (
+                  <g
+                    key={key}
+                    onPointerEnter={() => setHoveredEdgeKey(key)}
+                    onPointerLeave={() => setHoveredEdgeKey((current) => (current === key ? "" : current))}
+                  >
+                    <path
+                      className="graph-edge"
+                      d={geometry.d}
+                      fill="none"
+                      stroke={style.stroke}
+                      strokeWidth={style.width + (hovered ? 0.9 : 0)}
+                      strokeDasharray={style.dash}
+                      strokeLinecap={style.dash ? "round" : undefined}
+                      opacity={hovered ? 1 : style.opacity}
+                      markerEnd={edge.type === "hierarchy" ? "url(#graph-hierarchy-arrow)" : undefined}
+                    />
+                    {/* A wide invisible stroke makes a thin line easy to hover. */}
+                    <path
+                      d={geometry.d}
+                      fill="none"
+                      stroke="transparent"
+                      strokeWidth={14}
+                      pointerEvents="stroke"
+                    />
+                  </g>
+                );
               })}
               {filteredGraph.nodes.map((node) => {
                 const point = positions[node.id];
                 if (!point) return null;
                 const matched = !query || matchingIds.has(node.id);
-                const focused = focusId === node.id;
+                const focused = activeFocusId === node.id;
+                const radius = nodeRadius(node.id);
+                const color = nodeColor(node.tags);
+                const label = labelPlacements.get(node.id);
                 return (
                   <g
                     key={node.id}
@@ -415,24 +789,82 @@ export function GraphWorkspace() {
                     aria-label={`Open page ${node.title || "Untitled"}`}
                     className="cursor-pointer outline-none [&:focus-visible>circle]:stroke-[4]"
                     opacity={matched ? 1 : 0.14}
+                    onPointerEnter={() => setLabelNodeId(node.id)}
+                    onPointerLeave={() => setLabelNodeId((current) => (current === node.id ? "" : current))}
+                    onFocus={() => setLabelNodeId(node.id)}
+                    onBlur={() => setLabelNodeId((current) => (current === node.id ? "" : current))}
                     onPointerDown={(event) => { event.stopPropagation(); draggedRef.current = false; setDraggingNode(node.id); event.currentTarget.setPointerCapture(event.pointerId); }}
                     onClick={() => { if (!draggedRef.current) router.push(`/pages/${node.id}`); }}
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/pages/${node.id}`); } }}
                   >
-                    <circle cx={point.x} cy={point.y} r={focused ? 17 : 13} fill={focused ? "var(--primary)" : "var(--card)"} stroke="var(--primary)" strokeWidth={focused ? 3 : 2} />
-                    {node.isFavorite && <foreignObject x={point.x + 8} y={point.y - 23} width="18" height="18"><Star size={13} className="fill-amber-500 text-amber-500" aria-hidden="true" /></foreignObject>}
-                    <text x={point.x} y={point.y + 31} textAnchor="middle" className="fill-foreground text-[12px]" style={{ pointerEvents: "none" }}>{node.title || "Untitled"}</text>
+                    <circle cx={point.x} cy={point.y} r={focused ? radius + 4 : radius} fill={color} fillOpacity={focused ? 0.92 : 0.2} stroke={color} strokeWidth={focused ? 3 : 2} />
+                    {node.isFavorite && <foreignObject x={point.x + radius - 3} y={point.y - radius - 12} width="18" height="18"><Star size={13} className="fill-amber-500 text-amber-500" aria-hidden="true" /></foreignObject>}
+                    {label && (
+                      <text
+                        x={label.x}
+                        y={label.y}
+                        textAnchor={label.anchor}
+                        className="fill-foreground text-[12px] font-medium"
+                        stroke="var(--background)"
+                        strokeWidth={4}
+                        paintOrder="stroke"
+                        style={{ pointerEvents: "none" }}
+                        aria-hidden="true"
+                      >
+                        {label.text}
+                      </text>
+                    )}
                   </g>
                 );
               })}
+              {hoveredEdgeView && (
+                <g
+                  transform={`translate(${hoveredEdgeView.left} ${hoveredEdgeView.top})`}
+                  pointerEvents="none"
+                  aria-hidden="true"
+                >
+                  <rect
+                    width={hoveredEdgeView.width}
+                    height={24}
+                    rx={7}
+                    className="fill-popover stroke-border"
+                    strokeWidth={1}
+                    opacity={0.98}
+                  />
+                  <text
+                    x={hoveredEdgeView.width / 2}
+                    y={16}
+                    textAnchor="middle"
+                    className="fill-popover-foreground text-[12px]"
+                  >
+                    {hoveredEdgeView.text}
+                  </text>
+                </g>
+              )}
             </g>
           </svg>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t px-4 py-3 text-xs text-muted-foreground">
             <span>{filteredGraph.nodes.length} pages</span>
-            <span className="flex items-center gap-2"><span className="inline-block w-5 border-t-2 border-primary" />Page link</span>
-            <span className="flex items-center gap-2"><span className="inline-block w-5 border-t border-dashed border-muted-foreground" />Parent / child</span>
-            <span className="flex items-center gap-2"><span className="inline-block w-5 border-t border-dotted border-muted-foreground" />Shared tag</span>
-            <span className="ml-auto">Drag to pan or move a page · Select a node to open</span>
+            <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-5 border-t-2 border-brand" />Page link</span>
+            <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-5 border-t border-dashed border-muted-foreground" />Parent → child</span>
+            <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block h-0.5 w-5" style={{ backgroundImage: `linear-gradient(90deg, ${TAG_PALETTE.slice(0, 4).join(", ")})` }} />Shared tag</span>
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden="true" className="inline-block size-2 rounded-full border-2 border-primary bg-card" />
+              <span aria-hidden="true" className="inline-block size-3.5 rounded-full border-2 border-primary bg-card" />
+              Size = connections
+            </span>
+            {visibleTagSwatches.length > 0 && (
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                Tags
+                {visibleTagSwatches.map((tag) => (
+                  <span key={tag.id} className="flex items-center gap-1">
+                    <span aria-hidden="true" className="inline-block size-2.5 rounded-full" style={{ backgroundColor: tag.color }} />
+                    <span className="max-w-24 truncate">{tag.name}</span>
+                  </span>
+                ))}
+              </span>
+            )}
+            <span className="ml-auto">Hover a title · Zoom in to label every page · Drag to pan or move · Select to open</span>
           </div>
           </div>
         </div>

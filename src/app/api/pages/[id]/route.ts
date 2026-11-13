@@ -22,6 +22,7 @@ const updatePageSchema = z.object({
   isFavorite: z.boolean().optional(),
   icon: z.string().max(32).nullable().optional(),
   coverImageUrl: z.string().trim().max(2048).nullable().optional(),
+  coverPosition: z.number().int().min(0).max(100).optional(),
   selectedText: z.string().max(2_000).nullable().optional(),
 }).refine(
   (data) => Object.keys(data).length > 0,

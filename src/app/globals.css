@@ -192,6 +192,120 @@
   --sidebar-ring: #315b3e;
 }
 
+:root[data-theme="slate"] {
+  color-scheme: light;
+  --background: #eef2f7;
+  --foreground: #1a2432;
+  --card: #f9fbfd;
+  --card-foreground: #1a2432;
+  --popover: #f9fbfd;
+  --popover-foreground: #1a2432;
+  --primary: #1f5fbf;
+  --primary-foreground: #f7fbff;
+  --secondary: #dde6f1;
+  --secondary-foreground: #1a2432;
+  --muted: #e2e9f2;
+  --muted-foreground: #526277;
+  --accent: #dbe5f2;
+  --accent-foreground: #1a2432;
+  --destructive: #b3261e;
+  --border: #c8d4e3;
+  --input: #c8d4e3;
+  --ring: #1f5fbf;
+  --brand: #1f5fbf;
+  --brand-foreground: #174a96;
+  --brand-soft: #dfeafb;
+  --chart-1: #1f5fbf;
+  --chart-2: #3f83d6;
+  --chart-3: #6aa6e0;
+  --chart-4: #93c2ea;
+  --chart-5: #b9d8f2;
+  --sidebar: #e3eaf3;
+  --sidebar-foreground: #1a2432;
+  --sidebar-primary: #1f5fbf;
+  --sidebar-primary-foreground: #f7fbff;
+  --sidebar-accent: #d3e0ef;
+  --sidebar-accent-foreground: #1a2432;
+  --sidebar-border: #c8d4e3;
+  --sidebar-ring: #1f5fbf;
+}
+
+:root[data-theme="rose"] {
+  color-scheme: light;
+  --background: #f7eef3;
+  --foreground: #33202a;
+  --card: #fdf7fa;
+  --card-foreground: #33202a;
+  --popover: #fdf7fa;
+  --popover-foreground: #33202a;
+  --primary: #a83a68;
+  --primary-foreground: #fff7fb;
+  --secondary: #efdfe8;
+  --secondary-foreground: #33202a;
+  --muted: #f0e2e9;
+  --muted-foreground: #6d4e58;
+  --accent: #f0dde7;
+  --accent-foreground: #33202a;
+  --destructive: #b3261e;
+  --border: #e3cdd9;
+  --input: #e3cdd9;
+  --ring: #a83a68;
+  --brand: #a83a68;
+  --brand-foreground: #8a2d55;
+  --brand-soft: #f6e2ec;
+  --chart-1: #a83a68;
+  --chart-2: #c45c87;
+  --chart-3: #d98aa9;
+  --chart-4: #e9b3c8;
+  --chart-5: #f3d3e0;
+  --sidebar: #f0e2ea;
+  --sidebar-foreground: #33202a;
+  --sidebar-primary: #a83a68;
+  --sidebar-primary-foreground: #fff7fb;
+  --sidebar-accent: #e7d2de;
+  --sidebar-accent-foreground: #33202a;
+  --sidebar-border: #e3cdd9;
+  --sidebar-ring: #a83a68;
+}
+
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --background: #0d1220;
+  --foreground: #e6ecfa;
+  --card: #141c2e;
+  --card-foreground: #e6ecfa;
+  --popover: #141c2e;
+  --popover-foreground: #e6ecfa;
+  --primary: #6ea8ff;
+  --primary-foreground: #08101f;
+  --secondary: #1d2740;
+  --secondary-foreground: #e6ecfa;
+  --muted: #1b2438;
+  --muted-foreground: #93a2c0;
+  --accent: #223050;
+  --accent-foreground: #e6ecfa;
+  --destructive: #f87171;
+  --border: #26324c;
+  --input: #26324c;
+  --ring: #6ea8ff;
+  --brand: #6ea8ff;
+  --brand-foreground: #9cc4ff;
+  --brand-soft: #17253d;
+  --chart-1: #6ea8ff;
+  --chart-2: #8f7bff;
+  --chart-3: #4fd1c5;
+  --chart-4: #f6ad55;
+  --chart-5: #f687b3;
+  --sidebar: #111a2b;
+  --sidebar-foreground: #e6ecfa;
+  --sidebar-primary: #6ea8ff;
+  --sidebar-primary-foreground: #08101f;
+  --sidebar-accent: #1e2a44;
+  --sidebar-accent-foreground: #e6ecfa;
+  --sidebar-border: #26324c;
+  --sidebar-ring: #6ea8ff;
+}
+
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
 
@@ -228,6 +342,19 @@
 .tiptap {
   outline: none;
   min-height: 300px;
+}
+
+/* Links stay editable, but read as links: hovering lifts and highlights them. */
+.tiptap a {
+  cursor: pointer;
+  border-radius: 0.2rem;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.tiptap a:hover {
+  color: var(--brand-foreground);
+  background-color: color-mix(in srgb, var(--brand) 12%, transparent);
+  text-decoration-thickness: 2px;
 }
 
 .tiptap h1 {

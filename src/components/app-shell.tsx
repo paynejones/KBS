@@ -1,9 +1,8 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { BookOpenText, Search, Settings, SlidersHorizontal } from "lucide-react";
-import { PageTree } from "@/components/page-tree";
+import { BookOpenText, Lock, Search, Settings, SlidersHorizontal } from "lucide-react";
 import { CommandPalette } from "@/components/command-palette";
 import { MobileSearchButton } from "@/components/mobile-search-button";
 import {
@@ -17,9 +16,22 @@ import {
   WorkspaceNavigation,
   WorkspaceNavigationFallback,
 } from "@/components/workspace-navigation";
+import {
+  getNavigationSnapshot,
+  getServerNavigationSnapshot,
+  setNavigationLocked,
+  storeNavigationPreferences,
+  subscribeToNavigation,
+} from "@/lib/navigation";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [editingNavigation, setEditingNavigation] = useState(false);
+  const navigation = useSyncExternalStore(
+    subscribeToNavigation,
+    getNavigationSnapshot,
+    getServerNavigationSnapshot,
+  );
+  const navigationLocked = navigation.locked;
 
   return (
     <div className="flex min-h-screen w-full min-w-0 bg-background text-foreground">
@@ -54,28 +66,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </button>
 
         <Suspense fallback={<WorkspaceNavigationFallback />}>
-          <WorkspaceNavigation />
+          <WorkspaceNavigation
+            onEditNavigation={() => setEditingNavigation(true)}
+          />
         </Suspense>
-
-        <button
-          type="button"
-          onClick={() => setEditingNavigation(true)}
-          className="mt-1 flex items-center gap-2 rounded-md px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <SlidersHorizontal size={12} aria-hidden="true" />
-          Edit navigation
-        </button>
-
-        <div className="mb-1.5 mt-6 flex items-center justify-between px-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          <span>Pages</span>
-          <Link
-            href="/pages"
-            className="text-[10px] font-medium normal-case tracking-normal hover:text-foreground"
-          >
-            View all
-          </Link>
-        </div>
-        <PageTree />
 
         <div className="mt-auto flex items-center gap-2 border-t px-1.5 pt-4 text-[11px] text-muted-foreground">
           <span className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand/60 text-[10px] font-semibold text-white">
@@ -110,14 +104,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="hidden sm:block">
               <QuickCapture />
             </div>
-            <button
-              type="button"
-              onClick={() => setEditingNavigation(true)}
-              aria-label="Edit navigation"
-              className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
-            >
-              <SlidersHorizontal size={18} aria-hidden="true" />
-            </button>
+            {navigationLocked ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingNavigation(false);
+                  storeNavigationPreferences(setNavigationLocked(navigation, false));
+                }}
+                aria-label="Unlock navigation editing"
+                title="Navigation is locked"
+                className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+              >
+                <Lock size={17} aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingNavigation(true)}
+                aria-label="Edit navigation"
+                className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+              >
+                <SlidersHorizontal size={18} aria-hidden="true" />
+              </button>
+            )}
             <Link
               href="/settings"
               aria-label="Settings"
@@ -153,7 +162,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       <NavigationEditor
-        open={editingNavigation}
+        open={editingNavigation && !navigationLocked}
         onClose={() => setEditingNavigation(false)}
       />
     </div>

@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, FolderUp, Link2Off, SlidersHorizontal, Star, Trash2, Upload } from "lucide-react";
@@ -24,6 +24,11 @@ import {
 } from "@/lib/markdown-import-files";
 import { starterPageTemplates } from "@/lib/page-templates";
 import { revealTemplateFromHash } from "@/lib/page-template-deep-link";
+import {
+  getNavigationSnapshot,
+  getServerNavigationSnapshot,
+  subscribeToNavigation,
+} from "@/lib/navigation";
 
 type PageSummary = {
   id: string;
@@ -46,6 +51,11 @@ type PageTemplate = {
 
 export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolean }) {
   const router = useRouter();
+  const showDatabasePages = useSyncExternalStore(
+    subscribeToNavigation,
+    getNavigationSnapshot,
+    getServerNavigationSnapshot,
+  ).showDatabasePages;
 
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -164,6 +174,8 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
 
         if (favoritesOnly) params.set("favorite", "true");
 
+        if (showDatabasePages) params.set("includeRecordPages", "true");
+
         const response = await fetch(`/api/pages?${params.toString()}`);
 
         if (!response.ok) {
@@ -193,7 +205,14 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, selectedTagId, favoritesOnly, refreshKey, retryKey]);
+  }, [
+    debouncedSearch,
+    selectedTagId,
+    favoritesOnly,
+    refreshKey,
+    retryKey,
+    showDatabasePages,
+  ]);
 
   async function toggleFavorite(page: PageSummary) {
     const isFavorite = !page.isFavorite;

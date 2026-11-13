@@ -1,8 +1,8 @@
-import { eq, asc, inArray } from "drizzle-orm";
+import { and, eq, asc, inArray, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { databases, databaseProperties, databaseRecords, databaseRecordRelations, databaseTemplates, databaseViews } from "@/db/schema";
+import { databases, databaseProperties, databaseRecords, databaseRecordRelations, databaseTemplates, databaseViews, pages } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
@@ -36,8 +36,16 @@ export async function GET(request: Request, context: Context) {
       ];
       relationsByRecord.set(relation.sourceRecordId, recordRelations);
     }
+    const pageIds = Array.from(new Set(records.flatMap((record) => record.pageId ? [record.pageId] : [])));
+    const pageCovers = pageIds.length
+      ? await db.select({ id: pages.id, coverImageUrl: pages.coverImageUrl })
+          .from(pages)
+          .where(and(inArray(pages.id, pageIds), isNull(pages.deletedAt)))
+      : [];
+    const pageCoverById = new Map(pageCovers.map((page) => [page.id, page.coverImageUrl]));
     const recordsWithRelations = records.map((record) => ({
       ...record,
+      pageCoverImageUrl: record.pageId ? pageCoverById.get(record.pageId) ?? null : null,
       relations: relationsByRecord.get(record.id) ?? {},
     }));
     return NextResponse.json({ ...database, properties, records: recordsWithRelations, views, templates });

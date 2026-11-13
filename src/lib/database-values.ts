@@ -70,6 +70,8 @@ export function validateDatabaseRecordValues(
         return `${property.name} is managed through its relation or rollup settings.`;
       case "formula":
         return `${property.name} is calculated from its formula.`;
+      case "button":
+        return `${property.name} runs its actions from the button.`;
       default:
         return `${property.name} has an unsupported property type.`;
     }

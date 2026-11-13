@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Database, ExternalLink, Eye, EyeOff, Trash2, Upload } from "lucide-react";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { AttachmentFileLink } from "@/components/attachment-preview";
 import { DatabaseChart } from "@/components/database-chart";
+import { ButtonCell, buttonResultMessage, runDatabaseButton } from "@/components/button-cell";
+import { ButtonSettingsDialog, type ButtonSettingsProperty } from "@/components/button-settings-dialog";
 import { DatabaseList } from "@/components/database-list";
 import { DatabaseTimeline } from "@/components/database-timeline";
 import { MediaImage } from "@/components/media-image";
@@ -53,8 +55,8 @@ import {
   parseFilePropertyValue,
   pickLocalFile,
   uploadAttachment,
-  type FilePropertyValue,
 } from "@/lib/media";
+import { galleryCoverForRecord } from "@/lib/gallery-cover";
 import { todayKey } from "@/lib/calendar";
 import { parseTimelineRange } from "@/lib/timeline";
 
@@ -64,6 +66,7 @@ type EmbedRecord = {
   title: string;
   values: Record<string, unknown>;
   pageId?: string | null;
+  pageCoverImageUrl?: string | null;
   relations?: Record<string, string[]>;
 };
 type EmbedData = {
@@ -102,7 +105,24 @@ function cellValue(
   return record.values[property.id];
 }
 
+export const DatabaseEmbedReadOnlyContext = createContext(false);
+
+/** The tile only has the stored action list; the dialog loads the rest. */
+function buttonSettingsProperty(property: EmbedProperty): ButtonSettingsProperty {
+  return {
+    id: property.id,
+    name: property.name,
+    type: property.type,
+    options: {
+      actions: Array.isArray(property.options.actions)
+        ? property.options.actions as ButtonSettingsProperty["options"]["actions"]
+        : undefined,
+    },
+  };
+}
+
 function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
+  const readOnly = useContext(DatabaseEmbedReadOnlyContext);
   const databaseId = String(node.attrs.databaseId ?? "");
   const viewId = String(node.attrs.viewId ?? "");
   const [data, setData] = useState<EmbedData | null>(null);
@@ -112,6 +132,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
   const [viewSaving, setViewSaving] = useState(false);
   const [viewError, setViewError] = useState("");
   const [coverPendingRemoval, setCoverPendingRemoval] = useState<{ recordId: string; propertyId: string; title: string } | null>(null);
+  const [editingButtonProperty, setEditingButtonProperty] = useState<ButtonSettingsProperty | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,20 +192,25 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
       : [],
   );
 
-  // Mirrors the main gallery: the chosen file property supplies the cover when
-  // it holds an image, otherwise the first image attachment does.
-  function coverForRecord(record: EmbedRecord): { file: FilePropertyValue; propertyId: string } | null {
-    if (galleryCoverProperty) {
-      const chosen = parseFilePropertyValue(record.values[galleryCoverProperty.id]);
-      if (chosen && isImageMimeType(chosen.mimeType)) {
-        return { file: chosen, propertyId: galleryCoverProperty.id };
-      }
-    }
-    for (const property of galleryCoverProperties) {
-      const file = parseFilePropertyValue(record.values[property.id]);
-      if (file && isImageMimeType(file.mimeType)) return { file, propertyId: property.id };
-    }
-    return null;
+  // Mirrors the main gallery: a file property supplies the cover when it holds
+  // an image, otherwise the record page's cover does.
+  function coverForRecord(record: EmbedRecord) {
+    return galleryCoverForRecord(record, {
+      chosenPropertyId: galleryCoverProperty?.id,
+      filePropertyIds: galleryCoverProperties.map((property) => property.id),
+    });
+  }
+
+  async function runButton(record: EmbedRecord, property: EmbedProperty) {
+    if (!data) return "This database is not loaded.";
+    const result = await runDatabaseButton(data.id, record.id, property.id);
+    setData((current) => current ? {
+      ...current,
+      records: current.records.map((row) => row.id === record.id
+        ? { ...row, ...result.record, relations: result.relations }
+        : row),
+    } : current);
+    return buttonResultMessage(result.results);
   }
 
   async function saveViewConfig(config: Record<string, unknown>) {
@@ -408,9 +434,11 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
             <Link href={`/databases/${databaseId}`} target="_blank" aria-label="Open full database" title="Open full database" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">
               <ExternalLink size={15} />
             </Link>
-            <Button type="button" variant="ghost" size="icon-sm" onClick={deleteNode} aria-label="Remove database embed" title="Remove embed">
-              <Trash2 size={14} />
-            </Button>
+            {!readOnly && (
+              <Button type="button" variant="ghost" size="icon-sm" onClick={deleteNode} aria-label="Remove database embed" title="Remove embed">
+                <Trash2 size={14} />
+              </Button>
+            )}
           </div>
         </div>
         {viewError && <p role="alert" className="border-b px-3 py-2 text-xs text-destructive">{viewError}</p>}
@@ -452,39 +480,40 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                           className="block"
                         >
                           <MediaImage
-                            src={cover.file.url}
-                            alt={cover.file.alt || cover.file.filename || record.title}
+                            src={cover.url}
+                            alt={cover.alt}
                             className="h-28 w-full object-cover"
                           />
                         </Link>
                         <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => coverTargetId && void uploadCover(record.id, coverTargetId)}
-                            disabled={viewSaving}
-                            aria-label={`Replace cover for ${record.title}`}
-                            title="Replace cover"
-                            className="inline-flex size-6 items-center justify-center rounded border bg-background/90 text-muted-foreground shadow-sm hover:text-foreground disabled:opacity-50"
-                          >
-                            <Upload size={11} aria-hidden="true" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!coverTargetId) return;
-                              setCoverPendingRemoval({
-                                recordId: record.id,
-                                propertyId: coverTargetId,
-                                title: record.title,
-                              });
-                            }}
-                            disabled={viewSaving}
-                            aria-label={`Remove cover for ${record.title}`}
-                            title="Remove cover"
-                            className="inline-flex size-6 items-center justify-center rounded border bg-background/90 text-muted-foreground shadow-sm hover:text-destructive disabled:opacity-50"
-                          >
-                            <Trash2 size={11} aria-hidden="true" />
-                          </button>
+                          {!readOnly && cover.propertyId && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void uploadCover(record.id, cover.propertyId)}
+                                disabled={viewSaving}
+                                aria-label={`Replace cover for ${record.title}`}
+                                title="Replace cover"
+                                className="inline-flex size-6 items-center justify-center rounded border bg-background/90 text-muted-foreground shadow-sm hover:text-foreground disabled:opacity-50"
+                              >
+                                <Upload size={11} aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCoverPendingRemoval({
+                                  recordId: record.id,
+                                  propertyId: cover.propertyId,
+                                  title: record.title,
+                                })}
+                                disabled={viewSaving}
+                                aria-label={`Remove cover for ${record.title}`}
+                                title="Remove cover"
+                                className="inline-flex size-6 items-center justify-center rounded border bg-background/90 text-muted-foreground shadow-sm hover:text-destructive disabled:opacity-50"
+                              >
+                                <Trash2 size={11} aria-hidden="true" />
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
                             onClick={() => void setCoverHidden(record.id, true)}
@@ -510,7 +539,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                         <Eye size={11} aria-hidden="true" /> Show cover
                       </button>
                     )}
-                    {!cover && coverTargetId && (
+                    {!readOnly && !cover && coverTargetId && (
                       <button
                         type="button"
                         onClick={() => void uploadCover(record.id, coverTargetId)}
@@ -534,7 +563,16 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                               <span className="ml-1 rounded border px-1 py-0.5 text-[9px] uppercase">Cover</span>
                             )}
                           </dt>
-                          <dd className="min-w-0 truncate">{displayNode(cellValue(record, property, data.properties, relationTargets))}</dd>
+                          <dd className="min-w-0 truncate">
+                            {property.type === "button" ? (
+                              <ButtonCell
+                                compact
+                                label={property.name}
+                                onRun={() => runButton(record, property)}
+                                onConfigure={readOnly ? undefined : () => setEditingButtonProperty(buttonSettingsProperty(property))}
+                              />
+                            ) : displayNode(cellValue(record, property, data.properties, relationTargets))}
+                          </dd>
                         </div>
                       ))}
                     </dl>
@@ -562,7 +600,16 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                               {visibleProperties.slice(0, 4).map((property) => (
                                 <div key={property.id} className="flex gap-1">
                                   <dt className="shrink-0 text-muted-foreground">{property.name}</dt>
-                                  <dd className="min-w-0 truncate">{displayNode(cellValue(record, property, data.properties, relationTargets))}</dd>
+                                  <dd className="min-w-0 truncate">
+                                    {property.type === "button" ? (
+                                      <ButtonCell
+                                        compact
+                                        label={property.name}
+                                        onRun={() => runButton(record, property)}
+                                        onConfigure={readOnly ? undefined : () => setEditingButtonProperty(buttonSettingsProperty(property))}
+                                      />
+                                    ) : displayNode(cellValue(record, property, data.properties, relationTargets))}
+                                  </dd>
                                 </div>
                               ))}
                             </dl>
@@ -576,7 +623,16 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
             </div>
           ) : selectedView?.type === "list" ? (
             <div className="max-h-96 overflow-y-auto p-3">
-              <DatabaseList databaseId={data.id} rows={listRowsForView} />
+              <DatabaseList
+                databaseId={data.id}
+                rows={listRowsForView}
+                onRunButton={(recordId, propertyId) => {
+                  const record = data.records.find((candidate) => candidate.id === recordId);
+                  const property = data.properties.find((candidate) => candidate.id === propertyId);
+                  if (!record || !property) return Promise.resolve("Could not find this button.");
+                  return runButton(record, property);
+                }}
+              />
             </div>
           ) : selectedView?.type === "timeline" ? (
             <div className="max-h-96 overflow-y-auto p-3">
@@ -658,7 +714,18 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                     <td className="px-3 py-2 font-medium">
                       <Link href={`/databases/${data.id}/records/${record.id}`} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
                     </td>
-                    {visibleProperties.slice(0, 4).map((property) => <td key={property.id} className="max-w-56 truncate px-3 py-2 text-muted-foreground">{displayNode(cellValue(record, property, data.properties, relationTargets))}</td>)}
+                    {visibleProperties.slice(0, 4).map((property) => (
+                      <td key={property.id} className="max-w-56 truncate px-3 py-2 text-muted-foreground">
+                        {property.type === "button" ? (
+                          <ButtonCell
+                            compact
+                            label={property.name}
+                            onRun={() => runButton(record, property)}
+                            onConfigure={readOnly ? undefined : () => setEditingButtonProperty(buttonSettingsProperty(property))}
+                          />
+                        ) : displayNode(cellValue(record, property, data.properties, relationTargets))}
+                      </td>
+                    ))}
                   </tr>
                 ))}
                 {records.length === 0 && <tr><td colSpan={Math.min(visibleProperties.length, 4) + 1} className="px-3 py-7 text-center text-muted-foreground">{viewFilters.length > 0 || filterText ? "No records match this filter." : "No records yet."}</td></tr>}
@@ -697,6 +764,22 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {editingButtonProperty && (
+        <ButtonSettingsDialog
+          onOpenChange={(open) => { if (!open) setEditingButtonProperty(null); }}
+          databaseId={databaseId}
+          property={editingButtonProperty}
+          onSaved={(updated) => {
+            setData((current) => current ? {
+              ...current,
+              properties: current.properties.map((property) => property.id === updated.id
+                ? { ...property, options: { ...property.options, actions: updated.options.actions } }
+                : property),
+            } : current);
+            setEditingButtonProperty(null);
+          }}
+        />
+      )}
     </NodeViewWrapper>
   );
 }

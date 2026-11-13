@@ -214,7 +214,17 @@ export async function PATCH(request: Request, context: Context) {
     for (const relation of existingRelations) {
       relationMap[relation.propertyId] = [...(relationMap[relation.propertyId] ?? []), relation.targetRecordId];
     }
-    return NextResponse.json({ ...record, relations: relationMap });
+    const [pageCover] = record.pageId
+      ? await db.select({ coverImageUrl: pages.coverImageUrl })
+          .from(pages)
+          .where(eq(pages.id, record.pageId))
+          .limit(1)
+      : [];
+    return NextResponse.json({
+      ...record,
+      pageCoverImageUrl: pageCover?.coverImageUrl ?? null,
+      relations: relationMap,
+    });
   } catch (error) {
     return apiErrorResponse(request, "Failed to update database record", error, { status: 500, logMessage: "Failed to update database record:" });
   }

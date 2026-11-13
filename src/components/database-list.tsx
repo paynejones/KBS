@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
+import { ButtonCell } from "@/components/button-cell";
 import type { ListRow } from "@/lib/database-list";
 
 /**
@@ -11,9 +12,13 @@ import type { ListRow } from "@/lib/database-list";
 export function DatabaseList({
   databaseId,
   rows,
+  onRunButton,
+  onConfigureButton,
 }: {
   databaseId: string;
   rows: ListRow[];
+  onRunButton?: (recordId: string, propertyId: string, label: string) => Promise<string>;
+  onConfigureButton?: (propertyId: string) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -41,7 +46,16 @@ export function DatabaseList({
                 {row.values.map((value) => (
                   <div key={value.id} className="flex min-w-0 items-baseline gap-1">
                     <dt>{value.name}</dt>
-                    <dd className="min-w-0 break-words text-foreground">{value.display}</dd>
+                    <dd className="min-w-0 break-words text-foreground">
+                      {value.type === "button" && onRunButton ? (
+                        <ButtonCell
+                          compact
+                          label={value.name}
+                          onRun={() => onRunButton(row.id, value.id, value.name)}
+                          onConfigure={onConfigureButton ? () => onConfigureButton(value.id) : undefined}
+                        />
+                      ) : value.display}
+                    </dd>
                   </div>
                 ))}
               </dl>

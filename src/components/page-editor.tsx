@@ -1,13 +1,26 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Download, GripVertical, Pencil, Plus, SlidersHorizontal, Star, Trash2 } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { DragHandle } from "@tiptap/extension-drag-handle-react";
 import { Extension, type Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { DatabaseEmbedExtension, DatabaseEmbedPicker } from "@/components/database-embed";
+import {
+  DatabaseEmbedExtension,
+  DatabaseEmbedPicker,
+  DatabaseEmbedReadOnlyContext,
+} from "@/components/database-embed";
 import { CalloutExtension, TaskItemExtension, TaskListExtension, ToggleExtension } from "@/components/task-list-extension";
 import { TableCellExtension, TableExtension, TableHeaderExtension, TableRowExtension } from "@/components/table-extension";
 import { ImageExtension } from "@/components/image-extension";
@@ -27,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { EditorToolbar } from "@/components/editor-toolbar";
+import { PageIconPicker } from "@/components/page-icon-picker";
 import { PageTags } from "@/components/page-tags";
 import { PageLinks } from "@/components/page-links";
 import { RelatedPages } from "@/components/related-pages";
@@ -38,6 +52,7 @@ import { clampEditorPopover } from "@/lib/editor-popover";
 import { moveBlockAtSelection, selectedBlockGroup } from "@/lib/editor-block-move";
 import { buildBlockDragImage } from "@/lib/editor-drag-image";
 import { collectLinkedPageIds, diffLinkedPageIds } from "@/lib/page-link-sync";
+import { pageIdFromEditorClick } from "@/lib/link";
 import { describeSaveState, type SaveStatusView } from "@/lib/save-status";
 
 type PageData = {
@@ -49,6 +64,7 @@ type PageData = {
   isFavorite: boolean;
   icon: string | null;
   coverImageUrl: string | null;
+  coverPosition?: number | null;
   selectedText: string | null;
   updatedAt: string;
   createdAt?: string;
@@ -186,7 +202,15 @@ function editorMenuPlacement(anchor: { x: number; y: number }) {
   );
 }
 
-export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: boolean }) {
+export function PageEditor({
+  id,
+  hideTitle = false,
+  readOnly = false,
+}: {
+  id: string;
+  hideTitle?: boolean;
+  readOnly?: boolean;
+}) {
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<SaveStatus>("loading");
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
@@ -197,12 +221,16 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
   const [loaded, setLoaded] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [recoveredDraft, setRecoveredDraft] = useState(false);
+  const router = useRouter();
   const [pendingDraft, setPendingDraft] = useState<PageDraft | null>(null);
   const [headings, setHeadings] = useState<{ level: number; text: string }[]>([]);
   const [wordCount, setWordCount] = useState(0);
   const [createdAt, setCreatedAt] = useState("");
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coverRef = useRef<HTMLDivElement>(null);
+  const coverPositionRef = useRef(50);
+  const coverDraggingRef = useRef(false);
   const saveInProgress = useRef(false);
   const dirty = useRef(false);
   const draftRevision = useRef(0);
@@ -229,6 +257,8 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
   const [favoriteSaving, setFavoriteSaving] = useState(false);
   const [icon, setIcon] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [coverPosition, setCoverPosition] = useState(50);
+  const [coverDragging, setCoverDragging] = useState(false);
   const [selectedText, setSelectedText] = useState("");
   const [quoteEditing, setQuoteEditing] = useState(false);
   const [quoteDraft, setQuoteDraft] = useState("");
@@ -299,6 +329,25 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
           "min-h-[45vh] outline-none prose prose-neutral max-w-none dark:prose-invert sm:min-h-[400px]",
         "aria-label": "Page content",
         "aria-keyshortcuts": "Alt+Shift+ArrowUp Alt+Shift+ArrowDown",
+      },
+      // A plain click on a page link opens that page. Selecting text inside the
+      // link still works, and modified clicks keep their native browser behaviour.
+      handleClick: (view, _pos, event) => {
+        const anchor = (event.target as HTMLElement | null)?.closest?.("a");
+        if (!anchor) return false;
+        const targetPageId = pageIdFromEditorClick({
+          href: anchor.getAttribute("href"),
+          selectionEmpty: view.state.selection.empty,
+          button: event.button,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+        });
+        if (!targetPageId) return false;
+        event.preventDefault();
+        router.push(`/pages/${targetPageId}`);
+        return true;
       },
       handleKeyDown: (_view, event) => {
         const wikiMenu = wikiMenuRef.current;
@@ -519,6 +568,10 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
         setIsFavorite(page.isFavorite ?? false);
         setIcon(page.icon ?? "");
         setCoverImageUrl(page.coverImageUrl ?? "");
+        const storedCoverPosition =
+          typeof page.coverPosition === "number" ? page.coverPosition : 50;
+        setCoverPosition(storedCoverPosition);
+        coverPositionRef.current = storedCoverPosition;
         setSelectedText(page.selectedText ?? "");
         setCoverImageError(null);
         setCreatedAt(page.createdAt ?? "");
@@ -597,6 +650,7 @@ export function PageEditor({ id, hideTitle = false }: { id: string; hideTitle?: 
     contentJson?: Record<string, unknown>;
     icon?: string | null;
     coverImageUrl?: string | null;
+    coverPosition?: number;
     selectedText?: string | null;
   }, options: { silent?: boolean } = {}) => {
     if (!options.silent) {
@@ -758,7 +812,7 @@ useEffect(() => {
     }, 800);
   };
 
-  editor.setEditable(true);
+  editor.setEditable(!readOnly);
   editor.on("update", handleUpdate);
 
   if (dirty.current) {
@@ -776,7 +830,7 @@ useEffect(() => {
 
     if (dirty.current) void flushSave(true);
   };
-}, [editor, id, loaded, savePage, draftStorageKey]);
+}, [editor, id, loaded, readOnly, savePage, draftStorageKey]);
 
 async function retryContentSave() {
   if (!editor) return;
@@ -848,6 +902,72 @@ function discardLocalDraft() {
     setDraftWarning("This browser could not remove the local recovered draft.");
   }
   setPendingDraft(null);
+}
+
+function coverPositionFromClientY(clientY: number) {
+  const rect = coverRef.current?.getBoundingClientRect();
+  if (!rect || rect.height <= 0) return coverPositionRef.current;
+  return Math.max(
+    0,
+    Math.min(100, Math.round(((clientY - rect.top) / rect.height) * 100)),
+  );
+}
+
+function setCoverFocalPoint(next: number, persist = false) {
+  const clamped = Math.max(0, Math.min(100, Math.round(next)));
+  coverPositionRef.current = clamped;
+  setCoverPosition(clamped);
+  if (persist) void savePage({ coverPosition: clamped });
+}
+
+function beginCoverDrag(event: ReactPointerEvent<HTMLDivElement>) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  event.preventDefault();
+  event.currentTarget.focus();
+  event.currentTarget.setPointerCapture(event.pointerId);
+  coverDraggingRef.current = true;
+  setCoverDragging(true);
+  setCoverFocalPoint(coverPositionFromClientY(event.clientY));
+}
+
+function moveCoverDrag(event: ReactPointerEvent<HTMLDivElement>) {
+  if (!coverDraggingRef.current) return;
+  setCoverFocalPoint(coverPositionFromClientY(event.clientY));
+}
+
+function endCoverDrag(event: ReactPointerEvent<HTMLDivElement>) {
+  if (!coverDraggingRef.current) return;
+  coverDraggingRef.current = false;
+  setCoverDragging(false);
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+  setCoverFocalPoint(coverPositionFromClientY(event.clientY), true);
+}
+
+function cancelCoverDrag(event: ReactPointerEvent<HTMLDivElement>) {
+  if (!coverDraggingRef.current) return;
+  coverDraggingRef.current = false;
+  setCoverDragging(false);
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+  void savePage({ coverPosition: coverPositionRef.current });
+}
+
+function handleCoverKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+  const current = coverPositionRef.current;
+  const step = event.shiftKey ? 10 : 5;
+  let next = current;
+
+  if (event.key === "ArrowUp" || event.key === "ArrowLeft") next = current - step;
+  else if (event.key === "ArrowDown" || event.key === "ArrowRight") next = current + step;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = 100;
+  else return;
+
+  event.preventDefault();
+  setCoverFocalPoint(next, true);
 }
 
 async function uploadCoverImage() {
@@ -1030,6 +1150,7 @@ while (foundDescendant) {
   const wikiMenuPlacement = wikiMenu ? editorMenuPlacement(wikiMenu) : null;
   const slashMenuPlacement = slashMenu ? editorMenuPlacement(slashMenu) : null;
   const saveView = describeSaveState(status, lastSavedAt, statusClock);
+  const hasCover = Boolean(coverImageUrl) && coverImageError !== "invalid";
 
   if (status === "loading" && !loaded) {
     return (
@@ -1055,10 +1176,24 @@ while (foundDescendant) {
     <div className="mx-auto max-w-6xl">
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_11rem] xl:grid-cols-[minmax(0,1fr)_12rem]">
         <div className="min-w-0 space-y-6">
+          <div ref={coverRef} data-testid="page-cover" className={hasCover ? "relative -mx-4 overflow-hidden border-y bg-card sm:-mx-6 md:mx-0 md:rounded-2xl md:border" : ""}>
+            {hasCover && (
+              <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+                <MediaImage
+                  src={coverImageUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  style={{ objectPosition: `center ${coverPosition}%` }}
+                />
+                <div className="absolute inset-0 bg-background/65" />
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/40 to-background" />
+              </div>
+            )}
+            <div className={hasCover ? "relative space-y-6 p-4 sm:p-6 md:p-8" : "space-y-6"}>
       <div className="flex min-w-0 flex-col gap-4 border-b pb-5 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
         {!hideTitle && (
           <>
-            {icon && !coverImageUrl && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
+            {icon && <span aria-hidden="true" className="shrink-0 text-3xl leading-none">{icon}</span>}
             <input
               value={title}
               onChange={(e) => {
@@ -1085,6 +1220,29 @@ while (foundDescendant) {
         )}
 
         <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+          {!readOnly && hasCover && (
+            <div
+              role="slider"
+              tabIndex={0}
+              aria-label="Cover image position"
+              aria-orientation="vertical"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={coverPosition}
+              aria-valuetext={`${coverPosition}% from top`}
+              title="Drag up or down to reposition the cover"
+              onPointerDown={beginCoverDrag}
+              onPointerMove={moveCoverDrag}
+              onPointerUp={endCoverDrag}
+              onPointerCancel={cancelCoverDrag}
+              onKeyDown={handleCoverKeyDown}
+              className={`flex h-9 shrink-0 touch-none select-none items-center gap-1 rounded-md border bg-background/80 px-2 text-xs text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${coverDragging ? "border-brand text-foreground" : ""}`}
+            >
+              <GripVertical size={14} aria-hidden="true" />
+              <span className="hidden sm:inline">Cover</span>
+              <span className="tabular-nums">{coverPosition}%</span>
+            </div>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -1106,39 +1264,20 @@ while (foundDescendant) {
             <Star size={18} className={isFavorite ? "fill-current text-amber-500" : ""} />
           </button>
           <span
-            className={`text-xs ${SAVE_TONE_CLASSES[saveView.tone]}`}
+            className={`text-xs ${readOnly ? "text-muted-foreground" : SAVE_TONE_CLASSES[saveView.tone]}`}
             role="status"
             aria-live="polite"
-            title={lastSavedAt ? `Last saved ${new Date(lastSavedAt).toLocaleString()}` : undefined}
+            title={!readOnly && lastSavedAt ? `Last saved ${new Date(lastSavedAt).toLocaleString()}` : undefined}
           >
-            {saveView.label}
+            {readOnly ? "View only" : saveView.label}
           </span>
         </div>
       </div>
-      <div className="space-y-3">
-        {coverImageUrl && coverImageError !== "invalid" && (
-          <div className="relative overflow-hidden rounded-xl border bg-muted/30">
-            <MediaImage
-              src={coverImageUrl}
-              alt={title ? `${title} cover` : "Page cover"}
-              className="h-36 w-full object-cover sm:h-44"
-            />
-            {icon && (
-              <span
-                aria-hidden="true"
-                className="absolute bottom-3 left-5 flex size-11 items-center justify-center rounded-xl border bg-background text-2xl shadow-sm"
-              >
-                {icon}
-              </span>
-            )}
-          </div>
-        )}
-        {coverImageError === "invalid" && (
-          <p role="status" className="rounded-md border border-destructive/30 px-3 py-2 text-sm text-muted-foreground">
-            Cover must be an uploaded image or an http:// or https:// URL.
-          </p>
-        )}
-      </div>
+      {coverImageError === "invalid" && (
+        <p role="status" className="rounded-md border border-destructive/30 px-3 py-2 text-sm text-muted-foreground">
+          Cover must be an uploaded image or an http:// or https:// URL.
+        </p>
+      )}
       {pendingDraft && (
         <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
           <p className="text-sm text-muted-foreground">An unsaved local draft is available for this page.</p>
@@ -1163,6 +1302,211 @@ while (foundDescendant) {
           {linkSyncWarning}
         </p>
       )}
+
+
+      {error && (
+        <div role="alert" className="text-sm text-destructive">
+          {error}
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-2"
+            onClick={() => void retryContentSave()}
+          >
+            Retry save
+          </Button>
+        </div>
+      )}
+
+      <div className={`rounded-xl border px-4 py-4 sm:px-8 sm:py-7 ${hasCover ? "bg-card/90" : "bg-card"}`}>
+        {!readOnly && (
+          <div className="sticky top-0 z-30 -mx-4 bg-card px-4 pb-1 pt-3 sm:static sm:mx-0 sm:p-0">
+            <EditorToolbar editor={editor} pageId={id} pages={allPages} />
+          </div>
+        )}
+        {!readOnly && editor?.isEditable && (
+          <DragHandle
+            editor={editor}
+            className="text-muted-foreground"
+            onElementDragStart={(event) => {
+              if (!editor) return;
+              // Capture the selection before the handle plugin swaps it for the
+              // single node it is hovering.
+              const group = selectedBlockGroup(editor.state);
+              if (!group) return;
+              const image = buildBlockDragImage(editor, group.positions);
+              if (image) {
+                const removeImage = () => image.remove();
+                document.addEventListener("dragend", removeImage, { once: true });
+                document.addEventListener("drop", removeImage, { once: true });
+              }
+              queueMicrotask(() => {
+                if (group.doc !== editor.state.doc) return;
+                // The handle drags one block by default. Hand the drop the whole
+                // covered range and move the selection with it, so ProseMirror
+                // removes exactly the blocks it inserts.
+                editor.view.dragging = { slice: group.slice, move: true };
+                editor.view.dispatch(editor.state.tr.setSelection(group.selection));
+                if (image && event.dataTransfer) {
+                  try {
+                    // Replaces the handle's single-block ghost with the group's
+                    // blocks. The handle sets its own image later in this same
+                    // dragstart, so this has to wait for the next microtask.
+                    event.dataTransfer.setDragImage(image, 0, 0);
+                  } catch {
+                    // A browser that refuses a later drag image still moves the
+                    // group; only the ghost stays single-block.
+                  }
+                }
+              });
+            }}
+          >
+            <div
+              title="Drag to reorder block (Alt+Shift+↑ / ↓)"
+              className="flex h-6 w-5 cursor-grab items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground active:cursor-grabbing"
+            >
+              <GripVertical size={16} aria-hidden="true" />
+            </div>
+          </DragHandle>
+        )}
+        {!readOnly && (
+          <div className="border-b py-3">
+            <DatabaseEmbedPicker editor={editor} />
+          </div>
+        )}
+        {selectedText && !quoteEditing && (
+          <figure className="my-3 rounded-r-md border-l-2 border-primary/40 pl-3">
+            <blockquote
+              aria-label="Quoted passage from the saved link"
+              className="text-sm italic text-muted-foreground"
+            >
+              <p className="whitespace-pre-wrap break-words">{selectedText}</p>
+            </blockquote>
+            {!readOnly && (
+              <div className="mt-1 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => { setQuoteDraft(selectedText); setQuoteEditing(true); }}
+                  aria-label="Edit quote"
+                  title="Edit quote"
+                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Pencil size={13} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveQuote(null)}
+                  disabled={quoteSaving}
+                  aria-label="Remove quote"
+                  title="Remove quote"
+                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                >
+                  <Trash2 size={13} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </figure>
+        )}
+        {selectedText && quoteEditing && (
+          <div className="my-3 space-y-2 rounded-r-md border-l-2 border-primary/40 pl-3">
+            <label className="sr-only" htmlFor="page-quote">Quoted passage</label>
+            <textarea
+              id="page-quote"
+              autoFocus
+              rows={3}
+              maxLength={2000}
+              value={quoteDraft}
+              onChange={(event) => setQuoteDraft(event.target.value)}
+              className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" onClick={() => void saveQuote(quoteDraft.trim() || null)} disabled={quoteSaving}>
+                {quoteSaving ? "Saving…" : "Save quote"}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteEditing(false)} disabled={quoteSaving}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <DatabaseEmbedReadOnlyContext.Provider value={readOnly}>
+            <EditorContent editor={editor} />
+          </DatabaseEmbedReadOnlyContext.Provider>
+        </div>
+        {wikiMenu && (
+          <div
+            role="listbox"
+            aria-label="Link to a page"
+            className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: wikiMenuPlacement?.left, top: wikiMenuPlacement?.top, width: wikiMenuPlacement?.width, maxHeight: wikiMenuPlacement?.maxHeight }}
+          >
+            {matchingWikiPages.map((page, index) => (
+              <button
+                key={page.id}
+                type="button"
+                role="option"
+                aria-selected={index === wikiIndex}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setWikiIndex(index)}
+                onClick={() => void insertWikiPage(page, wikiMenu)}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left sm:py-2 ${index === wikiIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+              >
+                <span className="truncate text-sm font-medium">{page.title || "Untitled"}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">Page</span>
+              </button>
+            ))}
+            {canCreateWikiPage && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={wikiIndex === matchingWikiPages.length}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setWikiIndex(matchingWikiPages.length)}
+                onClick={() => void createWikiPage(wikiMenu)}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm sm:py-2 ${wikiIndex === matchingWikiPages.length ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+              >
+                <Plus size={15} /> Create page “{wikiMenu.query.trim().slice(0, 80)}”
+              </button>
+            )}
+            {!matchingWikiPages.length && !canCreateWikiPage && <p className="px-3 py-2 text-sm text-muted-foreground">No other pages to link.</p>}
+            <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">↑↓ to choose · Enter to insert · Esc to close</p>
+          </div>
+        )}
+        {slashMenu && filteredCommands.length > 0 && (
+          <div
+            role="listbox"
+            aria-label="Insert block"
+            className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: slashMenuPlacement?.left, top: slashMenuPlacement?.top, width: slashMenuPlacement?.width, maxHeight: slashMenuPlacement?.maxHeight }}
+          >
+            {filteredCommands.map((command, index) => (
+              <button
+                key={command.label}
+                type="button"
+                role="option"
+                aria-selected={index === slashIndex}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setSlashIndex(index)}
+                onClick={() => {
+                  if (!editor || !slashMenu) return;
+                  editor.chain().focus().deleteRange({ from: slashMenu.from, to: slashMenu.to }).run();
+                  command.run(editor);
+                  setSlashMenu(null);
+                }}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left sm:py-2 ${index === slashIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+              >
+                <span className="text-sm font-medium">{command.label}</span>
+                <span className="text-xs text-muted-foreground">{command.detail}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+            </div>
+          </div>
+
+      {!readOnly && (
       <details
         className="group rounded-xl border bg-card"
         onToggle={(event) => {
@@ -1184,18 +1528,17 @@ while (foundDescendant) {
               Appearance
             </h2>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm">
-                <span className="text-muted-foreground">Icon</span>
-                <input
-                  aria-label="Page icon"
-                  value={icon}
-                  maxLength={8}
-                  placeholder="＋"
-                  onChange={(event) => setIcon(event.target.value)}
-                  onBlur={() => void savePage({ icon: icon.trim() || null })}
-                  className="w-12 bg-transparent text-center text-lg outline-none"
-                />
-              </label>
+              <PageIconPicker
+                value={icon}
+                onSelect={(next) => {
+                  setIcon(next);
+                  void savePage({ icon: next });
+                }}
+                onRemove={() => {
+                  setIcon("");
+                  void savePage({ icon: null });
+                }}
+              />
               <Button type="button" variant="outline" size="sm" disabled={coverUploading} onClick={() => void uploadCoverImage()}>
                 {coverUploading ? "Uploading…" : "Upload cover"}
               </Button>
@@ -1302,198 +1645,7 @@ while (foundDescendant) {
           </section>
         </div>
       </details>
-
-      {error && (
-        <div role="alert" className="text-sm text-destructive">
-          {error}
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-2"
-            onClick={() => void retryContentSave()}
-          >
-            Retry save
-          </Button>
-        </div>
       )}
-
-      <div className="rounded-xl border bg-card px-4 py-4 sm:px-8 sm:py-7">
-        <div className="sticky top-0 z-30 -mx-4 bg-card px-4 pb-1 pt-3 sm:static sm:mx-0 sm:p-0">
-          <EditorToolbar editor={editor} pageId={id} pages={allPages} />
-        </div>
-        {editor?.isEditable && (
-          <DragHandle
-            editor={editor}
-            className="text-muted-foreground"
-            onElementDragStart={(event) => {
-              if (!editor) return;
-              // Capture the selection before the handle plugin swaps it for the
-              // single node it is hovering.
-              const group = selectedBlockGroup(editor.state);
-              if (!group) return;
-              const image = buildBlockDragImage(editor, group.positions);
-              if (image) {
-                const removeImage = () => image.remove();
-                document.addEventListener("dragend", removeImage, { once: true });
-                document.addEventListener("drop", removeImage, { once: true });
-              }
-              queueMicrotask(() => {
-                if (group.doc !== editor.state.doc) return;
-                // The handle drags one block by default. Hand the drop the whole
-                // covered range and move the selection with it, so ProseMirror
-                // removes exactly the blocks it inserts.
-                editor.view.dragging = { slice: group.slice, move: true };
-                editor.view.dispatch(editor.state.tr.setSelection(group.selection));
-                if (image && event.dataTransfer) {
-                  try {
-                    // Replaces the handle's single-block ghost with the group's
-                    // blocks. The handle sets its own image later in this same
-                    // dragstart, so this has to wait for the next microtask.
-                    event.dataTransfer.setDragImage(image, 0, 0);
-                  } catch {
-                    // A browser that refuses a later drag image still moves the
-                    // group; only the ghost stays single-block.
-                  }
-                }
-              });
-            }}
-          >
-            <div
-              title="Drag to reorder block (Alt+Shift+↑ / ↓)"
-              className="flex h-6 w-5 cursor-grab items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground active:cursor-grabbing"
-            >
-              <GripVertical size={16} aria-hidden="true" />
-            </div>
-          </DragHandle>
-        )}
-        <div className="border-b py-3">
-          <DatabaseEmbedPicker editor={editor} />
-        </div>
-        {selectedText && !quoteEditing && (
-          <figure className="my-3 rounded-r-md border-l-2 border-primary/40 pl-3">
-            <blockquote
-              aria-label="Quoted passage from the saved link"
-              className="text-sm italic text-muted-foreground"
-            >
-              <p className="whitespace-pre-wrap break-words">{selectedText}</p>
-            </blockquote>
-            <div className="mt-1 flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => { setQuoteDraft(selectedText); setQuoteEditing(true); }}
-                aria-label="Edit quote"
-                title="Edit quote"
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Pencil size={13} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveQuote(null)}
-                disabled={quoteSaving}
-                aria-label="Remove quote"
-                title="Remove quote"
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              >
-                <Trash2 size={13} aria-hidden="true" />
-              </button>
-            </div>
-          </figure>
-        )}
-        {selectedText && quoteEditing && (
-          <div className="my-3 space-y-2 rounded-r-md border-l-2 border-primary/40 pl-3">
-            <label className="sr-only" htmlFor="page-quote">Quoted passage</label>
-            <textarea
-              id="page-quote"
-              autoFocus
-              rows={3}
-              maxLength={2000}
-              value={quoteDraft}
-              onChange={(event) => setQuoteDraft(event.target.value)}
-              className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <div className="flex items-center gap-2">
-              <Button type="button" size="sm" onClick={() => void saveQuote(quoteDraft.trim() || null)} disabled={quoteSaving}>
-                {quoteSaving ? "Saving…" : "Save quote"}
-              </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteEditing(false)} disabled={quoteSaving}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-        <div className="overflow-x-auto">
-          <EditorContent editor={editor} />
-        </div>
-        {wikiMenu && (
-          <div
-            role="listbox"
-            aria-label="Link to a page"
-            className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{ left: wikiMenuPlacement?.left, top: wikiMenuPlacement?.top, width: wikiMenuPlacement?.width, maxHeight: wikiMenuPlacement?.maxHeight }}
-          >
-            {matchingWikiPages.map((page, index) => (
-              <button
-                key={page.id}
-                type="button"
-                role="option"
-                aria-selected={index === wikiIndex}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setWikiIndex(index)}
-                onClick={() => void insertWikiPage(page, wikiMenu)}
-                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left sm:py-2 ${index === wikiIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
-              >
-                <span className="truncate text-sm font-medium">{page.title || "Untitled"}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">Page</span>
-              </button>
-            ))}
-            {canCreateWikiPage && (
-              <button
-                type="button"
-                role="option"
-                aria-selected={wikiIndex === matchingWikiPages.length}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setWikiIndex(matchingWikiPages.length)}
-                onClick={() => void createWikiPage(wikiMenu)}
-                className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm sm:py-2 ${wikiIndex === matchingWikiPages.length ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
-              >
-                <Plus size={15} /> Create page “{wikiMenu.query.trim().slice(0, 80)}”
-              </button>
-            )}
-            {!matchingWikiPages.length && !canCreateWikiPage && <p className="px-3 py-2 text-sm text-muted-foreground">No other pages to link.</p>}
-            <p className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">↑↓ to choose · Enter to insert · Esc to close</p>
-          </div>
-        )}
-        {slashMenu && filteredCommands.length > 0 && (
-          <div
-            role="listbox"
-            aria-label="Insert block"
-            className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{ left: slashMenuPlacement?.left, top: slashMenuPlacement?.top, width: slashMenuPlacement?.width, maxHeight: slashMenuPlacement?.maxHeight }}
-          >
-            {filteredCommands.map((command, index) => (
-              <button
-                key={command.label}
-                type="button"
-                role="option"
-                aria-selected={index === slashIndex}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setSlashIndex(index)}
-                onClick={() => {
-                  if (!editor || !slashMenu) return;
-                  editor.chain().focus().deleteRange({ from: slashMenu.from, to: slashMenu.to }).run();
-                  command.run(editor);
-                  setSlashMenu(null);
-                }}
-                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left sm:py-2 ${index === slashIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
-              >
-                <span className="text-sm font-medium">{command.label}</span>
-                <span className="text-xs text-muted-foreground">{command.detail}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
         </div>
 
         <PageRail

@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CopyPlus, Download, Eye, EyeOff, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CopyPlus, Download, Eye, EyeOff, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { DatabaseCalendar } from "@/components/database-calendar";
 import { DatabaseChart } from "@/components/database-chart";
 import { DatabaseList } from "@/components/database-list";
 import { DatabaseTimeline } from "@/components/database-timeline";
+import { ButtonActionsEditor } from "@/components/button-actions-editor";
+import { ButtonSettingsDialog } from "@/components/button-settings-dialog";
+import { ButtonCell, buttonResultMessage, runDatabaseButton } from "@/components/button-cell";
 import { FileCell } from "@/components/file-cell";
 import { MediaImage } from "@/components/media-image";
 import { DatabaseViewControls } from "@/components/database-view-controls";
@@ -55,19 +58,17 @@ import {
 } from "@/lib/database-chart";
 import { listRows } from "@/lib/database-list";
 import { formatFormulaValue } from "@/lib/database-formula";
+import { buttonActionsError, type ButtonAction } from "@/lib/database-button";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
 import { getDashboardWidgetsSnapshot } from "@/lib/dashboard";
-import {
-  isImageMimeType,
-  parseFilePropertyValue,
-  type FilePropertyValue,
-} from "@/lib/media";
+import { galleryCoverForRecord } from "@/lib/gallery-cover";
 import { dateKey, todayKey } from "@/lib/calendar";
 import { parseTimelineRange } from "@/lib/timeline";
 import { DateCell, SelectCell } from "@/components/database-cell-editors";
+import { isViewMode, viewModeHref } from "@/lib/view-mode";
 
-type Property = { id: string; name: string; type: DatabasePropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string } };
-type RecordRow = { id: string; title: string; values: Record<string, unknown>; pageId: string | null; relations: Record<string, string[]> };
+type Property = { id: string; name: string; type: DatabasePropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string; actions?: ButtonAction[] } };
+type RecordRow = { id: string; title: string; values: Record<string, unknown>; pageId: string | null; pageCoverImageUrl?: string | null; relations: Record<string, string[]> };
 type PageOption = { id: string; title: string };
 type RelatedRecordOption = { id: string; title: string; values: Record<string, unknown> };
 type DatabaseOption = { id: string; name: string };
@@ -179,6 +180,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rangeParamsKey = searchParams.toString();
+  const readOnly = isViewMode(searchParams);
   const [database, setDatabase] = useState<DatabaseData | null>(null);
   const [pages, setPages] = useState<PageOption[]>([]);
   const [allDatabases, setAllDatabases] = useState<DatabaseOption[]>([]);
@@ -197,6 +199,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [rollupTargetPropertyId, setRollupTargetPropertyId] = useState("");
   const [rollupAggregation, setRollupAggregation] = useState("count");
   const [formulaExpression, setFormulaExpression] = useState("");
+  const [buttonActions, setButtonActions] = useState<ButtonAction[]>([]);
+  const [buttonDatabaseProperties, setButtonDatabaseProperties] = useState<Record<string, Property[]>>({});
+  const [buttonDatabaseRecords, setButtonDatabaseRecords] = useState<Record<string, { id: string; title: string }[]>>({});
+  const [editingButtonProperty, setEditingButtonProperty] = useState<Property | null>(null);
   const [filterText, setFilterText] = useState("");
   const [filters, setFilters] = useState<ViewFilter[]>([]);
   const [sorts, setSorts] = useState<ViewSort[]>(parseViewSorts(undefined));
@@ -414,6 +420,27 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
+  async function loadButtonDatabaseProperties(databaseId: string) {
+    if (!databaseId) return;
+    if (databaseId === id) {
+      if (database) {
+        setButtonDatabaseProperties((current) => ({ ...current, [databaseId]: database.properties }));
+        setButtonDatabaseRecords((current) => ({ ...current, [databaseId]: database.records.map(({ id: recordId, title }) => ({ id: recordId, title })) }));
+      }
+      return;
+    }
+    if (buttonDatabaseProperties[databaseId]) return;
+    try {
+      const response = await fetch(`/api/databases/${databaseId}`);
+      if (!response.ok) throw new Error("Could not load the target database.");
+      const target: DatabaseData = await response.json();
+      setButtonDatabaseProperties((current) => ({ ...current, [databaseId]: target.properties }));
+      setButtonDatabaseRecords((current) => ({ ...current, [databaseId]: target.records.map(({ id: recordId, title }) => ({ id: recordId, title })) }));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the target database.");
+    }
+  }
+
   async function addProperty() {
     const name = propertyName.trim();
     if (!name) return;
@@ -438,6 +465,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       setError("Enter a formula.");
       return;
     }
+    if (propertyType === "button") {
+      const actionError = buttonActionsError(buttonActions);
+      if (actionError) {
+        setError(actionError);
+        return;
+      }
+    }
     setBusy(true);
     setError("");
     try {
@@ -453,6 +487,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             aggregation: rollupAggregation,
           } : {}),
           ...(propertyType === "formula" ? { expression: formulaExpression.trim() } : {}),
+          ...(propertyType === "button" ? { actions: buttonActions } : {}),
         } }),
       });
       if (!response.ok) throw new Error("Could not add property.");
@@ -479,6 +514,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       setRollupTargetPropertyId("");
       setRollupAggregation("count");
       setFormulaExpression("");
+      setButtonActions([]);
       setShowPropertyForm(false);
     } catch (addError) {
       setError(addError instanceof Error ? addError.message : "Could not add property.");
@@ -620,6 +656,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
+  function setViewMode(next: boolean) {
+    router.replace(
+      viewModeHref(window.location.pathname, searchParams.toString(), next),
+      { scroll: false },
+    );
+  }
+
   function clearAdHocFilter() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("record");
@@ -732,6 +775,17 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       ...current,
       records: current.records.map((row) => row.id === updated.id ? updated : row),
     } : current);
+  }
+
+  async function runRecordButton(record: RecordRow, property: Property) {
+    const result = await runDatabaseButton(id, record.id, property.id);
+    setDatabase((current) => current ? {
+      ...current,
+      records: current.records.map((row) => row.id === record.id
+        ? { ...row, ...result.record, relations: result.relations }
+        : row),
+    } : current);
+    return buttonResultMessage(result.results);
   }
 
   async function createPageForRecord(record: RecordRow) {
@@ -1037,12 +1091,101 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     downloadFile(filename, `${JSON.stringify(database, null, 2)}\n`, "application/json;charset=utf-8");
   }
 
+  function renderReadOnlyCell(record: RecordRow, property: Property) {
+    if (property.type === "button") {
+      return (
+        <div className="px-2 py-1.5">
+          <ButtonCell
+            compact
+            label={property.name}
+            onRun={() => runRecordButton(record, property)}
+          />
+        </div>
+      );
+    }
+
+    if (property.type === "rollup") {
+      return (
+        <span className="block px-2 py-1.5 text-sm" aria-label={`${property.name} calculated value`}>
+          {getRollupValue(record, property)}
+        </span>
+      );
+    }
+
+    if (property.type === "formula") {
+      return (
+        <span className="block px-2 py-1.5 text-sm" aria-label={`${property.name} calculated value`}>
+          {formatFormulaValue(getFormulaValue(record, property))}
+        </span>
+      );
+    }
+
+    if (property.type === "relation") {
+      const relatedDatabaseId = property.options.relatedDatabaseId;
+      const selectedIds = record.relations?.[property.id] ?? [];
+      return selectedIds.length === 0 ? (
+        <span className="block px-2 py-1.5 text-sm text-muted-foreground">—</span>
+      ) : (
+        <div className="flex flex-wrap gap-1.5 px-2 py-1.5">
+          {selectedIds.map((targetId) => {
+            const target = relationTargets[property.id]?.records.find((item) => item.id === targetId);
+            const label = target?.title || "Untitled";
+            return relatedDatabaseId ? (
+              <Link
+                key={targetId}
+                href={`/databases/${relatedDatabaseId}/records/${targetId}`}
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs hover:border-primary/30 hover:text-primary"
+              >
+                {label} <ArrowUpRight size={10} aria-hidden="true" />
+              </Link>
+            ) : (
+              <span key={targetId} className="rounded-md border bg-background px-2 py-0.5 text-xs">{label}</span>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (property.type === "file") {
+      return (
+        <FileCell
+          compact
+          label={property.name}
+          value={record.values[property.id]}
+          readOnly
+          onChange={() => {}}
+        />
+      );
+    }
+
+    const value = record.values[property.id];
+    if (property.type === "checkbox") {
+      return <span className="block px-2 py-1.5 text-sm">{value ? "Checked" : "Unchecked"}</span>;
+    }
+    if (Array.isArray(value)) {
+      return <span className="block px-2 py-1.5 text-sm">{value.join(", ") || "—"}</span>;
+    }
+    if (property.type === "url" && typeof value === "string" && value) {
+      return (
+        <a href={value} target="_blank" rel="noreferrer" className="block break-words px-2 py-1.5 text-sm text-primary hover:underline">
+          {value}
+        </a>
+      );
+    }
+    return (
+      <span className="block whitespace-pre-wrap break-words px-2 py-1.5 text-sm">
+        {value === null || value === undefined || value === "" ? "—" : String(value)}
+      </span>
+    );
+  }
+
   function exportCsv() {
     if (!database) return;
     const columns = ["Name", ...database.properties.map((property) => property.name), "Linked page"];
     const rows = database.records.map((record) => [
       record.title,
       ...database.properties.map((property) => {
+        if (property.type === "button") return property.name;
         if (property.type === "relation") {
           const targetNames = (record.relations?.[property.id] ?? []).map((targetId) =>
             relationTargets[property.id]?.records.find((item) => item.id === targetId)?.title ?? targetId,
@@ -1068,14 +1211,20 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0 flex-1 sm:min-w-96">
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground">DATABASE / {(activeView?.type ?? "table").toLocaleUpperCase()}</p>
-            <input
-              aria-label="Database name"
-              defaultValue={database.name}
-              key={`${database.id}:${database.name}`}
-              onBlur={(event) => void renameDatabase(event.currentTarget.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-              className="mt-2 w-full bg-transparent text-3xl font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-4xl"
-            />
+            {readOnly ? (
+              <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">
+                {database.name}
+              </h1>
+            ) : (
+              <input
+                aria-label="Database name"
+                defaultValue={database.name}
+                key={`${database.id}:${database.name}`}
+                onBlur={(event) => void renameDatabase(event.currentTarget.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+                className="mt-2 w-full bg-transparent text-3xl font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-4xl"
+              />
+            )}
             <p className="mt-1 text-xs text-muted-foreground">
               {database.records.length}{" "}
               {database.records.length === 1 ? "record" : "records"} ·{" "}
@@ -1084,6 +1233,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setViewMode(!readOnly)}
+              aria-pressed={readOnly}
+            >
+              {readOnly ? <Pencil size={15} /> : <Eye size={15} />}
+              {readOnly ? "Edit mode" : "View mode"}
+            </Button>
             <details className="relative">
               <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border bg-background px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
                 More
@@ -1110,17 +1269,19 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 >
                   <Download size={15} aria-hidden="true" /> Export JSON
                 </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    csvInputRef.current?.click();
-                  }}
-                  disabled={busy}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
-                >
-                  <Upload size={15} aria-hidden="true" /> Import CSV
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      csvInputRef.current?.click();
+                    }}
+                    disabled={busy}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                  >
+                    <Upload size={15} aria-hidden="true" /> Import CSV
+                  </button>
+                )}
                 <div className="my-1 border-t" role="separator" />
                 <button
                   type="button"
@@ -1174,17 +1335,19 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 >
                   <Trash2 size={15} aria-hidden="true" /> Delete view
                 </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    setConfirmDatabaseDelete(true);
-                  }}
-                  disabled={busy}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                >
-                  <Trash2 size={15} aria-hidden="true" /> Delete database
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      setConfirmDatabaseDelete(true);
+                    }}
+                    disabled={busy}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                  >
+                    <Trash2 size={15} aria-hidden="true" /> Delete database
+                  </button>
+                )}
               </div>
             </details>
             <input
@@ -1199,8 +1362,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 if (file) void importCsv(file);
               }}
             />
-            <Button type="button" variant="outline" onClick={() => setShowPropertyForm((shown) => !shown)} disabled={busy}><Plus size={16} /> Add property</Button>
-            <Button type="button" onClick={() => void addRecord()} disabled={busy}><Plus size={16} /> New record</Button>
+            {!readOnly && (
+              <>
+                <Button type="button" variant="outline" onClick={() => setShowPropertyForm((shown) => !shown)} disabled={busy}><Plus size={16} /> Add property</Button>
+                <Button type="button" onClick={() => void addRecord()} disabled={busy}><Plus size={16} /> New record</Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1314,7 +1481,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           </details>
         </div>
 
-        {database.templates.length > 0 && (
+        {!readOnly && database.templates.length > 0 && (
           <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
             <label className="grid gap-1 text-xs text-muted-foreground">
               Create from template
@@ -1331,7 +1498,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           </div>
         )}
 
-        {showPropertyForm && (
+        {!readOnly && showPropertyForm && (
           <form
             className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4"
             onSubmit={(event) => { event.preventDefault(); void addProperty(); }}
@@ -1348,6 +1515,29 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 ))}
               </select>
             </label>
+            {propertyType === "button" && (
+              <ButtonActionsEditor
+                actions={buttonActions}
+                onChange={setButtonActions}
+                properties={database?.properties ?? []}
+                relationProperties={relationProperties.map((property) => ({
+                  id: property.id,
+                  name: property.name,
+                  relatedDatabaseId: property.options.relatedDatabaseId ?? "",
+                }))}
+                relatedProperties={Object.fromEntries(
+                  Object.entries(relationTargets).map(([relationId, target]) => [relationId, target.properties]),
+                )}
+                currentDatabaseId={id}
+                databases={allDatabases}
+                databaseProperties={buttonDatabaseProperties}
+                databaseRecords={{
+                  [id]: (database?.records ?? []).map(({ id: recordId, title }) => ({ id: recordId, title })),
+                  ...buttonDatabaseRecords,
+                }}
+                onLoadDatabase={(databaseId) => void loadButtonDatabaseProperties(databaseId)}
+              />
+            )}
             {["select", "multi_select"].includes(propertyType) && (
               <label className="grid min-w-56 flex-1 gap-1 text-sm">
                 Choices (comma-separated)
@@ -1477,7 +1667,20 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             onDatePropertyChange={(propertyId) => void changeViewConfig(activeView, { datePropertyId: propertyId })}
           />
         ) : activeView?.type === "list" ? (
-          <DatabaseList databaseId={id} rows={listRowsForView} />
+                      <DatabaseList
+              databaseId={id}
+              rows={listRowsForView}
+              onRunButton={(recordId, propertyId) => {
+                const record = database.records.find((candidate) => candidate.id === recordId);
+                const property = database.properties.find((candidate) => candidate.id === propertyId);
+                if (!record || !property) return Promise.resolve("Could not find this button.");
+                return runRecordButton(record, property);
+              }}
+              onConfigureButton={readOnly ? undefined : (propertyId) => {
+                const property = database.properties.find((candidate) => candidate.id === propertyId);
+                if (property) setEditingButtonProperty(property);
+              }}
+            />
         ) : activeView?.type === "timeline" ? (
           <DatabaseTimeline
             databaseId={id}
@@ -1557,31 +1760,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visibleRecords.map((record) => {
               const fileProperties = visibleProperties.filter((property) => property.type === "file");
-              // The chosen file property supplies the cover; when it has no
-              // image, the first image attachment keeps every card covered. The
-              // chosen property's own editable row stays below either way.
-              let cover: FilePropertyValue | null = null;
-              let coverPropertyId = "";
-              if (galleryCoverProperty) {
-                const chosen = parseFilePropertyValue(record.values[galleryCoverProperty.id]);
-                if (chosen && isImageMimeType(chosen.mimeType)) {
-                  cover = chosen;
-                  coverPropertyId = galleryCoverProperty.id;
-                }
-              }
-              if (!cover) {
-                for (const property of galleryCoverProperties) {
-                  const file = parseFilePropertyValue(record.values[property.id]);
-                  if (file && isImageMimeType(file.mimeType)) {
-                    cover = file;
-                    coverPropertyId = property.id;
-                    break;
-                  }
-                }
-              }
+              // A file property still wins, then the record page's own cover
+              // keeps cards illustrated when no property holds an image.
+              const cover = galleryCoverForRecord(record, {
+                chosenPropertyId: galleryCoverProperty?.id,
+                filePropertyIds: galleryCoverProperties.map((property) => property.id),
+              });
               const coverHidden = Boolean(cover) && hiddenCoverRecordIds.has(record.id);
               const filledProperties = visibleProperties.filter((property) => {
                 if (property.type === "file") return false;
+                if (property.type === "button") return true;
                 if (property.type === "formula") return getFormulaValue(record, property) !== null;
                 const value = record.values[property.id];
                 return value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0);
@@ -1597,28 +1785,27 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                       >
                         <MediaImage
                           src={cover.url}
-                          alt={cover.alt || cover.filename || record.title}
+                          alt={cover.alt}
                           className="h-36 w-full object-cover"
                         />
                       </Link>
                       <div className="absolute right-2 top-2 flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!coverPropertyId) return;
-                            setCoverPendingRemoval({
+                        {!readOnly && cover.propertyId && (
+                          <button
+                            type="button"
+                            onClick={() => setCoverPendingRemoval({
                               recordId: record.id,
-                              propertyId: coverPropertyId,
+                              propertyId: cover.propertyId,
                               title: record.title,
-                            });
-                          }}
-                          disabled={busy}
-                          aria-label={`Remove cover for ${record.title}`}
-                          title="Remove cover"
-                          className="inline-flex size-7 items-center justify-center rounded-md border bg-background/90 text-muted-foreground shadow-sm hover:text-destructive disabled:opacity-50"
-                        >
-                          <Trash2 size={13} aria-hidden="true" />
-                        </button>
+                            })}
+                            disabled={busy}
+                            aria-label={`Remove cover for ${record.title}`}
+                            title="Remove cover"
+                            className="inline-flex size-7 items-center justify-center rounded-md border bg-background/90 text-muted-foreground shadow-sm hover:text-destructive disabled:opacity-50"
+                          >
+                            <Trash2 size={13} aria-hidden="true" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void setCoverHidden(activeView, record.id, true)}
@@ -1646,8 +1833,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                     <h2 className="min-w-0 flex-1 break-words text-base font-semibold">
                       <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
                     </h2>
-                    <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
-                    <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
+                    {!readOnly && (
+                      <>
+                        <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
+                        <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
+                      </>
+                    )}
                   </div>
                   {filledProperties.length > 0 ? (
                     <dl className="mt-3 space-y-2 text-sm">
@@ -1663,7 +1854,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         return (
                           <div key={property.id} className="flex items-start gap-3">
                             <dt className="w-24 shrink-0 text-muted-foreground">{property.name}</dt>
-                            <dd className="min-w-0 break-words">{displayValue}</dd>
+                            <dd className="min-w-0 break-words">
+                              {property.type === "button" ? (
+                                <ButtonCell
+                                  compact
+                                  label={property.name}
+                                  onRun={() => runRecordButton(record, property)}
+                                  onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
+                                />
+                              ) : displayValue}
+                            </dd>
                           </div>
                         );
                       })}
@@ -1677,7 +1877,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         <div key={property.id} className="space-y-0.5">
                           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                             {property.name}
-                            {property.id === coverPropertyId && (
+                            {property.id === cover?.propertyId && (
                               <span className="rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-foreground">
                                 Cover
                               </span>
@@ -1688,6 +1888,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                             label={property.name}
                             value={record.values[property.id]}
                             disabled={busy}
+                            readOnly={readOnly}
                             onChange={(next) =>
                               void updateRecord(record, {
                                 values: { ...record.values, [property.id]: next },
@@ -1700,6 +1901,8 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   )}
                   {record.pageId ? (
                     <Link href={`/pages/${record.pageId}`} className="mt-auto pt-3 text-sm text-primary hover:underline">Open linked page ↗</Link>
+                  ) : readOnly ? (
+                    <span className="mt-auto pt-3 text-sm text-muted-foreground">No linked page</span>
                   ) : (
                     <Button type="button" variant="ghost" size="sm" className="mt-auto self-start px-0 pt-3" onClick={() => void createPageForRecord(record)} disabled={busy}>Create linked page</Button>
                   )}
@@ -1733,14 +1936,29 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                               <h3 className="min-w-0 flex-1 break-words text-sm font-medium">
                                 <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
                               </h3>
-                              <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={14} /></Button>
-                              <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={14} /></Button>
+                              {!readOnly && (
+                                <>
+                                  <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={14} /></Button>
+                                  <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={14} /></Button>
+                                </>
+                              )}
                             </div>
                             {record.pageId ? (
                               <Link href={`/pages/${record.pageId}`} className="block truncate text-xs text-primary hover:underline">Open linked page ↗</Link>
+                            ) : readOnly ? (
+                              <span className="block text-xs text-muted-foreground">No linked page</span>
                             ) : (
                               <Button type="button" variant="ghost" size="sm" className="h-6 px-0 text-xs" onClick={() => void createPageForRecord(record)} disabled={busy}>Create linked page</Button>
                             )}
+                            {visibleProperties.filter((property) => property.type === "button").map((property) => (
+                              <ButtonCell
+                                key={property.id}
+                                compact
+                                label={property.name}
+                                onRun={() => runRecordButton(record, property)}
+                                onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
+                              />
+                            ))}
                             {visibleProperties.filter((property) => property.type === "file").map((property) => (
                               <div key={property.id} className="space-y-0.5">
                                 <p className="text-[11px] text-muted-foreground">{property.name}</p>
@@ -1749,6 +1967,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                                   label={property.name}
                                   value={record.values[property.id]}
                                   disabled={busy}
+                                  readOnly={readOnly}
                                   onChange={(next) =>
                                     void updateRecord(record, {
                                       values: { ...record.values, [property.id]: next },
@@ -1757,15 +1976,21 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                                 />
                               </div>
                             ))}
-                            <select
-                              aria-label={`Move ${record.title} to another ${boardProperty.name} group`}
-                              value={String(record.values[boardProperty.id] ?? "")}
-                              onChange={(event) => void updateRecord(record, { values: { ...record.values, [boardProperty.id]: event.target.value } })}
-                              className="w-full rounded border bg-background px-2 py-1.5 text-xs"
-                            >
-                              <option value="">No value</option>
-                              {(boardProperty.options?.choices ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
-                            </select>
+                            {readOnly ? (
+                              <p className="text-xs text-muted-foreground">
+                                {String(record.values[boardProperty.id] ?? "") || "No value"}
+                              </p>
+                            ) : (
+                              <select
+                                aria-label={`Move ${record.title} to another ${boardProperty.name} group`}
+                                value={String(record.values[boardProperty.id] ?? "")}
+                                onChange={(event) => void updateRecord(record, { values: { ...record.values, [boardProperty.id]: event.target.value } })}
+                                className="w-full rounded border bg-background px-2 py-1.5 text-xs"
+                              >
+                                <option value="">No value</option>
+                                {(boardProperty.options?.choices ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
+                              </select>
+                            )}
                           </article>
                         ))}
                       </div>
@@ -1793,14 +2018,18 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 <tr key={record.id} className="group border-b last:border-0">
                   <td className="sticky left-0 z-[1] border-r bg-background p-1 group-hover:bg-muted/30">
                     <div className="flex items-center gap-1">
-                      <input
-                        aria-label="Record name"
-                        defaultValue={record.title}
-                        key={`${record.id}:${record.title}`}
-                        onBlur={(event) => void updateRecord(record, { title: event.currentTarget.value.trim() || "Untitled" })}
-                        onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-                        className="min-w-0 flex-1 rounded px-2 py-1.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      />
+                      {readOnly ? (
+                        <span className="min-w-0 flex-1 break-words px-2 py-1.5 font-medium">{record.title}</span>
+                      ) : (
+                        <input
+                          aria-label="Record name"
+                          defaultValue={record.title}
+                          key={`${record.id}:${record.title}`}
+                          onBlur={(event) => void updateRecord(record, { title: event.currentTarget.value.trim() || "Untitled" })}
+                          onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+                          className="min-w-0 flex-1 rounded px-2 py-1.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                      )}
                       <Link
                         href={`/databases/${id}/records/${record.id}`}
                         aria-label={`Open ${record.title} as a full page`}
@@ -1813,7 +2042,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   </td>
                   {visibleProperties.map((property) => (
                     <td key={property.id} className="p-1">
-                      {property.type === "relation" ? (
+                      {readOnly ? renderReadOnlyCell(record, property) : property.type === "button" ? (
+                        <div className="px-2 py-1.5">
+                          <ButtonCell
+                            compact
+                            label={property.name}
+                            onRun={() => runRecordButton(record, property)}
+                            onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
+                          />
+                        </div>
+                      ) : property.type === "relation" ? (
                         <select
                           multiple
                           aria-label={`${property.name} relations for ${record.title}`}
@@ -1904,6 +2142,17 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                     </td>
                   ))}
                   <td className="p-2">
+                    {readOnly ? (
+                      <div className="flex min-w-48 items-center gap-2">
+                        {record.pageId ? (
+                          <Link href={`/pages/${record.pageId}`} aria-label={`Open linked page for ${record.title}`} className="min-w-0 break-words text-xs text-primary hover:underline">
+                            Open linked page ↗
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No linked page</span>
+                        )}
+                      </div>
+                    ) : (
                     <div className="flex min-w-48 items-center gap-2">
                       <select
                         aria-label={`Linked page for ${record.title}`}
@@ -1917,30 +2166,35 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                       {record.pageId && <Link href={`/pages/${record.pageId}`} aria-label={`Open linked page for ${record.title}`} title="Open linked page" className="shrink-0 text-primary hover:underline">↗</Link>}
                       {!record.pageId && <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void createPageForRecord(record)} disabled={busy}>Create</Button>}
                     </div>
+                    )}
                   </td>
+                  {!readOnly && (
                   <td className="px-1">
                     <div className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                       <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={15} /></Button>
                       <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={15} /></Button>
                     </div>
                   </td>
+                  )}
                 </tr>
               ))}
               {visibleRecords.length === 0 && (
                 <tr><td colSpan={visibleProperties.length + 3} className="px-4 py-10 text-center text-muted-foreground">No records yet. Add a record to get started.</td></tr>
               )}
-              <tr>
-                <td colSpan={visibleProperties.length + 3} className="p-0">
-                  <button
-                    type="button"
-                    onClick={() => void addRecord()}
-                    disabled={busy}
-                    className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
-                  >
-                    <Plus size={12} aria-hidden="true" /> New record
-                  </button>
-                </td>
-              </tr>
+              {!readOnly && (
+                <tr>
+                  <td colSpan={visibleProperties.length + 3} className="p-0">
+                    <button
+                      type="button"
+                      onClick={() => void addRecord()}
+                      disabled={busy}
+                      className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
+                    >
+                      <Plus size={12} aria-hidden="true" /> New record
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -2151,6 +2405,22 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {editingButtonProperty && (
+        <ButtonSettingsDialog
+          onOpenChange={(open) => { if (!open) setEditingButtonProperty(null); }}
+          databaseId={id}
+          property={editingButtonProperty}
+          onSaved={(updated) => {
+            setDatabase((current) => current ? {
+              ...current,
+              properties: current.properties.map((property) => property.id === updated.id
+                ? { ...property, options: { ...property.options, actions: updated.options.actions } }
+                : property),
+            } : current);
+            setEditingButtonProperty(null);
+          }}
+        />
+      )}
     </AppShell>
   );
 }

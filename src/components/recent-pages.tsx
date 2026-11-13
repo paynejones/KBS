@@ -12,6 +12,11 @@ import {
   subscribeToRecentPages,
   type RecentPage,
 } from "@/lib/recents";
+import {
+  getNavigationSnapshot,
+  getServerNavigationSnapshot,
+  subscribeToNavigation,
+} from "@/lib/navigation";
 
 type FallbackPage = {
   id: string;
@@ -55,13 +60,18 @@ export function RecentPages({
     getRecentPagesSnapshot,
     getEmptyRecentPagesSnapshot,
   );
+  const showDatabasePages = useSyncExternalStore(
+    subscribeToNavigation,
+    getNavigationSnapshot,
+    getServerNavigationSnapshot,
+  ).showDatabasePages;
   const [recordPageIds, setRecordPageIds] = useState<Set<string>>(
     () => new Set(),
   );
   const hasRecents = recents.length > 0;
 
   useEffect(() => {
-    if (!hasRecents) return;
+    if (!hasRecents || showDatabasePages) return;
     let cancelled = false;
 
     async function loadRecordPageIds() {
@@ -87,11 +97,11 @@ export function RecentPages({
     return () => {
       cancelled = true;
     };
-  }, [hasRecents]);
+  }, [hasRecents, showDatabasePages]);
 
-  const visibleRecents: RecentPage[] = recents.filter(
-    (page) => !recordPageIds.has(page.id),
-  );
+  const visibleRecents: RecentPage[] = showDatabasePages
+    ? recents
+    : recents.filter((page) => !recordPageIds.has(page.id));
 
   const rows: RecentRow[] =
     visibleRecents.length > 0

@@ -1,7 +1,12 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -16,6 +21,11 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import {
+  getNavigationSnapshot,
+  getServerNavigationSnapshot,
+  subscribeToNavigation,
+} from "@/lib/navigation";
 
 type Page = {
   id: string;
@@ -25,6 +35,11 @@ type Page = {
 
 export function PageTree() {
   const router = useRouter();
+  const showDatabasePages = useSyncExternalStore(
+    subscribeToNavigation,
+    getNavigationSnapshot,
+    getServerNavigationSnapshot,
+  ).showDatabasePages;
 
   const [pages, setPages] = useState<Page[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -44,9 +59,11 @@ export function PageTree() {
     "before" | "after" | "inside" | null
   >(null);
 
-  async function loadPages() {
+  const loadPages = useCallback(async () => {
     try {
-      const response = await fetch("/api/pages");
+      const response = await fetch(
+        `/api/pages${showDatabasePages ? "?includeRecordPages=true" : ""}`,
+      );
 
       if (!response.ok) {
         throw new Error("Failed to load pages");
@@ -60,7 +77,7 @@ export function PageTree() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [showDatabasePages]);
 
   useEffect(() => {
   const timer = window.setTimeout(() => {
@@ -113,7 +130,7 @@ useEffect(() => {
       window.clearTimeout(initialLoad);
       window.removeEventListener("pages-updated", handlePagesUpdated);
     };
-  }, []);
+  }, [loadPages]);
 
   function toggleExpanded(id: string) {
     setExpanded((previous) => {

@@ -6,6 +6,7 @@ type PageRow = {
   title: string;
   content: string;
   isFavorite: boolean;
+  icon: string | null;
 };
 
 type Database = { id: string; name: string };
@@ -98,6 +99,39 @@ test("edits and autosaves a page body and title", async ({ page, request }) => {
     await page.reload();
     await expect(page.getByLabel("Page title")).toHaveValue(nextTitle);
     await expect(page.locator(".ProseMirror")).toContainText(body);
+  } finally {
+    await purgePage(request, fixture.id);
+  }
+});
+
+test("picks a page icon in settings and saves it", async ({ page, request }) => {
+  const token = `page-icon-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const fixture = await createPage(request, { title: `${token} page` });
+
+  try {
+    await page.goto(`/pages/${fixture.id}`);
+    const titleRow = page.getByLabel("Page title").locator("xpath=..");
+
+    await page.locator("summary").filter({ hasText: "Page settings" }).click();
+    await page.getByRole("button", { name: "Add page icon" }).click();
+
+    const saved = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/pages/${fixture.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await page.getByRole("option", { name: "Rocket" }).click();
+    const response = await saved;
+    assert.equal(response.status(), 200);
+    const savedPage = await response.json() as PageRow;
+    assert.equal(savedPage.icon, "🚀");
+
+    await expect(page.getByRole("dialog", { name: "Choose a page icon" })).toHaveCount(0);
+    await expect(titleRow.getByText("🚀", { exact: true })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByLabel("Page title")).toHaveValue(fixture.title);
+    await expect(titleRow.getByText("🚀", { exact: true })).toBeVisible();
+    assert.equal((await getPage(request, fixture.id)).icon, "🚀");
   } finally {
     await purgePage(request, fixture.id);
   }
@@ -268,6 +302,51 @@ test("adds a database record and edits its title and number value", async ({ pag
     assert.equal(saved?.values[score.id], 42);
   } finally {
     await cleanupDatabase(request, database.id);
+  }
+});
+
+test("shows a gallery card cover from the record's linked page", async ({ page, request }) => {
+  const token = `gallery-cover-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const database = await createDatabase(request, `${token} database`);
+  const record = await createRecord(request, database.id, `${token} record`);
+
+  try {
+    const gallery = await json<{ id: string }>(await request.post(`/api/databases/${database.id}/views`, {
+      data: { name: "Gallery", type: "gallery", config: {} },
+    }));
+    const attachment = await json<{ url: string }>(await request.post("/api/attachments", {
+      multipart: {
+        purpose: "image",
+        file: {
+          name: `${token}.png`,
+          mimeType: "image/png",
+          // A 1x1 PNG, so the card's image request succeeds same-origin.
+          buffer: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+            "base64",
+          ),
+        },
+      },
+    }));
+    assert.equal((await request.patch(`/api/pages/${record.pageId}`, {
+      data: { coverImageUrl: attachment.url },
+    })).status(), 200);
+
+    await page.goto(`/databases/${database.id}?view=${gallery.id}`);
+    const galleryRegion = page.getByRole("region", { name: "Gallery view" });
+    await expect(galleryRegion).toBeVisible();
+
+    // The record has no file properties, so this image can only be the linked
+    // page's cover showing through the fallback.
+    const cover = galleryRegion.getByRole("img", { name: record.title });
+    await expect(cover).toBeVisible();
+    await expect(cover).toHaveAttribute("src", attachment.url);
+    await expect(
+      galleryRegion.getByRole("button", { name: `Remove cover for ${record.title}` }),
+    ).toHaveCount(0);
+  } finally {
+    await cleanupDatabase(request, database.id);
+    await request.delete("/api/attachments/orphans");
   }
 });
 

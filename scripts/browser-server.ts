@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { createTestDatabase } from "../tests/api/db-harness";
 import {
@@ -16,6 +16,16 @@ import {
 
 const hostname = "127.0.0.1";
 const port = BROWSER_TEST_PORT;
+const distDir = ".next-browser-test";
+// Build entries that the standalone server does not need, or already has.
+const SKIPPED_BUILD_ENTRIES = new Set([
+  "standalone",
+  "node_modules",
+  "cache",
+  "diagnostics",
+  "build",
+  "dev",
+]);
 
 let database: Awaited<ReturnType<typeof createTestDatabase>> | null = null;
 let server: ChildProcess | null = null;
@@ -82,10 +92,13 @@ async function main() {
     ...process.env,
     DATABASE_URL: database.url,
     ATTACHMENTS_DIR: database.attachmentsDir,
-    NEXT_DIST_DIR: ".next-browser-test",
+    NEXT_DIST_DIR: distDir,
     NEXT_TELEMETRY_DISABLED: "1",
-    // `next start` is a production server, and production fails closed without
-    // sign-in configured. The suite signs in with these throwaway credentials.
+    // Resolves the root-layout failure probe in the browser-test build only.
+    KBS_BROWSER_TEST: "1",
+    // The standalone server runs in production mode, which fails closed
+    // without sign-in configured. The suite signs in with these throwaway
+    // credentials.
     KBS_AUTH_PASSWORD: BROWSER_TEST_PASSWORD,
     KBS_AUTH_SECRET: BROWSER_TEST_SECRET,
     KBS_AUTH_CREDENTIAL_PATH: authCredentialPath,
@@ -108,12 +121,37 @@ async function main() {
     throw new Error(`Browser test build exited with code ${buildExitCode ?? "unknown"}.`);
   }
 
+  // `next start` cannot serve a standalone build, so run the generated server
+  // exactly as the deployment image does. With a custom dist directory Next
+  // leaves the build outside the server directory while the generated config
+  // still points at the dist directory name, so stage the build where the
+  // server looks for it. The image likewise copies in the static assets and
+  // public directory.
+  const standaloneDir = path.join(process.cwd(), distDir, "standalone");
+  const standaloneDist = path.join(standaloneDir, distDir);
+  const buildDir = path.join(process.cwd(), distDir);
+  await rm(standaloneDist, { recursive: true, force: true });
+  await mkdir(standaloneDist, { recursive: true });
+  for (const entry of await readdir(buildDir)) {
+    if (SKIPPED_BUILD_ENTRIES.has(entry)) continue;
+    await cp(path.join(buildDir, entry), path.join(standaloneDist, entry), {
+      recursive: true,
+    });
+  }
+  await cp(
+    path.join(process.cwd(), "public"),
+    path.join(standaloneDir, "public"),
+    { recursive: true },
+  ).catch(() => {
+    // The app may have no public directory; nothing else needs copying.
+  });
+
   server = spawn(
     process.execPath,
-    [nextBin, "start", "--hostname", hostname, "--port", port],
+    [path.join(standaloneDir, "server.js")],
     {
       cwd: process.cwd(),
-      env,
+      env: { ...env, PORT: port, HOSTNAME: hostname },
       stdio: "inherit",
     },
   );

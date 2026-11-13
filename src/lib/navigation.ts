@@ -48,9 +48,28 @@ export const MOBILE_NAVIGATION_LIMIT = 4;
 export const NAVIGATION_STORAGE_KEY = "kbs:navigation";
 export const NAVIGATION_UPDATED_EVENT = "kbs:navigation-updated";
 
+export type SidebarEntry =
+  | { kind: "navigation"; key: NavigationKey }
+  | { kind: "page-tree" }
+  | { kind: "page"; id: string }
+  | { kind: "database"; id: string };
+
+export type SidebarSection = {
+  id: string;
+  name: string;
+  entries: SidebarEntry[];
+};
+
 export type NavigationPreferences = {
   sidebar: NavigationKey[];
+  hidden: NavigationKey[];
   mobile: NavigationKey[];
+  /** Record pages stay out of navigation and listings unless this is on. */
+  showDatabasePages: boolean;
+  /** The editable desktop sidebar. Empty means the user removed every section. */
+  sections: SidebarSection[];
+  /** A locked sidebar hides the editor entry points until it is unlocked. */
+  locked: boolean;
 };
 
 export function isNavigationKey(value: unknown): value is NavigationKey {
@@ -63,8 +82,20 @@ export function isNavigationKey(value: unknown): value is NavigationKey {
 export function defaultNavigationPreferences(): NavigationPreferences {
   return {
     sidebar: [...DEFAULT_SIDEBAR_ORDER],
+    hidden: [],
     mobile: [...DEFAULT_MOBILE_ITEMS],
+    showDatabasePages: false,
+    sections: defaultSidebarSections(),
+    locked: false,
   };
+}
+
+/** Locks or unlocks the navigation editor without touching the sidebar itself. */
+export function setNavigationLocked(
+  preferences: NavigationPreferences,
+  locked: boolean,
+): NavigationPreferences {
+  return { ...preferences, locked };
 }
 
 function uniqueKeys(value: unknown): NavigationKey[] {
@@ -96,6 +127,305 @@ export function normalizeSidebarOrder(value: unknown): NavigationKey[] {
   return order;
 }
 
+const SIDEBAR_PAGE_TREE_ID = "workspace";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function defaultSidebarSections(
+  sidebar: NavigationKey[] = DEFAULT_SIDEBAR_ORDER,
+): SidebarSection[] {
+  return [
+    {
+      id: SIDEBAR_PAGE_TREE_ID,
+      name: "Workspace",
+      entries: [
+        ...sidebar.map((key) => ({ kind: "navigation" as const, key })),
+        { kind: "page-tree" },
+      ],
+    },
+  ];
+}
+
+export function sidebarEntryKey(entry: SidebarEntry): string {
+  if (entry.kind === "navigation") return `navigation:${entry.key}`;
+  if (entry.kind === "page-tree") return "page-tree";
+  return `${entry.kind}:${entry.id}`;
+}
+
+function normalizeSidebarEntries(value: unknown): SidebarEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  const entries: SidebarEntry[] = [];
+  const seenNavigation = new Set<NavigationKey>();
+  const seenIds = new Set<string>();
+  let hasPageTree = false;
+
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const candidate = raw as Partial<SidebarEntry> & { kind?: unknown; key?: unknown; id?: unknown };
+
+    if (candidate.kind === "navigation" && isNavigationKey(candidate.key) && !seenNavigation.has(candidate.key)) {
+      seenNavigation.add(candidate.key);
+      entries.push({ kind: "navigation", key: candidate.key });
+      continue;
+    }
+
+    if (candidate.kind === "page-tree" && !hasPageTree) {
+      hasPageTree = true;
+      entries.push({ kind: "page-tree" });
+      continue;
+    }
+
+    if (
+      (candidate.kind === "page" || candidate.kind === "database") &&
+      typeof candidate.id === "string" &&
+      UUID_PATTERN.test(candidate.id)
+    ) {
+      const key = `${candidate.kind}:${candidate.id}`;
+      if (seenIds.has(key)) continue;
+      seenIds.add(key);
+      entries.push({ kind: candidate.kind, id: candidate.id });
+    }
+  }
+
+  return entries;
+}
+
+/**
+ * Sections are the editable sidebar. Duplicate destinations, pages, databases,
+ * and page trees are removed globally so an entry cannot render twice.
+ */
+export function normalizeSidebarSections(value: unknown): SidebarSection[] {
+  if (!Array.isArray(value)) return defaultSidebarSections();
+  if (value.length === 0) return [];
+
+  const sections: SidebarSection[] = [];
+  const seenIds = new Set<string>();
+  const seenEntries = new Set<string>();
+
+  value.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const candidate = raw as { id?: unknown; name?: unknown; entries?: unknown };
+    const rawId = typeof candidate.id === "string" ? candidate.id.trim().slice(0, 64) : "";
+    let id = rawId || `section-${index + 1}`;
+    let suffix = 2;
+    while (seenIds.has(id)) {
+      id = `${rawId || "section"}-${suffix}`;
+      suffix += 1;
+    }
+    seenIds.add(id);
+
+    const name =
+      typeof candidate.name === "string" && candidate.name.trim()
+        ? candidate.name.trim().slice(0, 40)
+        : `Section ${index + 1}`;
+
+    const entries = normalizeSidebarEntries(candidate.entries).filter((entry) => {
+      const key = sidebarEntryKey(entry);
+      if (seenEntries.has(key)) return false;
+      seenEntries.add(key);
+      return true;
+    });
+
+    sections.push({ id, name, entries });
+  });
+
+  return sections.length > 0 ? sections : defaultSidebarSections();
+}
+
+export function createSidebarSection(
+  name = "New section",
+  entries: SidebarEntry[] = [],
+): SidebarSection {
+  return {
+    id: `section-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    entries,
+  };
+}
+
+export function addSidebarEntry(
+  sections: SidebarSection[],
+  sectionId: string,
+  entry: SidebarEntry,
+): SidebarSection[] {
+  const key = sidebarEntryKey(entry);
+  const withoutEntry = sections.map((section) => ({
+    ...section,
+    entries: section.entries.filter((item) => sidebarEntryKey(item) !== key),
+  }));
+
+  return withoutEntry.map((section) =>
+    section.id === sectionId
+      ? { ...section, entries: [...section.entries, entry] }
+      : section,
+  );
+}
+
+export function removeSidebarEntry(
+  sections: SidebarSection[],
+  sectionId: string,
+  entryKey: string,
+): SidebarSection[] {
+  return sections.map((section) =>
+    section.id === sectionId
+      ? { ...section, entries: section.entries.filter((entry) => sidebarEntryKey(entry) !== entryKey) }
+      : section,
+  );
+}
+
+export function moveSidebarEntry(
+  sections: SidebarSection[],
+  sectionId: string,
+  entryKey: string,
+  direction: "up" | "down",
+): SidebarSection[] {
+  return sections.map((section) => {
+    if (section.id !== sectionId) return section;
+    const index = section.entries.findIndex((entry) => sidebarEntryKey(entry) === entryKey);
+    if (index === -1) return section;
+    const target = direction === "up" ? index - 1 : index + 1;
+    if (target < 0 || target >= section.entries.length) return section;
+    const entries = [...section.entries];
+    [entries[index], entries[target]] = [entries[target], entries[index]];
+    return { ...section, entries };
+  });
+}
+
+export function moveSidebarSection(
+  sections: SidebarSection[],
+  sectionId: string,
+  direction: "up" | "down",
+): SidebarSection[] {
+  const index = sections.findIndex((section) => section.id === sectionId);
+  if (index === -1) return sections;
+  const target = direction === "up" ? index - 1 : index + 1;
+  if (target < 0 || target >= sections.length) return sections;
+  const next = [...sections];
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}
+
+/** Move an entry before/after another, including across sections. */
+export function moveSidebarEntryTo(
+  sections: SidebarSection[],
+  entryKey: string,
+  targetSectionId: string,
+  targetEntryKey: string | null,
+  position: "before" | "after" = "before",
+): SidebarSection[] {
+  if (targetEntryKey === entryKey) return sections;
+
+  const dragged = sections
+    .flatMap((section) => section.entries)
+    .find((entry) => sidebarEntryKey(entry) === entryKey);
+  if (!dragged) return sections;
+  if (!sections.some((section) => section.id === targetSectionId)) {
+    return sections;
+  }
+
+  const withoutDragged = sections.map((section) => ({
+    ...section,
+    entries: section.entries.filter(
+      (entry) => sidebarEntryKey(entry) !== entryKey,
+    ),
+  }));
+
+  return withoutDragged.map((section) => {
+    if (section.id !== targetSectionId) return section;
+    if (!targetEntryKey) {
+      return { ...section, entries: [...section.entries, dragged] };
+    }
+
+    const targetIndex = section.entries.findIndex(
+      (entry) => sidebarEntryKey(entry) === targetEntryKey,
+    );
+    if (targetIndex === -1) {
+      return { ...section, entries: [...section.entries, dragged] };
+    }
+
+    const entries = [...section.entries];
+    entries.splice(position === "after" ? targetIndex + 1 : targetIndex, 0, dragged);
+    return { ...section, entries };
+  });
+}
+
+/** Move a whole section before/after another section. */
+export function moveSidebarSectionTo(
+  sections: SidebarSection[],
+  sectionId: string,
+  targetSectionId: string,
+  position: "before" | "after" = "before",
+): SidebarSection[] {
+  const sourceIndex = sections.findIndex((section) => section.id === sectionId);
+  const targetIndex = sections.findIndex(
+    (section) => section.id === targetSectionId,
+  );
+  if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+    return sections;
+  }
+
+  const next = [...sections];
+  const [moved] = next.splice(sourceIndex, 1);
+  const targetAfterRemoval = next.findIndex(
+    (section) => section.id === targetSectionId,
+  );
+  if (targetAfterRemoval === -1) return sections;
+
+  next.splice(
+    position === "after" ? targetAfterRemoval + 1 : targetAfterRemoval,
+    0,
+    moved,
+  );
+  return next;
+}
+
+export function removeSidebarSection(
+  sections: SidebarSection[],
+  sectionId: string,
+): SidebarSection[] {
+  return sections.filter((section) => section.id !== sectionId);
+}
+
+export function renameSidebarSection(
+  sections: SidebarSection[],
+  sectionId: string,
+  name: string,
+): SidebarSection[] {
+  return sections.map((section) =>
+    section.id === sectionId ? { ...section, name } : section,
+  );
+}
+
+/** Back-compat helper for the old sidebar order; sections now drive rendering. */
+export function sidebarKeysFromSections(sections: SidebarSection[]): NavigationKey[] {
+  return sections.flatMap((section) =>
+    section.entries.flatMap((entry) =>
+      entry.kind === "navigation" ? [entry.key] : [],
+    ),
+  );
+}
+
+function normalizeHiddenKeys(value: unknown): NavigationKey[] {
+  return uniqueKeys(value);
+}
+
+/** The sidebar shows the saved order minus destinations hidden on this device. */
+export function visibleSidebarKeys(
+  preferences: NavigationPreferences,
+): NavigationKey[] {
+  const hidden = new Set(preferences.hidden);
+  return preferences.sidebar.filter((key) => !hidden.has(key));
+}
+
+export function toggleHiddenNavigationKey(
+  hidden: NavigationKey[],
+  key: NavigationKey,
+): NavigationKey[] {
+  return hidden.includes(key)
+    ? hidden.filter((item) => item !== key)
+    : [...hidden, key];
+}
+
 export function normalizeMobileItems(
   value: unknown,
   limit = MOBILE_NAVIGATION_LIMIT,
@@ -123,9 +453,17 @@ export function parseNavigationPreferences(
 
   const candidate = parsed as Partial<NavigationPreferences>;
 
+  const sidebar = normalizeSidebarOrder(candidate.sidebar);
+
   return {
-    sidebar: normalizeSidebarOrder(candidate.sidebar),
+    sidebar,
+    hidden: normalizeHiddenKeys(candidate.hidden),
     mobile: normalizeMobileItems(candidate.mobile),
+    showDatabasePages: candidate.showDatabasePages === true,
+    sections: Array.isArray(candidate.sections)
+      ? normalizeSidebarSections(candidate.sections)
+      : defaultSidebarSections(sidebar),
+    locked: candidate.locked === true,
   };
 }
 
@@ -246,9 +584,16 @@ export function subscribeToNavigation(onChange: () => void) {
 }
 
 export function storeNavigationPreferences(preferences: NavigationPreferences) {
+  const sidebar = normalizeSidebarOrder(preferences.sidebar);
   const normalized: NavigationPreferences = {
-    sidebar: normalizeSidebarOrder(preferences.sidebar),
+    sidebar,
+    hidden: normalizeHiddenKeys(preferences.hidden),
     mobile: normalizeMobileItems(preferences.mobile),
+    showDatabasePages: preferences.showDatabasePages === true,
+    sections: Array.isArray(preferences.sections)
+      ? normalizeSidebarSections(preferences.sections)
+      : defaultSidebarSections(sidebar),
+    locked: preferences.locked === true,
   };
 
   try {

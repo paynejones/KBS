@@ -49,7 +49,7 @@ export async function POST(request: Request, context: Context) {
       }).returning();
       return created;
     });
-    return NextResponse.json({ ...record, relations: {} }, { status: 201 });
+    return NextResponse.json({ ...record, pageCoverImageUrl: null, relations: {} }, { status: 201 });
   } catch (error) {
     return apiErrorResponse(request, "Failed to create database record", error, { status: 500, logMessage: "Failed to create database record:" });
   }

@@ -53,6 +53,24 @@ test("rollups with no values show a dash", () => {
   assert.equal(rollupValue({ values: {}, relations: { rel: ["missing"] } }, total, targets), "—");
 });
 
+test("rollups ignore cleared numeric values instead of counting them as zero", () => {
+  const clearedTargets: RelationTargetMap = {
+    rel: {
+      properties: [score],
+      records: [
+        { id: "a", values: { score: 10 } },
+        { id: "b", values: { score: null } },
+        { id: "c", values: { score: "" } },
+      ],
+    },
+  };
+  const clearedRecord = { values: {}, relations: { rel: ["a", "b", "c"] } };
+
+  assert.equal(rollupValue(clearedRecord, total, clearedTargets), 10);
+  assert.equal(rollupValue(clearedRecord, aggregate("average"), clearedTargets), 10);
+  assert.equal(rollupValue(clearedRecord, aggregate("min"), clearedTargets), 10);
+});
+
 test("formulas read number properties and rollups", () => {
   const formula = (expression: string): CalculationProperty => ({
     id: `formula:${expression}`,

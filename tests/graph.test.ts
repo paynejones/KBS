@@ -111,3 +111,21 @@ test("turning shared tags off drops tag edges from already-filtered data", () =>
 test("the small-screen list puts favorites first and then sorts by title", () => {
   assert.deepEqual(graphListItems(data.nodes).map((node) => node.id), ["b", "a", "d", "e", "c"]);
 });
+
+test("database pages stay hidden until the filter is on", () => {
+  const withRecordPage: GraphData = {
+    nodes: [
+      ...data.nodes,
+      { id: "r", title: "Record page", isFavorite: false, parentId: null, tags: [work], isRecordPage: true },
+    ],
+    edges: [...data.edges, { source: "a", target: "r", type: "hierarchy" }],
+  };
+
+  const hidden = filterGraph(withRecordPage, DEFAULT_GRAPH_FILTERS);
+  assert.deepEqual(hidden.nodes.map((node) => node.id), ["a", "b", "c", "d", "e"]);
+  assert.deepEqual(hidden.edges, data.edges, "edges to a hidden record page are dropped");
+
+  const shown = filterGraph(withRecordPage, { ...DEFAULT_GRAPH_FILTERS, databasePages: true });
+  assert.deepEqual(shown.nodes.map((node) => node.id), ["a", "b", "c", "d", "e", "r"]);
+  assert.deepEqual(shown.edges, withRecordPage.edges);
+});

@@ -1,42 +1,21 @@
+"use client";
 
 import Link from "next/link";
 import { Suspense } from "react";
+import { useParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { PageEditorLoader } from "@/components/page-editor-loader";
 
-function PageContent({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  return (
-    <Suspense
-      fallback={
-        <p className="text-sm text-muted-foreground">
-          Loading editor…
-        </p>
-      }
-    >
-      <PageContentInner params={params} />
-    </Suspense>
-  );
-}
+function PageEditorContent() {
+  const params = useParams<{ id: string }>();
+  const id = typeof params?.id === "string" ? params.id : "";
 
-async function PageContentInner({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+  if (!id) return null;
 
   return <PageEditorLoader id={id} />;
 }
 
-export default function PageRoute({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function PageRoute() {
   return (
     <AppShell>
       <div className="mb-6">
@@ -51,11 +30,11 @@ export default function PageRoute({
       <Suspense
         fallback={
           <p className="text-sm text-muted-foreground">
-            Loading page…
+            Loading editor…
           </p>
         }
       >
-        <PageContent params={params} />
+        <PageEditorContent />
       </Suspense>
     </AppShell>
   );

@@ -28,7 +28,14 @@ function numericValues(record: CalculationRecord, property: CalculationProperty,
   const targetPropertyId = optionString(property, "targetPropertyId");
   return targetIds
     .map((targetId) => targets[relationPropertyId]?.records.find((item) => item.id === targetId)?.values[targetPropertyId])
-    .map((value) => (typeof value === "number" ? value : Number(value)))
+    // A cleared number is stored as null or an empty string, and Number() turns
+    // both into 0. They are blank, not zero, so they must not pull an average,
+    // minimum, or maximum towards zero.
+    .map((value) => {
+      if (typeof value === "number") return value;
+      if (typeof value === "string" && value.trim() !== "") return Number(value);
+      return Number.NaN;
+    })
     .filter(Number.isFinite);
 }
 

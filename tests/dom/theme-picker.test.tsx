@@ -24,7 +24,7 @@ test("ThemePicker defaults to the light theme and applies it to the document", (
   assert.equal(document.documentElement.classList.contains("dark"), false);
   assert.deepEqual(
     Array.from(themeSelect().options).map((option) => option.textContent),
-    ["Light", "Dark", "Warm paper", "Forest"],
+    ["Light", "Dark", "Warm paper", "Forest", "Slate", "Rose", "Midnight"],
   );
 });
 

@@ -14,6 +14,7 @@ export const DATABASE_PROPERTY_TYPES = [
   "rollup",
   "formula",
   "file",
+  "button",
 ] as const;
 
 export type DatabasePropertyType = (typeof DATABASE_PROPERTY_TYPES)[number];
@@ -31,4 +32,5 @@ export const DATABASE_PROPERTY_TYPE_LABELS: Record<DatabasePropertyType, string>
   rollup: "Rollup",
   formula: "Formula",
   file: "File",
+  button: "Button",
 };

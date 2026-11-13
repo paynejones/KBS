@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { PageEditor } from "../../src/components/page-editor";
 import { json } from "./fetch-stub";
 import { restorePageEditorFetch, stubPageEditor } from "./page-editor-stub";
+import { withAppRouter } from "./app-router";
 
 const PAGE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TARGET_ID = "11111111-1111-4111-8111-111111111111";
@@ -71,7 +72,7 @@ test("PageEditor reports a failed background connection sync without blocking", 
         : undefined,
   });
 
-  render(<PageEditor id={PAGE_ID} />);
+  render(withAppRouter(<PageEditor id={PAGE_ID} />));
 
   const recover = await screen.findByRole("button", { name: "Recover draft" });
   await act(async () => {

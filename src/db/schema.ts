@@ -40,6 +40,8 @@ export const pages = pgTable(
     isFavorite: boolean("is_favorite").notNull().default(false),
     icon: text("icon"),
     coverImageUrl: text("cover_image_url"),
+    // Vertical focal point as a percentage from the top of the image.
+    coverPosition: integer("cover_position").notNull().default(50),
     isInbox: boolean("is_inbox").notNull().default(false),
     sourceUrl: text("source_url"),
     // Optional passage the user highlighted on the captured page. Kept apart

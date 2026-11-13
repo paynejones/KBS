@@ -34,12 +34,14 @@ export function FileCell({
   onChange,
   compact = false,
   disabled = false,
+  readOnly = false,
 }: {
   label: string;
   value: unknown;
   onChange: (next: FilePropertyValue | null) => void;
   compact?: boolean;
   disabled?: boolean;
+  readOnly?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -90,6 +92,7 @@ export function FileCell({
             : "This file value can’t be displayed."}
         </span>
       )}
+      {!readOnly && (
       <div className="mt-1 flex items-center gap-1">
         <Button
           type="button"
@@ -118,9 +121,10 @@ export function FileCell({
           </Button>
         )}
       </div>
+      )}
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
 
-      <AlertDialog open={confirmRemove} onOpenChange={(open) => setConfirmRemove(open)}>
+      {!readOnly && <AlertDialog open={confirmRemove} onOpenChange={(open) => setConfirmRemove(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this file?</AlertDialogTitle>
@@ -142,7 +146,7 @@ export function FileCell({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog>}
     </div>
   );
 }

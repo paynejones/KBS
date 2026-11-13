@@ -169,6 +169,13 @@
       "when": 1794324070488,
       "tag": "0023_search_trgm_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794439938838,
+      "tag": "0024_page_cover_position",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeLinkHref, pageIdFromLinkHref } from "../src/lib/link";
+import { normalizeLinkHref, pageIdFromEditorClick, pageIdFromLinkHref } from "../src/lib/link";
 import { diffLinkedPageIds } from "../src/lib/page-link-sync";
 
 test("normalizeLinkHref keeps absolute web addresses and trims whitespace", () => {
@@ -48,6 +48,27 @@ test("diffLinkedPageIds reports page links that came or went", () => {
   assert.deepEqual(diffLinkedPageIds([first], []), { added: [], removed: [first] });
   assert.deepEqual(diffLinkedPageIds(new Set<string>(), [first]), { added: [first], removed: [] });
   assert.deepEqual(diffLinkedPageIds([first, second], [first, second]), { added: [], removed: [] });
+});
+
+test("a plain click on a page link opens that page", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+
+  assert.equal(pageIdFromEditorClick({ href: `/pages/${id}`, selectionEmpty: true }), id);
+  assert.equal(pageIdFromEditorClick({ href: ` /pages/${id}/ `, selectionEmpty: true }), id);
+});
+
+test("editor link clicks stay editing when selecting, modified, or not a page", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const click = { href: `/pages/${id}`, selectionEmpty: true };
+
+  assert.equal(pageIdFromEditorClick({ ...click, selectionEmpty: false }), null);
+  assert.equal(pageIdFromEditorClick({ ...click, ctrlKey: true }), null);
+  assert.equal(pageIdFromEditorClick({ ...click, metaKey: true }), null);
+  assert.equal(pageIdFromEditorClick({ ...click, shiftKey: true }), null);
+  assert.equal(pageIdFromEditorClick({ ...click, altKey: true }), null);
+  assert.equal(pageIdFromEditorClick({ ...click, button: 1 }), null);
+  assert.equal(pageIdFromEditorClick({ href: "https://example.com", selectionEmpty: true }), null);
+  assert.equal(pageIdFromEditorClick({ href: null, selectionEmpty: true }), null);
 });
 
 test("pageIdFromLinkHref reads only in-app page paths", () => {

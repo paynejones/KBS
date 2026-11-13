@@ -39,6 +39,7 @@ type ApiModules = {
   databases: typeof import("../../src/app/api/databases/route");
   database: typeof import("../../src/app/api/databases/[id]/route");
   properties: typeof import("../../src/app/api/databases/[id]/properties/route");
+  propertyUpdate: typeof import("../../src/app/api/databases/[id]/properties/[propertyId]/route");
   views: typeof import("../../src/app/api/databases/[id]/views/route");
   view: typeof import("../../src/app/api/databases/[id]/views/[viewId]/route");
   viewUsage: typeof import("../../src/app/api/databases/[id]/views/[viewId]/usage/route");
@@ -48,6 +49,7 @@ type ApiModules = {
   pageTemplatesList: typeof import("../../src/app/api/page-templates/route");
   pageTemplate: typeof import("../../src/app/api/page-templates/[id]/route");
   record: typeof import("../../src/app/api/databases/[id]/records/[recordId]/route");
+  button: typeof import("../../src/app/api/databases/[id]/records/[recordId]/button/route");
   dashboard: typeof import("../../src/app/api/dashboard/route");
   search: typeof import("../../src/app/api/search/route");
   exportWorkspace: typeof import("../../src/app/api/export/route");
@@ -57,7 +59,7 @@ type ApiModules = {
 };
 
 type Json = Record<string, unknown>;
-type PageRow = { id: string; title: string; content: string; isInbox: boolean; parentId: string | null };
+type PageRow = { id: string; title: string; content: string; isInbox: boolean; parentId: string | null; isRecordPage: boolean };
 type TagRow = { id: string; name: string };
 type AttachmentRow = { id: string; url: string; filename: string; mimeType: string; size: number };
 
@@ -200,6 +202,7 @@ before(async () => {
     databases,
     database,
     properties,
+    propertyUpdate,
     views,
     view,
     viewUsage,
@@ -209,6 +212,7 @@ before(async () => {
     pageTemplatesList,
     pageTemplate,
     record,
+    button,
     dashboard,
     search,
     exportWorkspace,
@@ -247,6 +251,7 @@ before(async () => {
     import("../../src/app/api/databases/route"),
     import("../../src/app/api/databases/[id]/route"),
     import("../../src/app/api/databases/[id]/properties/route"),
+    import("../../src/app/api/databases/[id]/properties/[propertyId]/route"),
     import("../../src/app/api/databases/[id]/views/route"),
     import("../../src/app/api/databases/[id]/views/[viewId]/route"),
     import("../../src/app/api/databases/[id]/views/[viewId]/usage/route"),
@@ -256,6 +261,7 @@ before(async () => {
     import("../../src/app/api/page-templates/route"),
     import("../../src/app/api/page-templates/[id]/route"),
     import("../../src/app/api/databases/[id]/records/[recordId]/route"),
+    import("../../src/app/api/databases/[id]/records/[recordId]/button/route"),
     import("../../src/app/api/dashboard/route"),
     import("../../src/app/api/search/route"),
     import("../../src/app/api/export/route"),
@@ -267,7 +273,7 @@ before(async () => {
     import("../../src/app/api/orphans/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, related, tags, savedSearches, savedSearch, reading, readingItem, readingHighlights, readingHighlight, graph, focus, focusPinned, taskCompletions, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
+  api = { pages, page, move, reorder, revisions, pageTags, links, related, tags, savedSearches, savedSearch, reading, readingItem, readingHighlights, readingHighlight, graph, focus, focusPinned, taskCompletions, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, propertyUpdate, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, button, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
 });
 
 after(async () => {
@@ -445,6 +451,40 @@ describe("page quote API", () => {
     );
 
     assert.equal(response.status, 400);
+  });
+});
+
+describe("page cover API", () => {
+  it("persists a vertical focal point for the cover", async () => {
+    const page = await createPage({ title: "Cover focal point" });
+
+    const initial = await body<{ coverPosition: number }>(
+      await api.page.GET(jsonRequest(`/api/pages/${page.id}`, "GET"), routeContext({ id: page.id })),
+    );
+    assert.equal(initial.coverPosition, 50, "new covers start centered");
+
+    const patched = await api.page.PATCH(
+      jsonRequest(`/api/pages/${page.id}`, "PATCH", {
+        coverImageUrl: "https://example.com/cover.png",
+        coverPosition: 18,
+      }),
+      routeContext({ id: page.id }),
+    );
+    assert.equal(patched.status, 200);
+    assert.equal((await body<{ coverPosition: number }>(patched)).coverPosition, 18);
+
+    const reloaded = await body<{ coverPosition: number }>(
+      await api.page.GET(jsonRequest(`/api/pages/${page.id}`, "GET"), routeContext({ id: page.id })),
+    );
+    assert.equal(reloaded.coverPosition, 18, "the focal point survives a reload");
+
+    for (const invalid of [-1, 101, 12.5, "25"]) {
+      const response = await api.page.PATCH(
+        jsonRequest(`/api/pages/${page.id}`, "PATCH", { coverPosition: invalid }),
+        routeContext({ id: page.id }),
+      );
+      assert.equal(response.status, 400, `rejects cover position ${String(invalid)}`);
+    }
   });
 });
 
@@ -1850,6 +1890,34 @@ describe("database lifecycle API", () => {
     );
   });
 
+  it("includes each record's page cover for gallery fallbacks", async () => {
+    const database = await createDatabase("Gallery cover database");
+    const record = await createDatabaseRecord(database.id, { title: "Covered record" });
+    const coverUrl = "https://example.com/gallery-cover.jpg";
+
+    const pagePatch = await api.page.PATCH(
+      jsonRequest(`/api/pages/${record.pageId}`, "PATCH", { coverImageUrl: coverUrl }),
+      routeContext({ id: record.pageId }),
+    );
+    assert.equal(pagePatch.status, 200);
+
+    const loadedResponse = await api.database.GET(
+      jsonRequest(`/api/databases/${database.id}`, "GET"),
+      routeContext({ id: database.id }),
+    );
+    assert.equal(loadedResponse.status, 200);
+    const loaded = await body<{ records: { id: string; pageCoverImageUrl: string | null }[] }>(loadedResponse);
+    assert.equal(loaded.records.find((row) => row.id === record.id)?.pageCoverImageUrl, coverUrl);
+
+    // A record edit must not drop the fallback while the gallery keeps the row.
+    const updatedResponse = await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", { title: "Renamed record" }),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(updatedResponse.status, 200);
+    assert.equal((await body<{ pageCoverImageUrl: string | null }>(updatedResponse)).pageCoverImageUrl, coverUrl);
+  });
+
   it("rejects invalid database creation and unknown database mutations", async () => {
     assert.equal(
       (await api.databases.POST(jsonRequest("/api/databases", "POST", { name: "   " }))).status,
@@ -2061,6 +2129,405 @@ describe("database records API", () => {
       )).status,
       404,
       "a template only seeds records in its own database",
+    );
+  });
+
+  it("runs button actions on the record and on linked records, with per-action results", async () => {
+    const tasks = await createDatabase("Button tasks");
+    const projects = await createDatabase("Button projects");
+    const archive = await createDatabase("Button archive");
+    const status = await createDatabaseProperty(tasks.id, {
+      name: "Status",
+      type: "select",
+      options: { choices: ["Open", "Done"] },
+    });
+    const note = await createDatabaseProperty(tasks.id, { name: "Note", type: "text" });
+    const projectState = await createDatabaseProperty(projects.id, {
+      name: "Project state",
+      type: "select",
+      options: { choices: ["Active", "Archived"] },
+    });
+    const project = await createDatabaseProperty(tasks.id, {
+      name: "Project",
+      type: "relation",
+      options: { relatedDatabaseId: projects.id },
+    });
+    const archiveSummary = await createDatabaseProperty(archive.id, { name: "Summary", type: "text" });
+    const firstProject = await createDatabaseRecord(projects.id, { title: "First project" });
+    const secondProject = await createDatabaseRecord(projects.id, { title: "Second project" });
+    const task = await createDatabaseRecord(tasks.id, { title: "Ship it" });
+
+    const linked = await api.record.PATCH(
+      jsonRequest(`/api/databases/${tasks.id}/records/${task.id}`, "PATCH", {
+        relations: { [project.id]: [firstProject.id, secondProject.id] },
+      }),
+      routeContext({ id: tasks.id, recordId: task.id }),
+    );
+    assert.equal(linked.status, 200);
+
+    const button = await createDatabaseProperty(tasks.id, {
+      name: "Complete task",
+      type: "button",
+      options: {
+        actions: [
+          { type: "set_property", propertyId: status.id, value: "Done" },
+          { type: "set_property", propertyId: note.id, value: "Completed by button" },
+          {
+            type: "set_related_property",
+            relationPropertyId: project.id,
+            propertyId: projectState.id,
+            value: "Archived",
+          },
+          {
+            type: "create_record",
+            databaseId: archive.id,
+            title: "Created by button",
+            values: { [archiveSummary.id]: "From a task" },
+          },
+        ],
+      },
+    });
+
+    const response = await api.button.POST(
+      jsonRequest(`/api/databases/${tasks.id}/records/${task.id}/button`, "POST", {
+        propertyId: button.id,
+      }),
+      routeContext({ id: tasks.id, recordId: task.id }),
+    );
+    assert.equal(response.status, 200);
+    const result = await body<{
+      record: { values: Record<string, unknown> };
+      results: {
+        type: string;
+        label: string;
+        affected: number;
+        createdRecordIds?: string[];
+      }[];
+    }>(response);
+    assert.equal(result.record.values[status.id], "Done");
+    assert.equal(result.record.values[note.id], "Completed by button");
+    assert.deepEqual(result.results.map((entry) => entry.affected), [1, 1, 2, 1]);
+    assert.deepEqual(result.results.map((entry) => entry.type), [
+      "set_property",
+      "set_property",
+      "set_related_property",
+      "create_record",
+    ]);
+    const createdId = result.results[3]?.createdRecordIds?.[0];
+    assert.ok(createdId, "the create result reports its new record");
+    const archiveData = await body<{
+      records: { id: string; title: string; pageId: string | null; values: Record<string, unknown> }[];
+    }>(await api.database.GET(
+      jsonRequest(`/api/databases/${archive.id}`, "GET"),
+      routeContext({ id: archive.id }),
+    ));
+    const createdArchive = archiveData.records.find((entry) => entry.id === createdId);
+    assert.equal(createdArchive?.title, "Created by button");
+    assert.equal(createdArchive?.values[archiveSummary.id], "From a task");
+    assert.ok(createdArchive?.pageId, "a button-created record gets its own page");
+
+    for (const projectRecord of [firstProject, secondProject]) {
+      const stored = await body<{ values: Record<string, unknown> }>(await api.record.GET(
+        jsonRequest(`/api/databases/${projects.id}/records/${projectRecord.id}`, "GET"),
+        routeContext({ id: projects.id, recordId: projectRecord.id }),
+      ));
+      assert.equal(stored.values[projectState.id], "Archived");
+    }
+
+    const withoutLinks = await createDatabaseRecord(tasks.id, { title: "No project" });
+    const noLinks = await api.button.POST(
+      jsonRequest(`/api/databases/${tasks.id}/records/${withoutLinks.id}/button`, "POST", {
+        propertyId: button.id,
+      }),
+      routeContext({ id: tasks.id, recordId: withoutLinks.id }),
+    );
+    assert.equal(noLinks.status, 200);
+    const noLinkResult = await body<{ results: { affected: number }[] }>(noLinks);
+    assert.equal(noLinkResult.results[2]?.affected, 0, "an empty relation reports no linked records");
+    assert.equal(noLinkResult.results[3]?.affected, 1, "create still runs on a record with no links");
+  });
+
+  it("updates saved button actions and rejects invalid edits", async () => {
+    const database = await createDatabase("Button editing");
+    const other = await createDatabase("Button editing other");
+    const status = await createDatabaseProperty(database.id, {
+      name: "Status",
+      type: "select",
+      options: { choices: ["Open", "Done"] },
+    });
+    const foreign = await createDatabaseProperty(other.id, { name: "Foreign", type: "text" });
+    const button = await createDatabaseProperty(database.id, {
+      name: "Finish",
+      type: "button",
+      options: { actions: [{ type: "set_property", propertyId: status.id, value: "Open" }] },
+    });
+    const context = routeContext({ id: database.id, propertyId: button.id });
+
+    const updated = await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${button.id}`, "PATCH", {
+        actions: [{ type: "set_property", propertyId: status.id, value: "Done" }],
+      }),
+      context,
+    );
+    assert.equal(updated.status, 200);
+    const updatedProperty = await body<{ id: string; options: { actions: { value: string }[] } }>(updated);
+    assert.equal(updatedProperty.id, button.id);
+    assert.equal(updatedProperty.options.actions[0]?.value, "Done");
+
+    const record = await createDatabaseRecord(database.id, { title: "Edited button target" });
+    const run = await api.button.POST(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}/button`, "POST", { propertyId: button.id }),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(run.status, 200);
+    assert.equal((await body<{ record: { values: Record<string, unknown> } }>(run)).record.values[status.id], "Done");
+
+    assert.equal((await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${button.id}`, "PATCH", {
+        actions: [{ type: "set_property", propertyId: foreign.id, value: "x" }],
+      }),
+      context,
+    )).status, 400, "edits cannot target another database");
+    assert.equal((await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${status.id}`, "PATCH", {
+        actions: [{ type: "set_property", propertyId: status.id, value: "Done" }],
+      }),
+      routeContext({ id: database.id, propertyId: status.id }),
+    )).status, 400, "only button properties have actions");
+    assert.equal((await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${MISSING_ID}`, "PATCH", { actions: [] }),
+      routeContext({ id: database.id, propertyId: MISSING_ID }),
+    )).status, 400, "malformed action lists are rejected");
+    assert.equal((await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${MISSING_ID}`, "PATCH", {
+        actions: [{ type: "set_property", propertyId: status.id, value: "Done" }],
+      }),
+      routeContext({ id: database.id, propertyId: MISSING_ID }),
+    )).status, 404);
+  });
+
+  it("updates an existing record chosen by the user and rejects mismatched targets", async () => {
+    const source = await createDatabase("Button existing source");
+    const target = await createDatabase("Button existing target");
+    const summary = await createDatabaseProperty(target.id, { name: "Summary", type: "text" });
+    const note = await createDatabaseProperty(source.id, { name: "Note", type: "text" });
+    const sourceRecord = await createDatabaseRecord(source.id, { title: "Source record" });
+    const targetRecord = await createDatabaseRecord(target.id, { title: "Chosen record" });
+    const button = await createDatabaseProperty(source.id, {
+      name: "Update chosen record",
+      type: "button",
+      options: {
+        actions: [
+          {
+            type: "set_record_property",
+            databaseId: target.id,
+            recordId: targetRecord.id,
+            propertyId: summary.id,
+            value: "Updated target",
+          },
+          {
+            type: "set_record_property",
+            databaseId: source.id,
+            recordId: sourceRecord.id,
+            propertyId: note.id,
+            value: "Updated itself",
+          },
+        ],
+      },
+    });
+
+    const run = await api.button.POST(
+      jsonRequest(`/api/databases/${source.id}/records/${sourceRecord.id}/button`, "POST", {
+        propertyId: button.id,
+      }),
+      routeContext({ id: source.id, recordId: sourceRecord.id }),
+    );
+    assert.equal(run.status, 200);
+    const result = await body<{
+      record: { values: Record<string, unknown> };
+      results: { type: string; label: string; affected: number }[];
+    }>(run);
+    assert.deepEqual(result.results.map((entry) => entry.type), ["set_record_property", "set_record_property"]);
+    assert.deepEqual(result.results.map((entry) => entry.affected), [1, 1]);
+    assert.equal(result.results[0]?.label, "Summary");
+    assert.equal(result.record.values[note.id], "Updated itself", "the action can target the record that owns the button");
+
+    const storedTarget = await body<{ values: Record<string, unknown> }>(await api.record.GET(
+      jsonRequest(`/api/databases/${target.id}/records/${targetRecord.id}`, "GET"),
+      routeContext({ id: target.id, recordId: targetRecord.id }),
+    ));
+    assert.equal(storedTarget.values[summary.id], "Updated target");
+
+    const mismatchedRecord = await api.properties.POST(
+      jsonRequest(`/api/databases/${source.id}/properties`, "POST", {
+        name: "Wrong record",
+        type: "button",
+        options: { actions: [{
+          type: "set_record_property",
+          databaseId: target.id,
+          recordId: sourceRecord.id,
+          propertyId: summary.id,
+          value: "x",
+        }] },
+      }),
+      routeContext({ id: source.id }),
+    );
+    assert.equal(mismatchedRecord.status, 400, "the record must belong to the chosen database");
+
+    const missingRecord = await api.properties.POST(
+      jsonRequest(`/api/databases/${source.id}/properties`, "POST", {
+        name: "Missing record",
+        type: "button",
+        options: { actions: [{
+          type: "set_record_property",
+          databaseId: target.id,
+          recordId: MISSING_ID,
+          propertyId: summary.id,
+          value: "x",
+        }] },
+      }),
+      routeContext({ id: source.id }),
+    );
+    assert.equal(missingRecord.status, 400, "the chosen record must still exist");
+
+    const wrongProperty = await api.properties.POST(
+      jsonRequest(`/api/databases/${source.id}/properties`, "POST", {
+        name: "Wrong property",
+        type: "button",
+        options: { actions: [{
+          type: "set_record_property",
+          databaseId: target.id,
+          recordId: targetRecord.id,
+          propertyId: note.id,
+          value: "x",
+        }] },
+      }),
+      routeContext({ id: source.id }),
+    );
+    assert.equal(wrongProperty.status, 400, "the property must belong to the chosen database");
+  });
+
+  it("rejects button actions that target foreign, calculated, or invalid values", async () => {
+    const database = await createDatabase("Button validation");
+    const other = await createDatabase("Button validation other");
+    const foreign = await createDatabaseProperty(other.id, { name: "Foreign", type: "text" });
+    const choice = await createDatabaseProperty(database.id, {
+      name: "Choice",
+      type: "select",
+      options: { choices: ["One", "Two"] },
+    });
+    const formula = await createDatabaseProperty(database.id, {
+      name: "Calculated",
+      type: "formula",
+      options: { expression: "1" },
+    });
+    const relation = await createDatabaseProperty(database.id, {
+      name: "Foreign relation",
+      type: "relation",
+      options: { relatedDatabaseId: other.id },
+    });
+    const otherState = await createDatabaseProperty(other.id, {
+      name: "Other state",
+      type: "select",
+      options: { choices: ["Open"] },
+    });
+
+    async function createButton(options: Json) {
+      return await api.properties.POST(
+        jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
+          name: "Invalid button",
+          type: "button",
+          options,
+        }),
+        routeContext({ id: database.id }),
+      );
+    }
+
+    assert.equal((await createButton({ actions: [] })).status, 400);
+    assert.equal((await createButton({ actions: [
+      { type: "set_property", propertyId: foreign.id, value: "x" },
+    ] })).status, 400, "a button cannot write to another database");
+    assert.equal((await createButton({ actions: [
+      { type: "set_property", propertyId: formula.id, value: 1 },
+    ] })).status, 400, "a button cannot write a calculated property");
+    assert.equal((await createButton({ actions: [
+      { type: "set_property", propertyId: choice.id, value: "Three" },
+    ] })).status, 400, "values are checked against configured choices");
+    assert.equal((await createButton({ actions: [
+      {
+        type: "set_related_property",
+        relationPropertyId: relation.id,
+        propertyId: choice.id,
+        value: "One",
+      },
+    ] })).status, 400, "a related action must use the related database's property");
+    assert.equal((await createButton({ actions: [
+      {
+        type: "create_record",
+        databaseId: MISSING_ID,
+        title: "Missing database",
+        values: {},
+      },
+    ] })).status, 400, "a create action needs an existing database");
+    assert.equal((await createButton({ actions: [
+      {
+        type: "create_record",
+        databaseId: other.id,
+        title: "Wrong property",
+        values: { [choice.id]: "One" },
+      },
+    ] })).status, 400, "new record values must belong to the chosen database");
+    assert.equal((await createButton({ actions: [
+      {
+        type: "create_record",
+        databaseId: other.id,
+        title: "Wrong value",
+        values: { [otherState.id]: "Closed" },
+      },
+    ] })).status, 400, "new record values use the property's normal validation");
+    assert.equal((await createButton({ actions: [
+      {
+        type: "create_record",
+        databaseId: database.id,
+        title: "Calculated value",
+        values: { [formula.id]: 2 },
+      },
+    ] })).status, 400, "calculated properties cannot be initial values");
+
+    const firstButton = await createDatabaseProperty(database.id, {
+      name: "First button",
+      type: "button",
+      options: { actions: [{ type: "set_property", propertyId: choice.id, value: "One" }] },
+    });
+    assert.equal((await createButton({ actions: [
+      { type: "set_property", propertyId: firstButton.id, value: "x" },
+    ] })).status, 400, "buttons cannot write buttons");
+
+    const record = await createDatabaseRecord(database.id, { title: "Button target" });
+    const directWrite = await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+        values: { [firstButton.id]: "changed" },
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(directWrite.status, 400, "button values cannot be written through record PATCH");
+
+    const notAButton = await api.button.POST(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}/button`, "POST", {
+        propertyId: choice.id,
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(notAButton.status, 404);
+    assert.equal(
+      (await api.button.POST(
+        jsonRequest(`/api/databases/${other.id}/records/${record.id}/button`, "POST", {
+          propertyId: firstButton.id,
+        }),
+        routeContext({ id: other.id, recordId: record.id }),
+      )).status,
+      404,
+      "a record cannot be run through another database",
     );
   });
 
@@ -3624,6 +4091,8 @@ describe("page browser API", () => {
     assert.ok(defaultPages.some((page) => page.id === favorite.id));
     assert.ok(!defaultPages.some((page) => page.id === inbox.id));
     assert.ok(!defaultPages.some((page) => page.id === record.pageId));
+    assert.ok(defaultPages.every((page) => !page.isRecordPage),
+      "pages that remain in the default listing are marked as ordinary pages");
 
     const favorites = await body<PageRow[]>(await api.pages.GET(jsonRequest(`${base}&favorite=true`, "GET")));
     assert.deepEqual(favorites.map((page) => page.id), [favorite.id]);
@@ -3633,7 +4102,9 @@ describe("page browser API", () => {
     assert.ok(!withInbox.some((page) => page.id === record.pageId));
 
     const withRecordPages = await body<PageRow[]>(await api.pages.GET(jsonRequest(`${base}&includeRecordPages=true`, "GET")));
-    assert.ok(withRecordPages.some((page) => page.id === record.pageId));
+    assert.ok(withRecordPages.some((page) => page.id === record.pageId && page.isRecordPage),
+      "record pages are marked when a listing opts into them");
+    assert.ok(withRecordPages.some((page) => page.id === regular.id && !page.isRecordPage));
     assert.ok(!withRecordPages.some((page) => page.id === inbox.id));
   });
 
@@ -3680,6 +4151,35 @@ describe("trash API", () => {
       (await api.page.GET(jsonRequest(`/api/pages/${child.id}`, "GET"), routeContext({ id: child.id }))).status,
       200,
     );
+  });
+
+  it("restores a nested page without flattening the subtree beneath it", async () => {
+    const grandparent = await createPage({ title: "Trash grandparent" });
+    const parent = await createPage({ title: "Trash nested parent", parentId: grandparent.id });
+    const child = await createPage({ title: "Trash nested child", parentId: parent.id });
+
+    // Trashing the grandparent puts the whole branch in the trash.
+    await api.page.DELETE(
+      jsonRequest(`/api/pages/${grandparent.id}`, "DELETE"),
+      routeContext({ id: grandparent.id }),
+    );
+
+    // Restoring the middle page on its own has to leave its trashed parent, but
+    // its own child must stay beneath it rather than being moved to the top too.
+    const restored = await api.trashRestore.POST(
+      jsonRequest(`/api/trash/${parent.id}/restore`, "POST"),
+      routeContext({ id: parent.id }),
+    );
+    assert.equal(restored.status, 200);
+
+    const restoredParent = await body<PageRow>(
+      await api.page.GET(jsonRequest(`/api/pages/${parent.id}`, "GET"), routeContext({ id: parent.id })),
+    );
+    const restoredChild = await body<PageRow>(
+      await api.page.GET(jsonRequest(`/api/pages/${child.id}`, "GET"), routeContext({ id: child.id })),
+    );
+    assert.equal(restoredParent.parentId, null, "the restored root leaves its trashed parent");
+    assert.equal(restoredChild.parentId, parent.id, "the restored subtree keeps its own structure");
   });
 
   it("purges only trashed pages and reports counts", async () => {

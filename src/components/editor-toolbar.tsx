@@ -2,7 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { Link2 } from "lucide-react";
+import {
+  Bold,
+  Heading1,
+  Heading2,
+  Italic,
+  Link2,
+  List,
+  ListOrdered,
+  Quote,
+  Redo2,
+  Undo2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalizeLinkHref, pageIdFromLinkHref } from "@/lib/link";
@@ -239,92 +250,121 @@ export function EditorToolbar({ editor, pageId, pages = [] }: EditorToolbarProps
       aria-label="Text formatting"
       className="space-y-2 border-b pb-3"
     >
-      <div className="flex touch-pan-x flex-nowrap gap-2 overflow-x-auto py-1 max-sm:[&_button]:h-9 max-sm:[&_button]:px-3 max-sm:[&_button]:text-sm sm:flex-wrap sm:overflow-visible sm:py-0">
+      <div className="flex touch-pan-x flex-nowrap items-center gap-1 overflow-x-auto py-1 max-sm:[&_button]:size-9 max-sm:[&_button]:px-0 sm:flex-wrap sm:overflow-visible sm:py-0">
         <Button
           variant={editor.isActive("bold") ? "default" : "outline"}
           size="sm"
+          aria-label="Bold"
+          aria-pressed={editor.isActive("bold")}
+          title="Bold (Ctrl+B)"
           onClick={() => editor.chain().focus().toggleBold().run()}
         >
-          Bold
+          <Bold size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant={editor.isActive("italic") ? "default" : "outline"}
           size="sm"
+          aria-label="Italic"
+          aria-pressed={editor.isActive("italic")}
+          title="Italic (Ctrl+I)"
           onClick={() => editor.chain().focus().toggleItalic().run()}
         >
-          Italic
+          <Italic size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant={editor.isActive("heading", { level: 1 }) ? "default" : "outline"}
           size="sm"
+          aria-label="Heading 1"
+          aria-pressed={editor.isActive("heading", { level: 1 })}
+          title="Heading 1"
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 1 }).run()
           }
         >
-          H1
+          <Heading1 size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant={editor.isActive("heading", { level: 2 }) ? "default" : "outline"}
           size="sm"
+          aria-label="Heading 2"
+          aria-pressed={editor.isActive("heading", { level: 2 })}
+          title="Heading 2"
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 2 }).run()
           }
         >
-          H2
+          <Heading2 size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant={editor.isActive("bulletList") ? "default" : "outline"}
           size="sm"
+          aria-label="Bullet list"
+          aria-pressed={editor.isActive("bulletList")}
+          title="Bullet list"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
         >
-          Bullet list
+          <List size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant={editor.isActive("orderedList") ? "default" : "outline"}
           size="sm"
+          aria-label="Numbered list"
+          aria-pressed={editor.isActive("orderedList")}
+          title="Numbered list"
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
         >
-          Numbered list
+          <ListOrdered size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant={editor.isActive("blockquote") ? "default" : "outline"}
           size="sm"
+          aria-label="Quote"
+          aria-pressed={editor.isActive("blockquote")}
+          title="Quote"
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
         >
-          Quote
+          <Quote size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant={linkOpen ? "default" : "outline"}
           size="sm"
+          aria-label="Link"
           aria-expanded={linkOpen}
+          title="Link to a page or web address"
           onClick={() => (linkOpen ? closeLinkPanel() : openLinkPanel())}
         >
-          <Link2 size={15} /> Link
+          <Link2 size={15} aria-hidden="true" />
         </Button>
+
+        <span aria-hidden="true" className="mx-1 h-6 w-px shrink-0 self-center bg-border" />
 
         <Button
           variant="outline"
           size="sm"
+          aria-label="Undo"
+          title="Undo (Ctrl+Z)"
           onClick={() => editor.chain().focus().undo().run()}
           disabled={!editor.can().undo()}
         >
-          Undo
+          <Undo2 size={15} aria-hidden="true" />
         </Button>
 
         <Button
           variant="outline"
           size="sm"
+          aria-label="Redo"
+          title="Redo (Ctrl+Shift+Z)"
           onClick={() => editor.chain().focus().redo().run()}
           disabled={!editor.can().redo()}
         >
-          Redo
+          <Redo2 size={15} aria-hidden="true" />
         </Button>
       </div>
 
