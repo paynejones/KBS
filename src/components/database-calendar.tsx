@@ -14,6 +14,7 @@ import {
   WEEKDAY_LABELS,
 } from "@/lib/calendar";
 import type { DatabasePropertyType } from "@/lib/database-property";
+import { recordHref } from "@/lib/record-link";
 
 type CalendarProperty = { id: string; name: string; type: DatabasePropertyType };
 type CalendarRecord = {
@@ -130,7 +131,7 @@ export function DatabaseCalendar({
                   <ul className="mt-1 space-y-1">
                     {dayRecords.slice(0, 3).map((record) => (
                       <li key={record.id} className="truncate" title={record.title || "Untitled"}>
-                        <Link href={`/databases/${databaseId}/records/${record.id}`} className="block truncate rounded bg-primary/10 px-1 py-0.5 text-primary hover:underline">
+                        <Link href={recordHref(databaseId, record.id, record.pageId)} className="block truncate rounded bg-primary/10 px-1 py-0.5 text-primary hover:underline">
                           {record.title || "Untitled"}
                         </Link>
                       </li>
@@ -154,7 +155,7 @@ export function DatabaseCalendar({
           <ul className="mt-2 flex flex-wrap gap-2 text-xs">
             {undated.slice(0, 8).map((record) => (
               <li key={record.id}>
-                <Link href={`/databases/${databaseId}/records/${record.id}`} className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 hover:border-primary/30">
+                <Link href={recordHref(databaseId, record.id, record.pageId)} className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 hover:border-primary/30">
                   {record.title || "Untitled"} <ArrowRight size={12} />
                 </Link>
               </li>

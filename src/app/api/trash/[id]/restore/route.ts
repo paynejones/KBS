@@ -3,7 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
-import { collectSubtreeIds } from "@/lib/trash";
+import { subtreeIds } from "@/db/page-tree";
 import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = { params: Promise<{ id: string }> };
@@ -16,17 +16,22 @@ export async function POST(request: Request, context: Context) {
 
   try {
     const restoredCount = await db.transaction(async (tx) => {
-      const hierarchy = await tx
-        .select({ id: pages.id, parentId: pages.parentId, deletedAt: pages.deletedAt })
-        .from(pages);
+      const [page] = await tx
+        .select({ parentId: pages.parentId, deletedAt: pages.deletedAt })
+        .from(pages)
+        .where(eq(pages.id, id))
+        .limit(1);
 
-      const page = hierarchy.find((row) => row.id === id);
       if (!page || !page.deletedAt) return null;
 
-      const ids = collectSubtreeIds(hierarchy, id);
-      const parent = page.parentId
-        ? hierarchy.find((row) => row.id === page.parentId)
-        : null;
+      const ids = await subtreeIds(tx, id);
+      const [parent] = page.parentId
+        ? await tx
+            .select({ deletedAt: pages.deletedAt })
+            .from(pages)
+            .where(eq(pages.id, page.parentId))
+            .limit(1)
+        : [];
       // A page whose parent is also trashed comes back at the top level so it
       // does not silently reappear inside a page that is still in the trash.
       const restoreParentId = parent && !parent.deletedAt ? page.parentId : null;

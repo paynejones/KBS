@@ -29,6 +29,9 @@
 # production
 /build
 
+# scratch local PostgreSQL used for development checks
+/.pg-dev
+
 # uploaded attachments (override with ATTACHMENTS_DIR)
 /data
 

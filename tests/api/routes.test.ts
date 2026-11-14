@@ -1976,7 +1976,7 @@ describe("database records API", () => {
     assert.equal(response.status, 200);
     const detail = await body<{
       relations: Record<string, string[]>;
-      backlinks: { id: string; title: string; databaseId: string; databaseName: string; properties: string[] }[];
+      backlinks: { id: string; title: string; databaseId: string; databaseName: string; pageId: string | null; properties: string[] }[];
     }>(response);
 
     assert.deepEqual(detail.relations, {}, "the target record has no outgoing relations");
@@ -1985,8 +1985,9 @@ describe("database records API", () => {
       title: "Pointing record",
       databaseId: owner.id,
       databaseName: "Reverse relation owner",
+      pageId: source.pageId,
       properties: ["Inspiration"],
-    }]);
+    }], "a backlink carries the page its record opens as");
     assert.ok(
       !detail.backlinks.some((row) => row.id === unrelated.id),
       "a record that does not point here is left out",

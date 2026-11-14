@@ -15,6 +15,7 @@ test("lists each record that points here with its database and property", () => 
           title: "Harvest plan",
           databaseId: "db-1",
           databaseName: "Projects",
+          pageId: null,
           properties: ["Inspiration"],
         },
         {
@@ -22,6 +23,7 @@ test("lists each record that points here with its database and property", () => 
           title: "Winter backlog",
           databaseId: "db-2",
           databaseName: "Reading",
+          pageId: null,
           properties: ["Follow-up", "Reference"],
         },
       ]}
@@ -51,6 +53,7 @@ test("shows how many records link here", () => {
           title: "Harvest plan",
           databaseId: "db-1",
           databaseName: "Projects",
+          pageId: null,
           properties: ["Inspiration"],
         },
       ]}
@@ -76,6 +79,7 @@ test("explains when nothing links here and falls back for an untitled record", (
           title: "",
           databaseId: "db-1",
           databaseName: "Projects",
+          pageId: null,
           properties: ["Inspiration"],
         },
       ]}

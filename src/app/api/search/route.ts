@@ -85,6 +85,7 @@ export async function GET(request: Request) {
         updatedAt: databaseRecords.updatedAt,
         databaseId: databases.id,
         databaseName: databases.name,
+        pageId: databaseRecords.pageId,
         score: relevance(databaseRecords.title, databaseRecords.updatedAt),
         match: sql<"title" | "content">`CASE WHEN ${databaseRecords.title} ILIKE ${pattern} THEN 'title' ELSE 'content' END`,
       })
@@ -119,6 +120,7 @@ export async function GET(request: Request) {
         updatedAt: record.updatedAt,
         databaseId: record.databaseId,
         databaseName: record.databaseName,
+        pageId: record.pageId,
         score: Number(record.score),
         match: record.match,
       })),

@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { CornerDownRight } from "lucide-react";
+import { recordHref } from "@/lib/record-link";
 
 export type RecordBacklink = {
   id: string;
   title: string;
   databaseId: string;
   databaseName: string;
+  pageId: string | null;
   properties: string[];
 };
 
@@ -41,7 +43,7 @@ export function RecordBacklinks({ backlinks }: { backlinks: RecordBacklink[] }) 
           {backlinks.map((backlink) => (
             <li key={backlink.id} className="min-w-0 text-sm">
               <Link
-                href={`/databases/${backlink.databaseId}/records/${backlink.id}`}
+                href={recordHref(backlink.databaseId, backlink.id, backlink.pageId)}
                 className="truncate font-medium hover:underline"
               >
                 {backlink.title || "Untitled"}

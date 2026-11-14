@@ -61,6 +61,7 @@ import { formatFormulaValue } from "@/lib/database-formula";
 import { buttonActionsError, type ButtonAction } from "@/lib/database-button";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
 import { getDashboardWidgetsSnapshot } from "@/lib/dashboard";
+import { recordHref } from "@/lib/record-link";
 import { galleryCoverForRecord } from "@/lib/gallery-cover";
 import { dateKey, todayKey } from "@/lib/calendar";
 import { parseTimelineRange } from "@/lib/timeline";
@@ -70,7 +71,7 @@ import { isViewMode, viewModeHref } from "@/lib/view-mode";
 type Property = { id: string; name: string; type: DatabasePropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string; actions?: ButtonAction[] } };
 type RecordRow = { id: string; title: string; values: Record<string, unknown>; pageId: string | null; pageCoverImageUrl?: string | null; relations: Record<string, string[]> };
 type PageOption = { id: string; title: string };
-type RelatedRecordOption = { id: string; title: string; values: Record<string, unknown> };
+type RelatedRecordOption = { id: string; title: string; values: Record<string, unknown>; pageId?: string | null };
 type DatabaseOption = { id: string; name: string };
 type RelationTargetData = { properties: Property[]; records: RelatedRecordOption[] };
 type DatabaseView = { id: string; name: string; type: DatabaseViewType; config: Record<string, unknown> };
@@ -1133,7 +1134,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             return relatedDatabaseId ? (
               <Link
                 key={targetId}
-                href={`/databases/${relatedDatabaseId}/records/${targetId}`}
+                href={recordHref(relatedDatabaseId, targetId, target?.pageId)}
                 className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs hover:border-primary/30 hover:text-primary"
               >
                 {label} <ArrowUpRight size={10} aria-hidden="true" />
@@ -1779,7 +1780,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   {cover && !coverHidden && (
                     <div className="relative -mx-4 -mt-4 mb-3 border-b bg-muted/20">
                       <Link
-                        href={`/databases/${id}/records/${record.id}`}
+                        href={recordHref(id, record.id, record.pageId)}
                         className="block"
                         aria-label={`Open ${record.title}`}
                       >
@@ -1831,7 +1832,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   )}
                   <div className="flex items-start gap-2">
                     <h2 className="min-w-0 flex-1 break-words text-base font-semibold">
-                      <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
+                      <Link href={recordHref(id, record.id, record.pageId)} className="hover:text-primary hover:underline">{record.title}</Link>
                     </h2>
                     {!readOnly && (
                       <>
@@ -1934,7 +1935,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                           <article key={record.id} className="space-y-2 rounded-md border bg-background p-3 shadow-sm">
                             <div className="flex items-start gap-2">
                               <h3 className="min-w-0 flex-1 break-words text-sm font-medium">
-                                <Link href={`/databases/${id}/records/${record.id}`} className="hover:text-primary hover:underline">{record.title}</Link>
+                                <Link href={recordHref(id, record.id, record.pageId)} className="hover:text-primary hover:underline">{record.title}</Link>
                               </h3>
                               {!readOnly && (
                                 <>
@@ -2031,7 +2032,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         />
                       )}
                       <Link
-                        href={`/databases/${id}/records/${record.id}`}
+                        href={recordHref(id, record.id, record.pageId)}
                         aria-label={`Open ${record.title} as a full page`}
                         title="Open record"
                         className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"

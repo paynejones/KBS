@@ -7,6 +7,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, LayoutDashboard, Plus, X } from 
 import { ChartBars, ChartLine, ChartNotes, ChartPie } from "@/components/database-chart";
 import { Button } from "@/components/ui/button";
 import { todayKey } from "@/lib/calendar";
+import { recordHref } from "@/lib/record-link";
 import {
   chartDatePresetWindow,
   chartDateSpanLabel,
@@ -871,7 +872,7 @@ export function DashboardWidgets() {
                           className="flex min-w-0 items-center gap-2 border-b py-1.5 last:border-b-0"
                         >
                           <Link
-                            href={`/databases/${item.view.databaseId}/records/${record.id}`}
+                            href={recordHref(item.view.databaseId, record.id, record.pageId)}
                             className="min-w-0 flex-1 truncate text-xs font-medium transition-colors hover:text-brand hover:underline"
                           >
                             {record.title || "Untitled"}

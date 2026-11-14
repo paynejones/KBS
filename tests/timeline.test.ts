@@ -18,6 +18,7 @@ function entry(overrides: Partial<TimelineEntry>): TimelineEntry {
     title: "Record",
     databaseId: "database-1",
     databaseName: "Tasks",
+    pageId: null,
     propertyId: "property-1",
     propertyName: "Due",
     date: "2026-05-10",

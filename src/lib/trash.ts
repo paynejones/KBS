@@ -17,6 +17,9 @@ export function collectSubtreeIds(pages: PageHierarchyRow[], rootId: string): st
   const ids = new Set([rootId]);
   let added = true;
 
+  // A forward scan adds each child as soon as its parent is known, so a tree
+  // stored in document order is walked in one pass; only rows that appear
+  // before their parent cost another pass.
   while (added) {
     added = false;
     for (const page of pages) {

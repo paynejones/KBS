@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { formatRecentTime, loadRecentPages, type RecentPage } from "@/lib/recents";
+import { recordHref } from "@/lib/record-link";
 import {
   describeMarkdownImport,
   importMarkdownFiles,
@@ -65,6 +66,7 @@ type SearchHit =
       match: "title" | "content";
       databaseId: string;
       databaseName: string;
+      pageId: string | null;
     };
 type SearchResults = { results: SearchHit[] };
 
@@ -593,7 +595,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
         detail: `${hit.databaseName} · ${reason} · ${score}`,
         group: "Search results",
         icon: <Database size={16} />,
-        run: () => go(`/databases/${hit.databaseId}/records/${hit.id}`),
+        run: () => go(recordHref(hit.databaseId, hit.id, hit.pageId)),
       });
     }
   }

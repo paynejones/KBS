@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { todayKey } from "@/lib/calendar";
+import { recordHref } from "@/lib/record-link";
 import {
   DEFAULT_TIMELINE_RANGE,
   groupTimelineEntries,
@@ -182,7 +183,7 @@ export function DashboardTimeline() {
                         className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-sm"
                       >
                         <Link
-                          href={`/databases/${entry.databaseId}/records/${entry.recordId}`}
+                          href={recordHref(entry.databaseId, entry.recordId, entry.pageId)}
                           className="min-w-0 truncate font-medium transition-colors hover:text-brand hover:underline"
                         >
                           {entry.title || "Untitled"}

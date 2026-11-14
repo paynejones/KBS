@@ -69,6 +69,7 @@ export async function GET(request: Request, context: Context) {
         title: databaseRecords.title,
         databaseId: databases.id,
         databaseName: databases.name,
+        pageId: databaseRecords.pageId,
         propertyName: databaseProperties.name,
       }).from(databaseRecordRelations)
         .innerJoin(databaseRecords, eq(databaseRecords.id, databaseRecordRelations.sourceRecordId))
@@ -80,6 +81,7 @@ export async function GET(request: Request, context: Context) {
         title: string;
         databaseId: string;
         databaseName: string;
+        pageId: string | null;
         properties: string[];
       }>();
       for (const row of inboundRows) {
@@ -95,6 +97,7 @@ export async function GET(request: Request, context: Context) {
           title: row.title,
           databaseId: row.databaseId,
           databaseName: row.databaseName,
+          pageId: row.pageId,
           properties: [row.propertyName],
         });
       }

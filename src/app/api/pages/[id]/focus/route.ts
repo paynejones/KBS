@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -18,7 +18,7 @@ import {
   focusTasks,
   type FocusTask,
 } from "@/lib/focus";
-import { collectSubtreeIds } from "@/lib/trash";
+import { subtreeIds } from "@/db/page-tree";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
@@ -36,6 +36,14 @@ export async function GET(request: Request, context: Context) {
   }
 
   try {
+    // One recursive query names the subtree, so only the pages whose tasks
+    // appear on this screen are read; this used to load every page body in the
+    // workspace.
+    const subtree = await subtreeIds(db, id);
+    if (!subtree.includes(id)) {
+      return NextResponse.json({ error: "Page not found" }, { status: 404 });
+    }
+
     const pageRows = await db
       .select({
         id: pages.id,
@@ -47,7 +55,7 @@ export async function GET(request: Request, context: Context) {
         sortOrder: pages.sortOrder,
       })
       .from(pages)
-      .where(isNull(pages.deletedAt));
+      .where(and(inArray(pages.id, subtree), isNull(pages.deletedAt)));
 
     const project = pageRows.find((row) => row.id === id);
     if (!project) {
@@ -56,9 +64,10 @@ export async function GET(request: Request, context: Context) {
 
     // Tasks come from the project and everything beneath it, so a project made
     // of several pages is one checklist. The project's own page comes first.
-    const subtreeIds = new Set(collectSubtreeIds(pageRows, id));
+    // The query already limited these rows to the subtree, so the project is
+    // the only page that has to come out.
     const descendants = pageRows
-      .filter((row) => row.id !== id && subtreeIds.has(row.id))
+      .filter((row) => row.id !== id)
       .sort(
         (left, right) =>
           left.sortOrder - right.sortOrder ||
@@ -91,6 +100,7 @@ export async function GET(request: Request, context: Context) {
           title: databaseRecords.title,
           databaseId: databases.id,
           databaseName: databases.name,
+          pageId: databaseRecords.pageId,
         })
         .from(pageRecordLinks)
         .innerJoin(databaseRecords, eq(pageRecordLinks.recordId, databaseRecords.id))

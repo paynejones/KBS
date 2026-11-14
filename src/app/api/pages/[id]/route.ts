@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { databaseRecords, pageRevisions, pages } from "@/db/schema";
 import { isAllowedMediaUrl } from "@/lib/media";
-import { collectSubtreeIds } from "@/lib/trash";
+import { subtreeIds } from "@/db/page-tree";
 import { apiErrorResponse } from "@/lib/api-log";
 
 type Context = {
@@ -113,44 +113,22 @@ export async function PATCH(request: Request, context: Context) {
       );
     }
 
-    const allPages = await db
-      .select({
-        id: pages.id,
-        parentId: pages.parentId,
-      })
-      .from(pages);
+    const [parentPage] = await db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(eq(pages.id, newParentId))
+      .limit(1);
 
-    const parentExists = allPages.some(
-      (page) => page.id === newParentId
-    );
-
-    if (!parentExists) {
+    if (!parentPage) {
       return NextResponse.json(
         { error: "Parent page not found." },
         { status: 404 }
       );
     }
 
-    // Find all descendants of the page being moved.
-    const descendants = new Set<string>();
-    let currentLevel = [id];
-
-    while (currentLevel.length > 0) {
-      const nextLevel = allPages
-        .filter(
-          (page) =>
-            page.parentId !== null &&
-            currentLevel.includes(page.parentId) &&
-            !descendants.has(page.id)
-        )
-        .map((page) => page.id);
-
-      for (const descendantId of nextLevel) {
-        descendants.add(descendantId);
-      }
-
-      currentLevel = nextLevel;
-    }
+    // One recursive query answers "is the new parent inside this page's
+    // subtree?" without reading every page in the workspace.
+    const descendants = new Set(await subtreeIds(db, id));
 
     // Prevent moving a page underneath one of its descendants.
     if (descendants.has(newParentId)) {
@@ -263,21 +241,10 @@ export async function DELETE(request: Request, context: Context) {
 
   try {
     const trashedCount = await db.transaction(async (tx) => {
-      const hierarchy = await tx
-        .select({ id: pages.id, parentId: pages.parentId })
-        .from(pages);
-
-      const [page] = await tx
-        .select({ id: pages.id })
-        .from(pages)
-        .where(eq(pages.id, id))
-        .limit(1);
-
-      if (!page) return null;
-
       // Trashing a page trashes its whole subtree so children are never
       // left pointing at a page that no longer renders.
-      const ids = collectSubtreeIds(hierarchy, id);
+      const ids = await subtreeIds(tx, id);
+      if (ids.length === 0) return null;
 
       await tx
         .update(pages)

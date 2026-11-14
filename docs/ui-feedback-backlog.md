@@ -59,6 +59,15 @@ Effort scale: **XS** under an hour · **S** half a day · **M** 1–2 days ·
   mouse-out) and asserts, from SVG bounding boxes, that zoomed-in titles clear
   every node circle and each other. Remaining for #14: only a mockup-level
   review of the overall look.
+- 2026-11-14 — a record opens at its page. `/pages/[id]` now looks up the
+  record that owns the page and renders that record, so the page URL is the
+  record: title, page content, and the collapsible properties panel are one
+  screen, and edits save through the same record endpoints. The record route
+  (`/databases/[id]/records/[recordId]`) is a server redirect to
+  `/pages/[pageId]`, carrying the query string so `?mode=view` still locks the
+  page; records without a page yet keep the old screen, which creates the page
+  when it loads. Every existing record link therefore lands on the page without
+  touching the ~20 call sites that build those links.
 - 2026-11-14 — formulas can build on formulas. A formula property may now
   reference another formula in the same database as well as number and rollup
   properties, so a chart or filter can read a derived value instead of

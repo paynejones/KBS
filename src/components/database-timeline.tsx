@@ -11,9 +11,10 @@ import {
   type TimelineRange,
 } from "@/lib/timeline";
 import type { DatabasePropertyType } from "@/lib/database-property";
+import { recordHref } from "@/lib/record-link";
 
 type TimelineProperty = { id: string; name: string; type: DatabasePropertyType };
-type TimelineRecord = { id: string; title: string; values: Record<string, unknown> };
+type TimelineRecord = { id: string; title: string; values: Record<string, unknown>; pageId?: string | null };
 
 function dayHeading(key: string, today: string): string {
   const formatted = new Date(`${key}T00:00:00Z`).toLocaleDateString(undefined, {
@@ -140,7 +141,7 @@ export function DatabaseTimeline({
                 {dayRecords.map((record) => (
                   <li key={record.id} className="px-3 py-2 text-sm">
                     <Link
-                      href={`/databases/${databaseId}/records/${record.id}`}
+                      href={recordHref(databaseId, record.id, record.pageId)}
                       className="hover:text-primary hover:underline"
                     >
                       {record.title || "Untitled"}
@@ -172,7 +173,7 @@ export function DatabaseTimeline({
             {undated.slice(0, 8).map((record) => (
               <li key={record.id}>
                 <Link
-                  href={`/databases/${databaseId}/records/${record.id}`}
+                  href={recordHref(databaseId, record.id, record.pageId)}
                   className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 hover:border-primary/30"
                 >
                   {record.title || "Untitled"}

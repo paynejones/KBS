@@ -5,11 +5,13 @@ import Link from "next/link";
 import { Link2Off } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { recordHref } from "@/lib/record-link";
 
 type OrphanPageItem = { id: string; title: string; updatedAt: string };
 type OrphanRecordItem = OrphanPageItem & {
   databaseId: string;
   databaseName: string;
+  pageId: string | null;
 };
 type OrphanSummary = {
   pages: OrphanPageItem[];
@@ -144,7 +146,7 @@ export default function OrphansPage() {
                     <li key={record.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
                       <div className="min-w-0 flex-1">
                         <Link
-                          href={`/databases/${record.databaseId}/records/${record.id}`}
+                          href={recordHref(record.databaseId, record.id, record.pageId)}
                           className="block truncate font-medium hover:underline"
                         >
                           {record.title || "Untitled"}

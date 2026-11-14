@@ -15,7 +15,11 @@ export type FocusTask = {
 };
 
 export type FocusPageRef = { id: string; title: string };
-export type FocusRecordRef = FocusPageRef & { databaseId: string; databaseName: string };
+export type FocusRecordRef = FocusPageRef & {
+  databaseId: string;
+  databaseName: string;
+  pageId: string | null;
+};
 
 export type FocusReferences = {
   links: FocusPageRef[];

@@ -14,6 +14,7 @@ import {
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseRecords, pages, pageTags, pageTemplates, tags } from "@/db/schema";
+import { apiErrorResponse } from "@/lib/api-log";
 
 const createPageSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
@@ -76,14 +77,22 @@ export async function GET(request: Request) {
       )
       .orderBy(asc(pages.sortOrder), asc(pages.title));
 
-    const tagResults = await db
-      .select({
-        pageId: pageTags.pageId,
-        id: tags.id,
-        name: tags.name,
-      })
-      .from(pageTags)
-      .innerJoin(tags, eq(pageTags.tagId, tags.id));
+    // Read tags only for the pages this listing returned. The join used to be
+    // unfiltered, so every page-tag pair in the workspace was sent to Node and
+    // thrown away for pages the filters had already excluded.
+    const pageIds = results.map((page) => page.id);
+    const tagResults =
+      pageIds.length === 0
+        ? []
+        : await db
+            .select({
+              pageId: pageTags.pageId,
+              id: tags.id,
+              name: tags.name,
+            })
+            .from(pageTags)
+            .innerJoin(tags, eq(pageTags.tagId, tags.id))
+            .where(inArray(pageTags.pageId, pageIds));
 
     const tagsByPage = new Map<
       string,
@@ -205,5 +214,3 @@ export async function POST(request: Request) {
     return apiErrorResponse(request, "Failed to create page.", error, { status: 500, logMessage: "Failed to create page:" });
   }
 }
-
-import { apiErrorResponse } from "@/lib/api-log";

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { ButtonCell } from "@/components/button-cell";
 import type { ListRow } from "@/lib/database-list";
+import { recordHref } from "@/lib/record-link";
 
 /**
  * A scan-first view of the same records: one line per record, with the values
@@ -35,7 +36,7 @@ export function DatabaseList({
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-medium">
               <Link
-                href={`/databases/${databaseId}/records/${row.id}`}
+                href={recordHref(databaseId, row.id, row.pageId)}
                 className="hover:text-primary hover:underline"
               >
                 {row.title}

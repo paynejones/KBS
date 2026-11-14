@@ -324,7 +324,7 @@ export async function GET(request: Request) {
           const due = dateKey(record.values[dateProperty.id]);
           const bucket = dueBucket(due, today);
           if (!due || !bucket) return [];
-          return [{ id: record.id, title: record.title, due, bucket: bucket as DueBucket }];
+          return [{ id: record.id, title: record.title, due, bucket: bucket as DueBucket, pageId: record.pageId }];
         })
         .sort(
           (left, right) =>
@@ -376,6 +376,7 @@ export async function GET(request: Request) {
             id: record.id,
             title: record.title,
             status: typeof status === "string" ? status : "",
+            pageId: record.pageId,
           };
         });
 
@@ -415,6 +416,7 @@ export async function GET(request: Request) {
               title: record.title,
               databaseId: database.id,
               databaseName: database.name,
+              pageId: record.pageId,
               propertyId: property.id,
               propertyName: property.name,
               date,

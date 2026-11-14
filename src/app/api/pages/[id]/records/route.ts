@@ -14,6 +14,7 @@ const recordColumns = {
   title: databaseRecords.title,
   databaseId: databases.id,
   databaseName: databases.name,
+  pageId: databaseRecords.pageId,
 };
 
 export async function GET(request: Request, context: Context) {

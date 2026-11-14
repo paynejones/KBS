@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { formatFormulaValue } from "@/lib/database-formula";
 import type { DatabasePropertyType } from "@/lib/database-property";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
+import { recordHref } from "@/lib/record-link";
 import { isViewMode, viewModeHref } from "@/lib/view-mode";
 
 type Property = {
@@ -49,7 +50,7 @@ type RecordRow = {
   pageId: string | null;
   relations: Record<string, string[]>;
 };
-type RelatedRecord = { id: string; title: string; values: Record<string, unknown> };
+type RelatedRecord = { id: string; title: string; values: Record<string, unknown>; pageId?: string | null };
 type RelationTargetData = { properties: Property[]; records: RelatedRecord[] };
 type RecordDetail = RecordRow & {
   properties: Property[];
@@ -273,7 +274,7 @@ export function DatabaseRecordWorkspace({
             return relatedDatabaseId ? (
               <Link
                 key={targetId}
-                href={`/databases/${relatedDatabaseId}/records/${targetId}`}
+                href={recordHref(relatedDatabaseId, targetId, target?.pageId)}
                 className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:border-primary/30 hover:text-primary"
               >
                 {label} <ArrowUpRight size={11} aria-hidden="true" />

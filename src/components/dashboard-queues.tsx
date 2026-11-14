@@ -20,6 +20,7 @@ import {
 } from "@/lib/dashboard";
 import type { DatabasePropertyType } from "@/lib/database-property";
 import { statusToneClass } from "@/lib/status-tone";
+import { recordHref } from "@/lib/record-link";
 
 type DashboardProperty = { id: string; name: string; type: DatabasePropertyType; choices?: string[] };
 type DatabaseOption = { id: string; name: string; properties: DashboardProperty[] };
@@ -29,7 +30,7 @@ type TaskQueue = {
   databaseName: string;
   property: { id: string; name: string };
   statusProperty: { id: string; name: string } | null;
-  records: { id: string; title: string; due: string; bucket: DueBucket }[];
+  records: { id: string; title: string; due: string; bucket: DueBucket; pageId: string | null }[];
   total: number;
   overdue: number;
 };
@@ -38,7 +39,7 @@ type ProjectQueue = {
   databaseId: string;
   databaseName: string;
   property: { id: string; name: string } | null;
-  records: { id: string; title: string; status: string }[];
+  records: { id: string; title: string; status: string; pageId: string | null }[];
   total: number;
 };
 
@@ -229,7 +230,7 @@ export function DashboardQueues() {
               className="flex min-w-0 items-center gap-2 border-b py-1.5 last:border-b-0"
             >
               <Link
-                href={`/databases/${taskQueue.databaseId}/records/${record.id}`}
+                href={recordHref(taskQueue.databaseId, record.id, record.pageId)}
                 className="min-w-0 flex-1 truncate text-xs font-medium transition-colors hover:text-brand hover:underline"
               >
                 {record.title || "Untitled"}
@@ -266,7 +267,7 @@ export function DashboardQueues() {
               className="flex min-w-0 items-center gap-2 border-b py-1.5 last:border-b-0"
             >
               <Link
-                href={`/databases/${projectQueue.databaseId}/records/${record.id}`}
+                href={recordHref(projectQueue.databaseId, record.id, record.pageId)}
                 className="min-w-0 flex-1 truncate text-xs font-medium transition-colors hover:text-brand hover:underline"
               >
                 {record.title || "Untitled"}

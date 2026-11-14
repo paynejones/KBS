@@ -16,6 +16,7 @@ export type TimelineEntry = {
   title: string;
   databaseId: string;
   databaseName: string;
+  pageId: string | null;
   propertyId: string;
   propertyName: string;
   date: string;

@@ -56,6 +56,7 @@ export async function GET(request: Request) {
           updatedAt: databaseRecords.updatedAt,
           databaseId: databases.id,
           databaseName: databases.name,
+          pageId: databaseRecords.pageId,
         })
         .from(databaseRecords)
         .innerJoin(databases, eq(databaseRecords.databaseId, databases.id)),

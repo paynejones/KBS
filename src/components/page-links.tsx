@@ -4,11 +4,12 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Link2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { recordHref } from "@/lib/record-link";
 
 type PageRef = { id: string; title: string };
 type Backlink = PageRef & { contexts: string[] };
 type PageOption = PageRef & { parentId: string | null };
-type LinkedRecord = PageRef & { databaseId: string; databaseName: string };
+type LinkedRecord = PageRef & { databaseId: string; databaseName: string; pageId: string | null };
 type PageConnections = {
   links: PageRef[];
   backlinks: Backlink[];
@@ -307,7 +308,7 @@ export function PageLinks({
               {records.map((record) => (
                 <li key={record.id} className="flex items-center gap-2 text-sm">
                   <Link
-                    href={`/databases/${record.databaseId}/records/${record.id}`}
+                    href={recordHref(record.databaseId, record.id, record.pageId)}
                     className="min-w-0 flex-1 truncate hover:underline"
                   >
                     {record.title || "Untitled"}

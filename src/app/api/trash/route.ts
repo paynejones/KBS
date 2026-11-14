@@ -28,9 +28,12 @@ export async function GET(request: Request) {
         .from(pages)
         .where(isNotNull(pages.deletedAt))
         .orderBy(desc(pages.deletedAt)),
+      // Only trashed rows form this tree: counting a trashed page's subtree
+      // never needs the workspace's active pages.
       db
         .select({ id: pages.id, parentId: pages.parentId, deletedAt: pages.deletedAt })
-        .from(pages),
+        .from(pages)
+        .where(isNotNull(pages.deletedAt)),
     ]);
 
     const byId = new Map(trashed.map((page) => [page.id, page]));

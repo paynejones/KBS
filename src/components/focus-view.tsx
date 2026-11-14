@@ -14,6 +14,7 @@ import {
   type FocusTask,
 } from "@/lib/focus";
 import { saveTaskChecked } from "@/lib/focus-task-save";
+import { recordHref } from "@/lib/record-link";
 
 type PageOption = { id: string; title: string; isFavorite: boolean; parentId: string | null };
 
@@ -606,7 +607,7 @@ export function FocusView() {
                     {data.references.records.map((record) => (
                       <li key={record.id} className="flex items-center gap-2 text-sm">
                         <Link
-                          href={`/databases/${record.databaseId}/records/${record.id}`}
+                          href={recordHref(record.databaseId, record.id, record.pageId)}
                           className="min-w-0 flex-1 truncate hover:underline"
                         >
                           {record.title || "Untitled"}

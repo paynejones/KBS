@@ -59,6 +59,7 @@ import {
 import { galleryCoverForRecord } from "@/lib/gallery-cover";
 import { todayKey } from "@/lib/calendar";
 import { parseTimelineRange } from "@/lib/timeline";
+import { recordHref } from "@/lib/record-link";
 
 type EmbedProperty = CalculationProperty;
 type EmbedRecord = {
@@ -475,7 +476,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                     {cover && !coverHidden && (
                       <div className="relative -mx-3 -mt-3 mb-2 border-b bg-muted/20">
                         <Link
-                          href={`/databases/${data.id}/records/${record.id}`}
+                          href={recordHref(data.id, record.id, record.pageId)}
                           title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`}
                           className="block"
                         >
@@ -552,7 +553,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                       </button>
                     )}
                     <h3 className="text-sm font-medium">
-                      <Link href={`/databases/${data.id}/records/${record.id}`} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
+                      <Link href={recordHref(data.id, record.id, record.pageId)} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
                     </h3>
                     <dl className="mt-2 space-y-1 text-xs">
                       {visibleProperties.slice(0, 4).map((property) => (
@@ -593,7 +594,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                       {columnRecords.map((record) => (
                         <div key={record.id} className="rounded border bg-background p-2 text-xs">
                           <p className="font-medium">
-                            <Link href={`/databases/${data.id}/records/${record.id}`} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
+                            <Link href={recordHref(data.id, record.id, record.pageId)} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
                           </p>
                           {visibleProperties.length > 0 && (
                             <dl className="mt-1 space-y-0.5">
@@ -712,7 +713,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                 {records.map((record) => (
                   <tr key={record.id} className="border-b last:border-0">
                     <td className="px-3 py-2 font-medium">
-                      <Link href={`/databases/${data.id}/records/${record.id}`} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
+                      <Link href={recordHref(data.id, record.id, record.pageId)} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
                     </td>
                     {visibleProperties.slice(0, 4).map((property) => (
                       <td key={property.id} className="max-w-56 truncate px-3 py-2 text-muted-foreground">
