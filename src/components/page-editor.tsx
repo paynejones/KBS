@@ -206,10 +206,12 @@ export function PageEditor({
   id,
   hideTitle = false,
   readOnly = false,
+  hidePageConnections = false,
 }: {
   id: string;
   hideTitle?: boolean;
   readOnly?: boolean;
+  hidePageConnections?: boolean;
 }) {
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<SaveStatus>("loading");
@@ -1609,7 +1611,7 @@ while (foundDescendant) {
               )}
             </div>
             <PageTags pageId={id} />
-            <PageLinks pageId={id} pages={allPages} />
+            {!hidePageConnections && <PageLinks pageId={id} pages={allPages} />}
             <RelatedPages pageId={id} />
           </section>
 

@@ -24,10 +24,12 @@ export function PageEditorLoader({
   id,
   hideTitle = false,
   readOnly = false,
+  hidePageConnections = false,
 }: {
   id: string;
   hideTitle?: boolean;
   readOnly?: boolean;
+  hidePageConnections?: boolean;
 }) {
   const mounted = useSyncExternalStore(
     subscribeToMount,
@@ -39,7 +41,12 @@ export function PageEditorLoader({
 
   return (
     <Suspense fallback={loadingState}>
-      <PageEditor id={id} hideTitle={hideTitle} readOnly={readOnly} />
+      <PageEditor
+        id={id}
+        hideTitle={hideTitle}
+        readOnly={readOnly}
+        hidePageConnections={hidePageConnections}
+      />
     </Suspense>
   );
 }

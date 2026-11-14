@@ -2,10 +2,35 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { databaseProperties, databaseRecords, databases } from "@/db/schema";
 import {
+  buttonExpressionError,
+  isButtonActionExpression,
+  isButtonExpressionWritableProperty,
   isButtonWritableProperty,
   type ButtonAction,
+  type ButtonActionValue,
 } from "@/lib/database-button";
 import { validateDatabaseRecordValues } from "@/lib/database-values";
+
+type ButtonProperty = typeof databaseProperties.$inferSelect;
+
+/**
+ * A literal value is checked against the target property. An expression is
+ * checked for syntax and for the properties it reads instead, because its
+ * result is only known when the button runs.
+ */
+function buttonValueError(
+  value: ButtonActionValue,
+  target: ButtonProperty,
+  sourceProperties: ButtonProperty[],
+): string | null {
+  if (!isButtonActionExpression(value)) {
+    return validateDatabaseRecordValues({ [target.id]: value }, [target]);
+  }
+  if (!isButtonExpressionWritableProperty(target)) {
+    return `${target.name} cannot use an expression value`;
+  }
+  return buttonExpressionError(value.expression, sourceProperties);
+}
 
 /**
  * Checks every target a button action names. Both creating and editing a
@@ -43,7 +68,7 @@ export async function validateButtonActionDefinitions(
         if (!isButtonWritableProperty(target)) {
           return `${target.name} cannot be set when creating a record`;
         }
-        const valueError = validateDatabaseRecordValues({ [target.id]: value }, [target]);
+        const valueError = buttonValueError(value, target, sourceProperties);
         if (valueError) return valueError;
       }
       continue;
@@ -75,7 +100,7 @@ export async function validateButtonActionDefinitions(
       if (!isButtonWritableProperty(target)) {
         return `${target.name} cannot be changed by a button`;
       }
-      const valueError = validateDatabaseRecordValues({ [target.id]: action.value }, [target]);
+      const valueError = buttonValueError(action.value, target, sourceProperties);
       if (valueError) return valueError;
       continue;
     }
@@ -107,7 +132,7 @@ export async function validateButtonActionDefinitions(
     if (!isButtonWritableProperty(target)) {
       return `${target.name} cannot be changed by a button`;
     }
-    const valueError = validateDatabaseRecordValues({ [target.id]: action.value }, [target]);
+    const valueError = buttonValueError(action.value, target, sourceProperties);
     if (valueError) return valueError;
   }
 

@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseProperties } from "@/db/schema";
+import {
+  formulaReferenceCycle,
+  type CalculationProperty,
+} from "@/lib/database-calculations";
 import { parseFormula } from "@/lib/database-formula";
 import { DATABASE_PROPERTY_TYPES } from "@/lib/database-property";
 import { buttonOptionsSchema } from "@/lib/database-button";
@@ -83,9 +87,19 @@ export async function POST(request: Request, context: Context) {
         if (!referenced) {
           return NextResponse.json({ error: `No property named “${reference}” in this database` }, { status: 400 });
         }
-        if (referenced.type !== "number" && referenced.type !== "rollup") {
-          return NextResponse.json({ error: "Formulas can reference number and rollup properties" }, { status: 400 });
+        if (referenced.type !== "number" && referenced.type !== "rollup" && referenced.type !== "formula") {
+          return NextResponse.json({ error: "Formulas can reference number, rollup, and formula properties" }, { status: 400 });
         }
+      }
+      // A formula may read another formula, so a reference chain could loop
+      // back on itself. `referenceValue` would show a cycle as blank, which
+      // hides a mistake, so reject it while the formula is still being defined.
+      const cycle = formulaReferenceCycle(
+        parsedFormula.references,
+        existingProperties as unknown as CalculationProperty[],
+      );
+      if (cycle) {
+        return NextResponse.json({ error: `Formulas cannot reference themselves: ${cycle}` }, { status: 400 });
       }
     }
     const [maxOrder] = await db.select({ value: max(databaseProperties.sortOrder) }).from(databaseProperties).where(eq(databaseProperties.databaseId, id));

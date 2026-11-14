@@ -1499,7 +1499,7 @@ describe("database metadata API", () => {
       }),
       context,
     );
-    assert.equal(nonNumericReference.status, 400, "formulas only read number and rollup properties");
+    assert.equal(nonNumericReference.status, 400, "formulas cannot read a text property");
 
     const created = await api.properties.POST(
       jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
@@ -1513,6 +1513,16 @@ describe("database metadata API", () => {
     const formula = await body<{ type: string; options: { expression: string } }>(created);
     assert.equal(formula.type, "formula");
     assert.equal(formula.options.expression, "round({Watched} / 24 * 100, 1)");
+
+    const chained = await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
+        name: "Progress twice",
+        type: "formula",
+        options: { expression: "{Progress} * 2" },
+      }),
+      context,
+    );
+    assert.equal(chained.status, 201, "a formula can reference another formula");
   });
 
   it("deletes templates only from their own database", async () => {
@@ -2245,6 +2255,42 @@ describe("database records API", () => {
     const noLinkResult = await body<{ results: { affected: number }[] }>(noLinks);
     assert.equal(noLinkResult.results[2]?.affected, 0, "an empty relation reports no linked records");
     assert.equal(noLinkResult.results[3]?.affected, 1, "create still runs on a record with no links");
+  });
+
+  it("applies one increment per click when clicks arrive together", async () => {
+    const database = await createDatabase("Button counters");
+    const count = await createDatabaseProperty(database.id, { name: "Count", type: "number" });
+    const record = await createDatabaseRecord(database.id, { title: "Counter" });
+    const button = await createDatabaseProperty(database.id, {
+      name: "Raise count",
+      type: "button",
+      options: {
+        actions: [{ type: "set_property", propertyId: count.id, value: { expression: "{Count} + 1" } }],
+      },
+    });
+
+    const seeded = await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+        values: { [count.id]: 4 },
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    );
+    assert.equal(seeded.status, 200);
+
+    const clicks = Array.from({ length: 5 }, () => api.button.POST(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}/button`, "POST", {
+        propertyId: button.id,
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    ));
+    const responses = await Promise.all(clicks);
+    assert.deepEqual(responses.map((response) => response.status), [200, 200, 200, 200, 200]);
+
+    const stored = await body<{ values: Record<string, unknown> }>(await api.record.GET(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "GET"),
+      routeContext({ id: database.id, recordId: record.id }),
+    ));
+    assert.equal(stored.values[count.id], 9, "every click applied its own increment");
   });
 
   it("updates saved button actions and rejects invalid edits", async () => {

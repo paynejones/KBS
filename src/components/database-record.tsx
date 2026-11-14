@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Eye, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronUp, Eye, Pencil, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ButtonCell, buttonResultMessage, runDatabaseButton } from "@/components/button-cell";
 import { ButtonSettingsDialog } from "@/components/button-settings-dialog";
@@ -78,6 +78,7 @@ export function DatabaseRecordWorkspace({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingButtonProperty, setEditingButtonProperty] = useState<Property | null>(null);
+  const [showProperties, setShowProperties] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -541,32 +542,6 @@ export function DatabaseRecordWorkspace({
 
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-        <section aria-labelledby="record-properties-heading" className="rounded-xl border bg-card p-4 sm:p-6">
-          <h2
-            id="record-properties-heading"
-            className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-          >
-            Properties
-          </h2>
-          {properties.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">This database has no properties yet.</p>
-          ) : (
-            <dl className="mt-4 grid gap-5 sm:grid-cols-2">
-              {properties.map((property) => (
-                <div key={property.id} className="min-w-0 space-y-1.5">
-                  <dt className="flex items-center gap-2 text-sm font-medium">
-                    {property.name}
-                    <span className="rounded border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
-                      {property.type.replace("_", " ")}
-                    </span>
-                  </dt>
-                  <dd className="min-w-0">{renderProperty(property)}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-        </section>
-
         <RecordBacklinks backlinks={backlinks} />
 
         <RecordPageLinks recordId={record.id} readOnly={readOnly} />
@@ -589,10 +564,52 @@ export function DatabaseRecordWorkspace({
             )}
           </div>
           {record.pageId ? (
-            <PageEditorLoader id={record.pageId} hideTitle readOnly={readOnly} />
+            <PageEditorLoader id={record.pageId} hideTitle readOnly={readOnly} hidePageConnections />
           ) : (
             <p className="text-sm text-muted-foreground">Preparing this record’s page…</p>
           )}
+
+          <section aria-labelledby="record-properties-heading" className="border-t pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2
+                id="record-properties-heading"
+                className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                Properties
+              </h2>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-expanded={showProperties}
+                aria-controls="record-properties"
+                onClick={() => setShowProperties((current) => !current)}
+                className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+              >
+                {showProperties ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+                {showProperties ? "Collapse" : "Expand"}
+              </Button>
+            </div>
+            <div id="record-properties" hidden={!showProperties} className="pt-3">
+              {properties.length === 0 ? (
+                <p className="text-sm text-muted-foreground">This database has no properties yet.</p>
+              ) : (
+                <dl className="grid gap-5 sm:grid-cols-2">
+                  {properties.map((property) => (
+                    <div key={property.id} className="min-w-0 space-y-1.5">
+                      <dt className="flex items-center gap-2 text-sm font-medium">
+                        {property.name}
+                        <span className="rounded border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
+                          {property.type.replace("_", " ")}
+                        </span>
+                      </dt>
+                      <dd className="min-w-0">{renderProperty(property)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          </section>
         </section>
       </div>
 

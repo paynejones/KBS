@@ -4,9 +4,13 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { Check, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  buttonExpressionError,
   defaultButtonActionValue,
+  isButtonActionExpression,
+  isButtonExpressionWritableProperty,
   isButtonWritableProperty,
   type ButtonAction,
+  type ButtonActionExpression,
   type ButtonActionValue,
 } from "@/lib/database-button";
 
@@ -205,7 +209,7 @@ function ExistingRecordPicker({
   );
 }
 
-function valueEditor(
+function literalEditor(
   property: ActionProperty | undefined,
   value: ButtonActionValue,
   onChange: (value: ButtonActionValue) => void,
@@ -279,6 +283,83 @@ function valueEditor(
       placeholder="Value"
       className="min-h-9 min-w-32 rounded-md border bg-background px-2 py-1.5 text-sm"
     />
+  );
+}
+
+function defaultExpression(property: ActionProperty): ButtonActionExpression {
+  const reference = `{${property.name}}`;
+  return { expression: property.type === "number" ? `${reference} + 1` : reference };
+}
+
+function ExpressionValueEditor(
+  property: ActionProperty,
+  value: ButtonActionExpression,
+  onChange: (value: ButtonActionValue) => void,
+  label: string,
+  properties: ActionProperty[],
+) {
+  const valueNames = properties
+    .filter((candidate) =>
+      candidate.type === "number" || candidate.type === "rollup" || candidate.type === "formula")
+    .map((candidate) => `{${candidate.name}}`);
+  const error = buttonExpressionError(value.expression, properties);
+
+  return (
+    <div className="grid gap-1">
+      <input
+        aria-label={label}
+        value={value.expression}
+        onChange={(event) => onChange({ expression: event.currentTarget.value })}
+        placeholder="{Count} + 1"
+        spellCheck={false}
+        className="min-h-9 min-w-32 rounded-md border bg-background px-2 py-1.5 font-mono text-sm"
+      />
+      <p className="text-[11px] text-muted-foreground">
+        {valueNames.length > 0
+          ? <>Reads this record’s current values: {valueNames.join(", ")}. Try {"{"}Count{"}"} + 1.</>
+          : "Add a number, rollup, or formula property to this database to read a current value here."}
+      </p>
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      <button
+        type="button"
+        onClick={() => onChange(defaultButtonActionValue(property.type))}
+        className="justify-self-start text-[11px] text-muted-foreground underline hover:text-foreground"
+      >
+        Use a fixed value
+      </button>
+    </div>
+  );
+}
+
+function valueEditor(
+  property: ActionProperty | undefined,
+  value: ButtonActionValue,
+  onChange: (value: ButtonActionValue) => void,
+  label = "Button action value",
+  properties: ActionProperty[] = [],
+) {
+  if (!property) {
+    return <span className="text-xs text-muted-foreground">Choose a property first.</span>;
+  }
+
+  if (isButtonActionExpression(value) && isButtonExpressionWritableProperty(property)) {
+    return ExpressionValueEditor(property, value, onChange, label, properties);
+  }
+
+  const literal = literalEditor(property, value, onChange, label);
+  if (!isButtonExpressionWritableProperty(property)) return literal;
+
+  return (
+    <div className="grid gap-1">
+      {literal}
+      <button
+        type="button"
+        onClick={() => onChange(defaultExpression(property))}
+        className="justify-self-start text-[11px] text-muted-foreground underline hover:text-foreground"
+      >
+        Use current values
+      </button>
+    </div>
   );
 }
 
@@ -557,6 +638,7 @@ export function ButtonActionsEditor({
                                       values: { ...action.values, [propertyId]: next },
                                     }),
                                     `Initial value for ${property?.name ?? "new record"}`,
+                                    properties,
                                   )}
                                 </div>
                                 <Button
@@ -640,6 +722,7 @@ export function ButtonActionsEditor({
                         action.value,
                         (value) => replace(index, { ...action, value }),
                         "Existing record value",
+                        properties,
                       )}
                     </div>
                   </>
@@ -667,7 +750,7 @@ export function ButtonActionsEditor({
 
                     <div className="grid gap-1 text-xs text-muted-foreground">
                       New value
-                      {valueEditor(targetProperty, action.value, (value) => replace(index, { ...action, value }))}
+                      {valueEditor(targetProperty, action.value, (value) => replace(index, { ...action, value }), "Button action value", properties)}
                     </div>
                   </>
                 )}

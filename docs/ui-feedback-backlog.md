@@ -59,6 +59,49 @@ Effort scale: **XS** under an hour · **S** half a day · **M** 1–2 days ·
   mouse-out) and asserts, from SVG bounding boxes, that zoomed-in titles clear
   every node circle and each other. Remaining for #14: only a mockup-level
   review of the overall look.
+- 2026-11-14 — formulas can build on formulas. A formula property may now
+  reference another formula in the same database as well as number and rollup
+  properties, so a chart or filter can read a derived value instead of
+  repeating its arithmetic. The resolver already expands nested formulas and
+  stops on a cycle (`referenceValue`'s ancestor set); saving is stricter than
+  rendering, and a definition whose reference chain loops back on itself is
+  refused with the chain shown (`A → B → A`) rather than leaving a permanently
+  blank column.
+- 2026-11-14 — record pages no longer repeat their connections. The page
+  editor embedded in a record page appended its own “Page connections” panel
+  under Details — linked pages, page backlinks, and linked records, which
+  included the record the page belongs to — below the record’s own “Linked
+  pages” panel at the top of the page. The embedded editor now skips that panel
+  on record pages (`hidePageConnections`), while standalone `/pages/[id]` keeps
+  it. The top panels still add and remove the same page/record connections.
+- 2026-11-14 — record pages fold their properties into the page. The record's
+  Properties panel no longer sits in its own card above the content: the page
+  renders the page editor first and then the property values at the end of the
+  same “Page content” section, separated by a rule, so a record reads as one
+  page. The editors, button cells, and view-mode lock inside each property are
+  unchanged, and the solid one-line summary above the page is gone. The
+  Properties heading carries a Collapse/Expand control (`aria-expanded`,
+  `aria-controls`) so a long property list stops pushing the page around; the
+  editors stay mounted while collapsed, so an edit in progress is not dropped.
+- 2026-11-14 — #7 button values can be expressions. A button action value may
+  be `{Count} + 1` instead of a literal, so a click can raise a number without
+  storing the number it will write. Expressions reuse the database formula
+  language — `{Property}` references, the four operators, parentheses, and
+  `round(value, digits)` — are checked when the button is saved (unknown names
+  and references that are neither a number nor a rollup are rejected), and are
+  evaluated on the server against the clicked record's stored values, including
+  for actions that write linked records or create a record elsewhere. Buttons
+  and formulas share one resolver (`evaluateRecordFormula`), so an expression
+  reads exactly what a formula reads — number properties, rollups, and formula
+  properties (formula references expand transitively through the formula's own
+  expression, and a cycle yields no value instead of recursing) — and
+  `{Total} + 1` means the same number in either place. Expression values can be written
+  to number, text, url, date, and select properties; a result that cannot be
+  computed (missing value, division by zero) fails the whole click instead of
+  writing a blank. Values are computed inside one transaction that locks every
+  record the click may write (`SELECT … FOR UPDATE`, in ID order, retried on a
+  serialisation failure), so simultaneous clicks apply their expressions in
+  sequence instead of both reading the same starting value.
 - 2026-11-12 — #7 programmable button properties, first action set: a
   `button` property stores a validated list of actions in
   `database_properties.options`. Each click can write one literal value to a
