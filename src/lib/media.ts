@@ -171,13 +171,6 @@ export function attachmentTypeLabel(mimeType: string, filename = "") {
   return extension ? extension.toUpperCase() : "File";
 }
 
-export function fileValueSearchText(value: unknown) {
-  const parsed = parseFilePropertyValue(value);
-  if (parsed === undefined) return typeof value === "string" ? value : "";
-  if (parsed === null) return "";
-  return [parsed.filename, parsed.alt, parsed.url].filter(Boolean).join(" ");
-}
-
 export async function uploadAttachment(file: File) {
   const body = new FormData();
   body.append("file", file);

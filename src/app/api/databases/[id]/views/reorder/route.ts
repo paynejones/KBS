@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -50,14 +50,19 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
-    await db.transaction(async (tx) => {
-      for (const [index, viewId] of viewIds.entries()) {
-        await tx
-          .update(databaseViews)
-          .set({ sortOrder: index })
-          .where(and(eq(databaseViews.id, viewId), eq(databaseViews.databaseId, id)));
-      }
-    });
+    // One statement for the whole tab order: every view already knows its new
+    // position, so the positions travel with the ids instead of one UPDATE per
+    // view. A single statement is atomic on its own, so no transaction.
+    const reordered = viewIds.map(
+      (viewId, position) => sql`(${viewId}::uuid, ${position}::int)`
+    );
+
+    await db.execute(sql`
+      update database_views as moved
+      set sort_order = positions.position
+      from (values ${sql.join(reordered, sql`, `)}) as positions(id, position)
+      where moved.id = positions.id and moved.database_id = ${id}::uuid
+    `);
 
     return NextResponse.json({ success: true });
   } catch (error) {

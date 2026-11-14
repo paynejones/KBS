@@ -159,6 +159,15 @@ async function childOrder(parentId: string) {
   return rows.map((row) => row.id);
 }
 
+async function childPositions(parentId: string) {
+  const rows = await db
+    .select({ sortOrder: pagesTable.sortOrder })
+    .from(pagesTable)
+    .where(eq(pagesTable.parentId, parentId))
+    .orderBy(asc(pagesTable.sortOrder));
+  return rows.map((row) => row.sortOrder);
+}
+
 async function inboxFlags(id: string) {
   const [row] = await db.select({ isInbox: pagesTable.isInbox }).from(pagesTable).where(eq(pagesTable.id, id));
   return row;
@@ -661,6 +670,13 @@ describe("inbox API", () => {
     assert.ok(beforeList.some((item) => item.id === captured.id));
     assert.ok(!beforeList.some((item) => item.id === normal.id), "regular pages are not inbox items");
 
+    const summary = await body<PageRow[]>(await api.inbox.GET(jsonRequest("/api/inbox?limit=1", "GET")));
+    assert.equal(summary.length, 1, "a summary asks for the rows it shows");
+    assert.ok(
+      beforeList.some((item) => item.id === summary[0]?.id),
+      "the limited list is the same list, cut short",
+    );
+
     const organized = await api.inboxItem.PATCH(
       jsonRequest(`/api/inbox/${captured.id}`, "PATCH"),
       routeContext({ id: captured.id }),
@@ -820,6 +836,7 @@ describe("page ordering API", () => {
     }));
     assert.equal(inside.status, 200);
     assert.deepEqual(await childOrder(parent.id), [a.id, c.id]);
+    assert.deepEqual(await childPositions(parent.id), [0, 1], "the parent it left is renumbered");
     assert.deepEqual(await childOrder(a.id), [b.id]);
 
     const before = await api.move.POST(jsonRequest("/api/pages/move", "POST", {
@@ -876,12 +893,12 @@ describe("page revisions API", () => {
     );
     assert.equal(edited.status, 200);
 
-    const revisions = await body<{ id: string; title: string; content: string }[]>(
+    const revisions = await body<{ id: string; title: string; preview: string | null }[]>(
       await api.revisions.GET(jsonRequest(`/api/pages/${page.id}/revisions`, "GET"), routeContext({ id: page.id })),
     );
     assert.equal(revisions.length, 1);
     assert.equal(revisions[0].title, "Revision page");
-    assert.equal(revisions[0].content, "first draft");
+    assert.equal(revisions[0].preview, "first draft", "the list previews the version it replaces");
 
     const restored = await api.revisions.POST(
       jsonRequest(`/api/pages/${page.id}/revisions`, "POST", { revisionId: revisions[0].id }),
@@ -892,11 +909,11 @@ describe("page revisions API", () => {
     assert.equal(restoredPage.title, "Revision page");
     assert.equal(restoredPage.content, "first draft");
 
-    const afterRestore = await body<{ content: string }[]>(
+    const afterRestore = await body<{ preview: string | null }[]>(
       await api.revisions.GET(jsonRequest(`/api/pages/${page.id}/revisions`, "GET"), routeContext({ id: page.id })),
     );
     assert.equal(afterRestore.length, 2, "restoring keeps the replaced version as a revision");
-    assert.equal(afterRestore[0].content, "second draft");
+    assert.equal(afterRestore[0].preview, "second draft");
 
     const reloaded = await body<PageRow>(
       await api.page.GET(jsonRequest(`/api/pages/${page.id}`, "GET"), routeContext({ id: page.id })),
@@ -1078,6 +1095,31 @@ describe("page and record connections API", () => {
     const page = await createPage({ title: "Connection page" });
     const database = await createDatabase("Connection database");
     const record = await createDatabaseRecord(database.id, { title: "Connection record" });
+
+    const searched = await body<{ options: { id: string }[]; hasMore: boolean }>(await api.pageRecords.GET(
+      jsonRequest(`/api/pages/${page.id}/records?q=${encodeURIComponent("Connection record")}`, "GET"),
+      routeContext({ id: page.id }),
+    ));
+    assert.ok(
+      searched.options.some((row) => row.id === record.id),
+      "the picker searches records by title",
+    );
+    assert.equal(searched.hasMore, false);
+
+    const unmatched = await body<{ options: { id: string }[] }>(await api.pageRecords.GET(
+      jsonRequest(`/api/pages/${page.id}/records?q=${encodeURIComponent("no record holds this title")}`, "GET"),
+      routeContext({ id: page.id }),
+    ));
+    assert.deepEqual(unmatched.options, [], "a search that matches nothing offers nothing");
+
+    const pageSearch = await body<{ options: { id: string }[] }>(await api.recordPages.GET(
+      jsonRequest(`/api/records/${record.id}/pages?q=${encodeURIComponent("Connection page")}`, "GET"),
+      routeContext({ recordId: record.id }),
+    ));
+    assert.ok(
+      pageSearch.options.some((row) => row.id === page.id),
+      "the record's picker searches pages by title",
+    );
 
     const linked = await api.pageRecords.POST(
       jsonRequest(`/api/pages/${page.id}/records`, "POST", { recordId: record.id }),

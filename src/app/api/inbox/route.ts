@@ -24,11 +24,39 @@ const captureSchema = z.object({
   message: "URL must use HTTP or HTTPS.",
 });
 
+/**
+ * What an inbox card displays. The listing used to select whole page rows, so
+ * every capture's editor document travelled to the inbox and the dashboard for
+ * a title, a note, and a source; the document is only needed when the capture
+ * is opened.
+ */
+const inboxColumns = {
+  id: pages.id,
+  title: pages.title,
+  // The note itself is shown in full on the card, unlike the document behind it.
+  content: pages.content,
+  sourceUrl: pages.sourceUrl,
+  selectedText: pages.selectedText,
+  linkPreview: pages.linkPreview,
+  captureAttachment: pages.captureAttachment,
+  capturedAt: pages.capturedAt,
+  createdAt: pages.createdAt,
+};
+
+/** A summary can ask for the few captures it shows; the inbox wants them all. */
+const INBOX_LIMIT_MAX = 50;
+
 export async function GET(request: Request) {
   try {
-    const items = await db.select().from(pages)
+    const requestedLimit = Number(new URL(request.url).searchParams.get("limit") ?? 0);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(Math.trunc(requestedLimit), INBOX_LIMIT_MAX)
+      : 0;
+
+    const listing = db.select(inboxColumns).from(pages)
       .where(and(eq(pages.isInbox, true), isNull(pages.deletedAt)))
       .orderBy(desc(pages.capturedAt), desc(pages.createdAt));
+    const items = limit > 0 ? await listing.limit(limit) : await listing;
     return NextResponse.json(items);
   } catch (error) {
     return apiErrorResponse(request, "Failed to load inbox.", error, { status: 500, logMessage: "Failed to load inbox:" });

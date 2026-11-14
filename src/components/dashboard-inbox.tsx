@@ -13,6 +13,9 @@ type InboxItem = {
   createdAt: string;
 };
 
+/** How many captures the widget shows, so it asks for no more than that. */
+const WIDGET_ITEMS = 4;
+
 function hostnameFor(sourceUrl: string | null): string {
   if (!sourceUrl) return "Note";
   try {
@@ -43,10 +46,10 @@ export function DashboardInbox() {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch("/api/inbox");
+        const response = await fetch(`/api/inbox?limit=${WIDGET_ITEMS}`);
         if (!response.ok) throw new Error("Could not load the inbox.");
         const data: InboxItem[] = await response.json();
-        if (!cancelled) setItems(data.slice(0, 4));
+        if (!cancelled) setItems(data.slice(0, WIDGET_ITEMS));
       } catch (loadFailure) {
         if (!cancelled) {
           setError(

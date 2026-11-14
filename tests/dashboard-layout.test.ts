@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   DASHBOARD_WIDGET_IDS,
   defaultDashboardLayout,
-  moveDashboardWidget,
   normalizeDashboardLayout,
   parseDashboardLayout,
   reorderDashboardWidget,
@@ -42,15 +41,6 @@ test("malformed saved layouts fall back to the default", () => {
   assert.deepEqual(parseDashboardLayout("{not json"), defaultDashboardLayout());
   assert.deepEqual(parseDashboardLayout("[]"), defaultDashboardLayout());
   assert.deepEqual(normalizeDashboardLayout("nope"), defaultDashboardLayout());
-});
-
-test("moving a widget swaps it with its neighbour and ignores the ends", () => {
-  const layout = defaultDashboardLayout();
-  const moved = moveDashboardWidget(layout, "timeline", "up");
-  assert.deepEqual(moved.order.slice(2, 4), ["timeline", "pinned-projects"]);
-
-  assert.equal(moveDashboardWidget(layout, "resume", "up").order, layout.order);
-  assert.equal(moveDashboardWidget(layout, "databases", "down").order, layout.order);
 });
 
 test("reordering moves a widget in front of a target or to the end", () => {

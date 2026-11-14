@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, max } from "drizzle-orm";
+import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -504,13 +504,21 @@ export async function POST(request: Request, context: Context) {
           .set({ values: currentValues, updatedAt: new Date() })
           .where(and(eq(databaseRecords.id, recordId), eq(databaseRecords.databaseId, id)));
       }
-      for (const [targetRecordId, update] of relatedUpdates) {
-        await tx.update(databaseRecords)
-          .set({ values: update.values, updatedAt: new Date() })
-          .where(and(
-            eq(databaseRecords.id, targetRecordId),
-            eq(databaseRecords.databaseId, update.databaseId),
-          ));
+      if (relatedUpdates.size > 0) {
+        // One statement writes every record this click touched: each row already
+        // carries its new values, so they travel with the ids instead of one
+        // UPDATE per linked record.
+        const updatedAt = new Date();
+        const writes = [...relatedUpdates].map(
+          ([targetRecordId, update]) =>
+            sql`(${targetRecordId}::uuid, ${update.databaseId}::uuid, ${JSON.stringify(update.values)}::jsonb)`
+        );
+        await tx.execute(sql`
+          update database_records as target
+          set values = writes.values, updated_at = ${updatedAt}
+          from (values ${sql.join(writes, sql`, `)}) as writes(id, database_id, values)
+          where target.id = writes.id and target.database_id = writes.database_id
+        `);
       }
       for (const [index, entry] of resolved.entries()) {
         if (entry.kind !== "create") continue;

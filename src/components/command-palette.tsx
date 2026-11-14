@@ -144,8 +144,8 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
     };
   }, [openPalette]);
 
-  // Page titles and favorites come from the graph endpoint so opening the
-  // palette never downloads full page content.
+  // Page titles and favorites come from the graph's page index, so opening the
+  // palette reads pages rather than the links and tags that connect them.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -155,7 +155,7 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
         // Templates are a convenience here: a failed request must not take
         // page and database navigation down with it.
         const [graphResponse, databasesResponse, templatesResponse] = await Promise.all([
-          fetch("/api/graph"),
+          fetch("/api/graph?view=index"),
           fetch("/api/databases"),
           fetch("/api/page-templates").catch(() => null),
         ]);

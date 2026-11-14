@@ -4,6 +4,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -377,13 +378,27 @@ function clearDragState() {
   setDragPosition(null);
 }
 
+  // One index for the whole tree instead of a full scan of the page list for
+  // every row: rendering, expanding, and drag-hover each used to cost a pass
+  // over the workspace per visible node.
+  const childrenByParent = useMemo(() => {
+    const index = new Map<string | null, Page[]>();
+
+    for (const page of pages) {
+      const siblings = index.get(page.parentId);
+
+      if (siblings) siblings.push(page);
+      else index.set(page.parentId, [page]);
+    }
+
+    return index;
+  }, [pages]);
+
   function renderPages(parentId: string | null = null, depth = 0) {
-    const children = pages.filter((page) => page.parentId === parentId);
+    const children = childrenByParent.get(parentId) ?? [];
 
     return children.map((page, index) => {
-      const hasChildren = pages.some(
-        (child) => child.parentId === page.id
-      );
+      const hasChildren = childrenByParent.has(page.id);
 
       const isExpanded = expanded.has(page.id);
       const isEditing = editingId === page.id;

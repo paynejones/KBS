@@ -9,8 +9,6 @@ import {
   defaultSidebarSections,
   MOBILE_NAVIGATION_LIMIT,
   mobileNavigationWithActive,
-  moveNavigationKeyBy,
-  moveNavigationKeyTo,
   moveSidebarEntry,
   moveSidebarEntryTo,
   moveSidebarSection,
@@ -26,7 +24,6 @@ import {
   toggleHiddenNavigationKey,
   type SidebarSection,
   toggleMobileNavigationItem,
-  visibleSidebarKeys,
 } from "../src/lib/navigation";
 import { isViewMode, viewModeHref } from "../src/lib/view-mode";
 
@@ -294,7 +291,7 @@ test("unknown and duplicate destinations are dropped, missing ones appended", ()
   assert.deepEqual(preferences.mobile, ["graph"]);
 });
 
-test("hidden destinations are deduplicated and filtered from the sidebar", () => {
+test("hidden destinations are deduplicated without changing the bottom bar", () => {
   const preferences = parseNavigationPreferences(
     JSON.stringify({
       hidden: ["focus", "focus", "nope", 42, "trash"],
@@ -303,10 +300,6 @@ test("hidden destinations are deduplicated and filtered from the sidebar", () =>
   );
 
   assert.deepEqual(preferences.hidden, ["focus", "trash"]);
-  assert.deepEqual(
-    visibleSidebarKeys(preferences),
-    NAVIGATION_KEYS.filter((key) => key !== "focus" && key !== "trash"),
-  );
   assert.deepEqual(
     preferences.mobile,
     ["home", "pages", "inbox", "databases"],
@@ -370,43 +363,6 @@ test("an empty sidebar order is refilled from the defaults", () => {
     parseNavigationPreferences(JSON.stringify({ mobile: [] })).mobile,
     DEFAULT_MOBILE_ITEMS,
   );
-});
-
-test("moving a destination respects the ends of the list", () => {
-  const order = [...NAVIGATION_KEYS];
-
-  assert.deepEqual(moveNavigationKeyBy(order, "pages", "up"), [
-    "pages",
-    "home",
-    "searches",
-    "reading",
-    "focus",
-    "inbox",
-    "databases",
-    "favorites",
-    "graph",
-    "trash",
-  ]);
-  assert.deepEqual(moveNavigationKeyBy(order, "home", "up"), order);
-  assert.deepEqual(moveNavigationKeyBy(order, "trash", "down"), order);
-});
-
-test("dropping onto another destination moves to its index", () => {
-  const order = [...NAVIGATION_KEYS];
-
-  assert.deepEqual(moveNavigationKeyTo(order, "trash", "home"), [
-    "trash",
-    "home",
-    "pages",
-    "searches",
-    "reading",
-    "focus",
-    "inbox",
-    "databases",
-    "favorites",
-    "graph",
-  ]);
-  assert.equal(moveNavigationKeyTo(order, "trash", "trash"), order);
 });
 
 test("bottom-bar toggles add, remove, and never drop below one", () => {

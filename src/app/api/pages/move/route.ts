@@ -1,6 +1,6 @@
 
 import { NextResponse } from "next/server";
-import { eq, isNull } from "drizzle-orm";
+import { asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
 import { z } from "zod";
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     }
 
     const [page] = await db
-      .select()
+      .select({ id: pages.id, parentId: pages.parentId })
       .from(pages)
       .where(eq(pages.id, pageId))
       .limit(1);
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
 
     if (newParentId) {
       const [parent] = await db
-        .select()
+        .select({ id: pages.id })
         .from(pages)
         .where(eq(pages.id, newParentId))
         .limit(1);
@@ -53,28 +53,22 @@ export async function POST(request: Request) {
         );
       }
 
-      // Prevent moving a page into one of its descendants.
-      const allPages = await db.select().from(pages);
-      const descendants = new Set<string>();
-      let changed = true;
+      // Prevent moving a page into one of its own descendants. Walking up from
+      // the destination visits only that page's ancestors — the move is illegal
+      // exactly when the page being moved is one of them — so this used to read
+      // every page row, bodies included, to answer a question about one chain.
+      const { rows: ancestorRows } = await db.execute<{ isDescendant: boolean }>(sql`
+        with recursive ancestors as (
+          select id, parent_id from pages where id = ${newParentId}
+          union
+          select pages.id, pages.parent_id
+          from pages
+          join ancestors on pages.id = ancestors.parent_id
+        )
+        select exists (select 1 from ancestors where id = ${pageId}) as "isDescendant"
+      `);
 
-      while (changed) {
-        changed = false;
-
-        for (const candidate of allPages) {
-          if (
-            candidate.parentId &&
-            (candidate.parentId === pageId ||
-              descendants.has(candidate.parentId)) &&
-            !descendants.has(candidate.id)
-          ) {
-            descendants.add(candidate.id);
-            changed = true;
-          }
-        }
-      }
-
-      if (descendants.has(newParentId)) {
+      if (ancestorRows[0]?.isDescendant) {
         return NextResponse.json(
           { error: "A page cannot be moved into its own descendant." },
           { status: 400 }
@@ -84,7 +78,7 @@ export async function POST(request: Request) {
 
     if (targetPageId) {
       const [target] = await db
-        .select()
+        .select({ id: pages.id, parentId: pages.parentId })
         .from(pages)
         .where(eq(pages.id, targetPageId))
         .limit(1);
@@ -111,26 +105,41 @@ export async function POST(request: Request) {
       }
     }
 
-    const siblings = await db
-      .select()
-      .from(pages)
-      .where(
-        newParentId
-          ? eq(pages.parentId, newParentId)
-          : isNull(pages.parentId)
-      )
-      .orderBy(pages.sortOrder);
+    // The page's old parent loses a child, so its remaining children need new
+    // positions too; neither read depends on the other, so they go together.
+    // Siblings with equal positions are ordered by title, the way the reorder
+    // route reads them, so duplicates always resolve the same way.
+    const [siblings, previousSiblings] = await Promise.all([
+      db
+        .select({ id: pages.id })
+        .from(pages)
+        .where(
+          newParentId
+            ? eq(pages.parentId, newParentId)
+            : isNull(pages.parentId)
+        )
+        .orderBy(asc(pages.sortOrder), asc(pages.title)),
+      page.parentId === newParentId
+        ? Promise.resolve([] as { id: string }[])
+        : db
+            .select({ id: pages.id })
+            .from(pages)
+            .where(
+              page.parentId
+                ? eq(pages.parentId, page.parentId)
+                : isNull(pages.parentId)
+            )
+            .orderBy(asc(pages.sortOrder), asc(pages.title)),
+    ]);
 
-    const remainingSiblings = siblings.filter(
-      (sibling) => sibling.id !== pageId
-    );
+    const remainingSiblings = siblings
+      .map((sibling) => sibling.id)
+      .filter((siblingId) => siblingId !== pageId);
 
     let insertIndex = remainingSiblings.length;
 
     if (targetPageId && position !== "inside") {
-      const targetIndex = remainingSiblings.findIndex(
-        (sibling) => sibling.id === targetPageId
-      );
+      const targetIndex = remainingSiblings.indexOf(targetPageId);
 
       if (targetIndex === -1) {
         return NextResponse.json(
@@ -143,24 +152,38 @@ export async function POST(request: Request) {
         position === "before" ? targetIndex : targetIndex + 1;
     }
 
-    remainingSiblings.splice(insertIndex, 0, {
-      ...page,
-      parentId: newParentId,
-    });
+    remainingSiblings.splice(insertIndex, 0, pageId);
 
-    await db.transaction(async (tx) => {
-      for (let index = 0; index < remainingSiblings.length; index++) {
-        const sibling = remainingSiblings[index];
+    const orphanedSiblings = previousSiblings
+      .map((sibling) => sibling.id)
+      .filter((siblingId) => siblingId !== pageId);
 
-        await tx
-          .update(pages)
-          .set({
-            parentId: newParentId,
-            sortOrder: index,
-          })
-          .where(eq(pages.id, sibling.id));
-      }
-    });
+    // One statement for both parents: each row already knows its new position,
+    // so the positions travel with the ids instead of one UPDATE per sibling.
+    // A single statement is atomic on its own, so no transaction.
+    const positions = [
+      ...remainingSiblings.map((siblingId, position) => ({
+        pageId: siblingId,
+        parentId: newParentId,
+        position,
+      })),
+      ...orphanedSiblings.map((siblingId, position) => ({
+        pageId: siblingId,
+        parentId: page.parentId,
+        position,
+      })),
+    ];
+    const reordered = positions.map(
+      (row) => sql`(${row.pageId}::uuid, ${row.parentId}::uuid, ${row.position}::int)`
+    );
+
+    await db.execute(sql`
+      update pages as moved
+      set parent_id = positions.parent_id,
+          sort_order = positions.position
+      from (values ${sql.join(reordered, sql`, `)}) as positions(id, parent_id, position)
+      where moved.id = positions.id
+    `);
 
     return NextResponse.json({ success: true });
   } catch (error) {

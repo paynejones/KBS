@@ -1,8 +1,7 @@
 import { inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { attachments, databaseRecords, databaseTemplates, pageRevisions, pages } from "@/db/schema";
+import { attachmentReferences, attachments } from "@/db/schema";
 import { removeAttachmentFile } from "@/lib/attachment-store";
-import { attachmentIdsInText } from "@/lib/media";
 
 export type OrphanedAttachment = {
   id: string;
@@ -12,49 +11,24 @@ export type OrphanedAttachment = {
   createdAt: Date;
 };
 
-function addIds(target: Set<string>, value: unknown) {
-  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
-  for (const id of attachmentIdsInText(text)) target.add(id);
-}
-
 /**
  * Every attachment id still referenced by page content, page covers, captured
  * inbox files, page revisions, database record values, or database templates.
  *
  * Revisions are included on purpose: deleting a file that only an older
- * revision uses would break restoring that revision.
+ * revision uses would break restoring that revision. Trashed pages keep their
+ * files for the same reason — a restored page has to find its images again, so
+ * nothing here filters on `deleted_at`.
+ *
+ * The rows come from `attachment_references`, which database triggers keep in
+ * step with the documents, so answering this never opens a page body.
  */
 export async function referencedAttachmentIdSet(): Promise<Set<string>> {
-  const [pageRows, revisionRows, recordRows, templateRows] = await Promise.all([
-    db
-      .select({
-        content: pages.content,
-        contentJson: pages.contentJson,
-        coverImageUrl: pages.coverImageUrl,
-        captureAttachment: pages.captureAttachment,
-      })
-      .from(pages),
-    db
-      .select({ content: pageRevisions.content, contentJson: pageRevisions.contentJson })
-      .from(pageRevisions),
-    db.select({ values: databaseRecords.values }).from(databaseRecords),
-    db.select({ values: databaseTemplates.values }).from(databaseTemplates),
-  ]);
+  const rows = await db
+    .selectDistinct({ id: attachmentReferences.attachmentId })
+    .from(attachmentReferences);
 
-  const ids = new Set<string>();
-  for (const row of pageRows) {
-    addIds(ids, row.content);
-    addIds(ids, row.contentJson);
-    addIds(ids, row.coverImageUrl);
-    addIds(ids, row.captureAttachment);
-  }
-  for (const row of revisionRows) {
-    addIds(ids, row.content);
-    addIds(ids, row.contentJson);
-  }
-  for (const row of recordRows) addIds(ids, row.values);
-  for (const row of templateRows) addIds(ids, row.values);
-  return ids;
+  return new Set(rows.map((row) => row.id));
 }
 
 export async function listOrphanedAttachments(): Promise<OrphanedAttachment[]> {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { pageRevisions, pages } from "@/db/schema";
@@ -8,6 +8,13 @@ import { apiErrorResponse } from "@/lib/api-log";
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
 const restoreSchema = z.object({ revisionId: z.string().uuid() });
+
+// The history panel shows two lines of each version, so the list carries a
+// preview and not the body: a hundred revisions used to ship a hundred pages
+// of text to fill a clamped paragraph.
+const REVISION_PREVIEW_LENGTH = 200;
+
+const revisionPreview = sql<string | null>`nullif(left(${pageRevisions.content}, ${REVISION_PREVIEW_LENGTH}), '')`;
 
 export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
@@ -20,7 +27,7 @@ export async function GET(request: Request, context: Context) {
     if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
 
     const revisions = await db
-      .select({ id: pageRevisions.id, title: pageRevisions.title, content: pageRevisions.content, createdAt: pageRevisions.createdAt })
+      .select({ id: pageRevisions.id, title: pageRevisions.title, preview: revisionPreview, createdAt: pageRevisions.createdAt })
       .from(pageRevisions)
       .where(eq(pageRevisions.pageId, id))
       .orderBy(desc(pageRevisions.createdAt))

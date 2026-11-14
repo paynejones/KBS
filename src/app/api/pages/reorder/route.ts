@@ -1,6 +1,6 @@
 
 import { NextResponse } from "next/server";
-import { asc, eq, isNull } from "drizzle-orm";
+import { asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { pages } from "@/db/schema";
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   try {
   // Find the page being moved.
   const [page] = await db
-    .select()
+    .select({ id: pages.id, parentId: pages.parentId })
     .from(pages)
     .where(eq(pages.id, pageId))
     .limit(1);
@@ -68,18 +68,19 @@ export async function POST(request: Request) {
   const currentPage = siblings[currentIndex];
   const targetPage = siblings[targetIndex];
 
-  // Swap both positions in one transaction.
-  await db.transaction(async (tx) => {
-    await tx
-      .update(pages)
-      .set({ sortOrder: targetPage.sortOrder })
-      .where(eq(pages.id, currentPage.id));
+  // Swap both positions in one statement: the two rows already know their new
+  // sort orders, so the orders travel with the ids instead of two UPDATEs.
+  const swapped = [
+    { id: currentPage.id, sortOrder: targetPage.sortOrder },
+    { id: targetPage.id, sortOrder: currentPage.sortOrder },
+  ].map((row) => sql`(${row.id}::uuid, ${row.sortOrder}::int)`);
 
-    await tx
-      .update(pages)
-      .set({ sortOrder: currentPage.sortOrder })
-      .where(eq(pages.id, targetPage.id));
-  });
+  await db.execute(sql`
+    update pages as reordered
+    set sort_order = positions.position
+    from (values ${sql.join(swapped, sql`, `)}) as positions(id, position)
+    where reordered.id = positions.id
+  `);
 
   return NextResponse.json({ success: true });
   } catch (error) {

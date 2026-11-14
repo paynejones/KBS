@@ -1,4 +1,4 @@
-import { asc, desc, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { pages, taskCompletions } from "@/db/schema";
@@ -9,12 +9,26 @@ import {
   focusTasks,
   type FocusTask,
 } from "@/lib/focus";
-import { pageGroupIds } from "@/lib/graph";
+import { subtreeIds } from "@/db/page-tree";
 
 /** Home shows a short list; the focus view is where every pinned project lives. */
 const PINNED_PROJECT_LIMIT = 6;
 /** Only the next few open tasks fit on a card. */
 const OPEN_TASK_LIMIT = 20;
+/**
+ * Favorites are examined a batch at a time, so their editor documents are read
+ * only until the cards are full instead of for the whole workspace.
+ */
+const PINNED_FAVORITE_BATCH = 6;
+
+type PinnedProject = {
+  id: string;
+  title: string;
+  icon: string | null;
+  progress: ReturnType<typeof focusTaskProgress>;
+  tasks: FocusTask[];
+  recentlyCompleted: { text: string; completedAt: Date }[];
+};
 
 /**
  * Task progress for pinned (favorite) pages that actually hold tasks. Each
@@ -23,60 +37,77 @@ const OPEN_TASK_LIMIT = 20;
  */
 export async function GET(request: Request) {
   try {
-    // A project's tasks live on its own page and its subpages, so the whole
-    // active tree is needed before the pinned pages are picked out of it.
-    const allActive = await db
-      .select({
-        id: pages.id,
-        title: pages.title,
-        icon: pages.icon,
-        parentId: pages.parentId,
-        contentJson: pages.contentJson,
-        isFavorite: pages.isFavorite,
-      })
+    // Only the pinned pages are named here. Which pages belong to a project is
+    // a question about the tree, so the subtrees are walked per favorite below
+    // rather than by reading every page in the workspace first.
+    const pinnedPages = await db
+      .select({ id: pages.id, title: pages.title, icon: pages.icon })
       .from(pages)
-      .where(isNull(pages.deletedAt))
+      .where(and(isNull(pages.deletedAt), eq(pages.isFavorite, true)))
       .orderBy(asc(pages.title));
 
-    const pinnedPages = allActive.filter((row) => row.isFavorite);
-
-    const projects: {
-      id: string;
-      title: string;
-      icon: string | null;
-      progress: ReturnType<typeof focusTaskProgress>;
-      tasks: FocusTask[];
-      recentlyCompleted: { text: string; completedAt: Date }[];
-    }[] = [];
+    const projects: PinnedProject[] = [];
     const subtreeByProject = new Map<string, Set<string>>();
 
-    for (const project of pinnedPages) {
-      if (projects.length >= PINNED_PROJECT_LIMIT) break;
+    for (
+      let start = 0;
+      start < pinnedPages.length && projects.length < PINNED_PROJECT_LIMIT;
+      start += PINNED_FAVORITE_BATCH
+    ) {
+      // A favorite with nothing to do is not a project with progress to show,
+      // so the bodies decide which favorites count — but only this batch's
+      // subtrees are read to find out.
+      const batchPages = pinnedPages.slice(start, start + PINNED_FAVORITE_BATCH);
+      const batch = await Promise.all(
+        batchPages.map(async (project) => ({
+          project,
+          subtreeIds: await subtreeIds(db, project.id),
+        })),
+      );
 
-      const subtreeIds = pageGroupIds(allActive, project.id);
-      const subtree = [project, ...allActive.filter(
-        (row) => row.id !== project.id && subtreeIds.has(row.id),
-      )];
-      subtreeByProject.set(project.id, subtreeIds);
+      const subtreePageIds = [...new Set(batch.flatMap(({ subtreeIds: ids }) => ids))];
+      // The subtree walk sees trashed pages too, so they are filtered here for
+      // the same reason the old whole-table read skipped them.
+      const details = subtreePageIds.length === 0
+        ? []
+        : await db
+            .select({ id: pages.id, title: pages.title, contentJson: pages.contentJson })
+            .from(pages)
+            .where(and(inArray(pages.id, subtreePageIds), isNull(pages.deletedAt)))
+            .orderBy(asc(pages.title));
+      const contentById = new Map(details.map((row) => [row.id, row.contentJson]));
+      const activeSubtreeIds = new Set(details.map((row) => row.id));
 
-      const tasks: FocusTask[] = [];
-      for (const row of subtree) {
-        const remaining = FOCUS_TASK_LIMIT - tasks.length;
-        if (remaining <= 0) break;
-        tasks.push(...focusTasks(row.contentJson, row.id, row.title, remaining));
+      for (const { project, subtreeIds: projectSubtreeIds } of batch) {
+        if (projects.length >= PINNED_PROJECT_LIMIT) break;
+
+        const members = new Set(projectSubtreeIds.filter((id) => activeSubtreeIds.has(id)));
+        // Titles come from the same rows, ordered by title, so a card lists its
+        // subpages in the order the old read put them in.
+        const subtree = [
+          project,
+          ...details.filter((row) => row.id !== project.id && members.has(row.id)),
+        ];
+
+        const tasks: FocusTask[] = [];
+        for (const row of subtree) {
+          const remaining = FOCUS_TASK_LIMIT - tasks.length;
+          if (remaining <= 0) break;
+          tasks.push(...focusTasks(contentById.get(row.id), row.id, row.title, remaining));
+        }
+
+        if (tasks.length === 0) continue;
+
+        projects.push({
+          id: project.id,
+          title: project.title,
+          icon: project.icon,
+          progress: focusTaskProgress(tasks),
+          tasks: tasks.filter((task) => !task.checked).slice(0, OPEN_TASK_LIMIT),
+          recentlyCompleted: [],
+        });
+        subtreeByProject.set(project.id, members);
       }
-
-      // A favorite with nothing to do is not a project with progress to show.
-      if (tasks.length === 0) continue;
-
-      projects.push({
-        id: project.id,
-        title: project.title,
-        icon: project.icon,
-        progress: focusTaskProgress(tasks),
-        tasks: tasks.filter((task) => !task.checked).slice(0, OPEN_TASK_LIMIT),
-        recentlyCompleted: [],
-      });
     }
 
     if (projects.length > 0) {

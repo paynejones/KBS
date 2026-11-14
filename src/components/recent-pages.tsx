@@ -17,6 +17,7 @@ import {
   getServerNavigationSnapshot,
   subscribeToNavigation,
 } from "@/lib/navigation";
+import { previewText } from "@/lib/utils";
 
 type FallbackPage = {
   id: string;
@@ -68,6 +69,11 @@ export function RecentPages({
   const [recordPageIds, setRecordPageIds] = useState<Set<string>>(
     () => new Set(),
   );
+  // An empty string records "asked, nothing to show" so a page without content
+  // is not requested again on every render.
+  const [loadedSnippets, setLoadedSnippets] = useState<
+    Record<string, string>
+  >({});
   const hasRecents = recents.length > 0;
 
   useEffect(() => {
@@ -76,18 +82,12 @@ export function RecentPages({
 
     async function loadRecordPageIds() {
       try {
-        const response = await fetch("/api/graph");
+        // Only the marker set is needed here, not the graph around it.
+        const response = await fetch("/api/graph?view=record-pages");
         if (!response.ok) return;
-        const data: { nodes: { id: string; isRecordPage?: boolean }[] } =
-          await response.json();
+        const data: { recordPageIds?: string[] } = await response.json();
         if (cancelled) return;
-        setRecordPageIds(
-          new Set(
-            data.nodes
-              .filter((node) => node.isRecordPage)
-              .map((node) => node.id),
-          ),
-        );
+        setRecordPageIds(new Set(data.recordPageIds ?? []));
       } catch {
         // Recents are a convenience: if the marker is unavailable, show them.
       }
@@ -115,6 +115,48 @@ export function RecentPages({
           title: page.title || "Untitled",
           meta: `Updated ${formatUpdated(page.updatedAt)}`,
         }));
+
+  // A visited page is not always one of the newest, so a row the dashboard did
+  // not already preview asks for its own excerpt. The request is bounded by the
+  // handful of rows shown here.
+  const missingPreviewKey = rows
+    .filter(
+      (row) => !snippets[row.id] && loadedSnippets[row.id] === undefined,
+    )
+    .map((row) => row.id)
+    .join(",");
+
+  useEffect(() => {
+    if (!missingPreviewKey) return;
+    let cancelled = false;
+
+    async function loadPreviews() {
+      try {
+        const ids = missingPreviewKey.split(",");
+        const response = await fetch(
+          `/api/pages?ids=${ids.join(",")}&snippets=${ids.length}`,
+        );
+        if (!response.ok) return;
+        const data: { id: string; snippet?: string | null }[] =
+          await response.json();
+        if (cancelled) return;
+        setLoadedSnippets((previous) => {
+          const next = { ...previous };
+          for (const page of data) {
+            next[page.id] = previewText(page.snippet);
+          }
+          return next;
+        });
+      } catch {
+        // Previews are a convenience: the rows still render without one.
+      }
+    }
+
+    void loadPreviews();
+    return () => {
+      cancelled = true;
+    };
+  }, [missingPreviewKey]);
 
   if (rows.length === 0) return null;
 
@@ -161,9 +203,9 @@ export function RecentPages({
               <span className="block truncate text-sm font-medium group-hover:text-brand">
                 {row.title}
               </span>
-              {snippets[row.id] && (
+              {(snippets[row.id] ?? loadedSnippets[row.id]) && (
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {snippets[row.id]}
+                  {snippets[row.id] ?? loadedSnippets[row.id]}
                 </span>
               )}
             </span>

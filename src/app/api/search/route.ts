@@ -5,8 +5,8 @@ import { databases, databaseRecords, pages } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api-log";
 
 // Ranking has to see every candidate before it can order them, which is slow
-// when a term matches most pages. Reading the newest matches first keeps this
-// window bounded, so search never sorts a whole table on a keystroke.
+// when a term matches most pages or records. Reading the newest matches first
+// keeps this window bounded, so search never sorts a whole table on a keystroke.
 const CANDIDATE_WINDOW = 32;
 
 // Both kinds are fetched separately and merged on their scores, so each side
@@ -63,6 +63,28 @@ export async function GET(request: Request) {
       .limit(CANDIDATE_WINDOW)
       .as("recent_pages");
 
+    // Records rank from their newest matches for the same reason pages do:
+    // ordering by relevance alone makes Postgres read and sort every record
+    // that mentions the term, property values included.
+    const recentRecords = db
+      .select({
+        id: databaseRecords.id,
+        title: databaseRecords.title,
+        updatedAt: databaseRecords.updatedAt,
+        databaseId: databaseRecords.databaseId,
+        databaseName: databases.name,
+        pageId: databaseRecords.pageId,
+      })
+      .from(databaseRecords)
+      .innerJoin(databases, eq(databaseRecords.databaseId, databases.id))
+      .where(or(
+        ilike(databaseRecords.title, pattern),
+        sql`${databaseRecords.values}::text ILIKE ${pattern}`,
+      ))
+      .orderBy(desc(databaseRecords.updatedAt))
+      .limit(CANDIDATE_WINDOW)
+      .as("recent_records");
+
     const [pageResults, recordResults] = await Promise.all([
       db.select({
         id: recentPages.id,
@@ -80,26 +102,21 @@ export async function GET(request: Request) {
         )
         .limit(RESULTS_PER_KIND),
       db.select({
-        id: databaseRecords.id,
-        title: databaseRecords.title,
-        updatedAt: databaseRecords.updatedAt,
-        databaseId: databases.id,
-        databaseName: databases.name,
-        pageId: databaseRecords.pageId,
-        score: relevance(databaseRecords.title, databaseRecords.updatedAt),
-        match: sql<"title" | "content">`CASE WHEN ${databaseRecords.title} ILIKE ${pattern} THEN 'title' ELSE 'content' END`,
+        id: recentRecords.id,
+        title: recentRecords.title,
+        updatedAt: recentRecords.updatedAt,
+        databaseId: recentRecords.databaseId,
+        databaseName: recentRecords.databaseName,
+        pageId: recentRecords.pageId,
+        score: relevance(recentRecords.title, recentRecords.updatedAt),
+        match: sql<"title" | "content">`CASE WHEN ${recentRecords.title} ILIKE ${pattern} THEN 'title' ELSE 'content' END`,
       })
-        .from(databaseRecords)
-        .innerJoin(databases, eq(databaseRecords.databaseId, databases.id))
-        .where(or(
-          ilike(databaseRecords.title, pattern),
-          sql`${databaseRecords.values}::text ILIKE ${pattern}`,
-        ))
+        .from(recentRecords)
         // Records have no favorite flag of their own, so only their titles and
         // recency move them within a bucket.
         .orderBy(
-          desc(relevance(databaseRecords.title, databaseRecords.updatedAt)),
-          desc(databaseRecords.updatedAt),
+          desc(relevance(recentRecords.title, recentRecords.updatedAt)),
+          desc(recentRecords.updatedAt),
         )
         .limit(RESULTS_PER_KIND),
     ]);

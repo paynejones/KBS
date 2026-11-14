@@ -1,0 +1,1 @@
+CREATE INDEX "database_records_page_id_idx" ON "database_records" USING btree ("page_id");

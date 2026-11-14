@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ChevronLeft, ChevronRight, LayoutDashboard, Plus, X } from "lucide-react";
@@ -36,6 +36,7 @@ import {
   storeDashboardWidgets,
   subscribeToDashboardWidgets,
 } from "@/lib/dashboard";
+import { refreshDashboard, useDashboardRequest } from "@/lib/dashboard-request";
 
 type ViewOption = {
   id: string;
@@ -98,12 +99,7 @@ export function DashboardWidgets() {
     getEmptyDashboardWidgetsSnapshot,
   );
 
-  const [views, setViews] = useState<ViewOption[]>([]);
-  const [items, setItems] = useState<WidgetData[]>([]);
   const [pickerValue, setPickerValue] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [retryKey, setRetryKey] = useState(0);
   // A shape switch applies immediately and is saved back to the shared view,
   // so the database page and every other widget follow the same choice.
   const [chartTypes, setChartTypes] = useState<Record<string, ChartType>>({});
@@ -122,43 +118,17 @@ export function DashboardWidgets() {
   const [chartSaving, setChartSaving] = useState("");
   const [chartError, setChartError] = useState("");
 
-  const requestedIds = widgets.map((widget) => widget.viewId).join(",");
+  const { data: payload, loading, failed } = useDashboardRequest("widgets", {
+    today: todayKey(),
+    viewIds: widgets.map((widget) => widget.viewId),
+  });
+  const loadError = failed ? "Could not load dashboard widgets." : "";
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadDashboard() {
-      setLoading(true);
-      setLoadError("");
-      try {
-        const params = new URLSearchParams({ today: todayKey() });
-        if (requestedIds) params.set("viewIds", requestedIds);
-        const response = await fetch(`/api/dashboard?${params.toString()}`);
-        if (!response.ok) throw new Error("Could not load dashboard widgets.");
-        const data: { views: ViewOption[]; widgets: WidgetData[] } =
-          await response.json();
-        if (!cancelled) {
-          setViews(data.views);
-          setItems(data.widgets);
-        }
-      } catch (loadFailure) {
-        if (!cancelled) {
-          setLoadError(
-            loadFailure instanceof Error
-              ? loadFailure.message
-              : "Could not load dashboard widgets.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void loadDashboard();
-    return () => {
-      cancelled = true;
-    };
-  }, [requestedIds, retryKey]);
+  // The payload is the only source of widget data. A chart-shape switch stays
+  // visible through `chartTypes` until the refresh that follows the save lands.
+  const payloadData = payload as { views: ViewOption[]; widgets: WidgetData[] } | null;
+  const views = payloadData?.views ?? [];
+  const items = payloadData?.widgets ?? [];
 
   function addSelectedWidget() {
     const view = views.find((candidate) => candidate.id === pickerValue);
@@ -186,13 +156,7 @@ export function DashboardWidgets() {
         },
       );
       if (!response.ok) throw new Error("Could not save the chart shape.");
-      setItems((current) => current.map((candidate) => candidate.view.id === item.view.id
-        ? {
-            ...candidate,
-            view: { ...candidate.view, config: { ...candidate.view.config, chartType: next } },
-            chart: candidate.chart ? { ...candidate.chart, type: next } : candidate.chart,
-          }
-        : candidate));
+      await refreshDashboard();
       setChartTypes((current) => {
         const remaining = { ...current };
         delete remaining[item.view.id];
@@ -243,15 +207,8 @@ export function DashboardWidgets() {
       );
       if (!response.ok) throw new Error("Could not save the chart setting.");
       // The chosen property or grouping needs its own chart data, which the
-      // dashboard endpoint computes from the view that was just saved.
-      const params = new URLSearchParams({ today: todayKey() });
-      if (requestedIds) params.set("viewIds", requestedIds);
-      const refreshed = await fetch(`/api/dashboard?${params.toString()}`);
-      if (!refreshed.ok) throw new Error("Could not update the chart.");
-      const data: { views: ViewOption[]; widgets: WidgetData[] } =
-        await refreshed.json();
-      setViews(data.views);
-      setItems(data.widgets);
+      // dashboard endpoint recomputes from the view that was just saved.
+      await refreshDashboard();
       setChartPicks((current) => {
         const remaining = { ...current };
         delete remaining[item.view.id];
@@ -335,7 +292,7 @@ export function DashboardWidgets() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setRetryKey((current) => current + 1)}
+            onClick={() => void refreshDashboard()}
           >
             Try again
           </Button>

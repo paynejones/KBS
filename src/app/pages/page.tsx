@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, FolderUp, Link2Off, SlidersHorizontal, Star, Trash2, Upload } from "lucide-react";
@@ -24,6 +24,13 @@ import {
 } from "@/lib/markdown-import-files";
 import { starterPageTemplates } from "@/lib/page-templates";
 import { revealTemplateFromHash } from "@/lib/page-template-deep-link";
+import {
+  LISTING_DEFAULT_SORT,
+  LISTING_PAGE_SIZE,
+  listingSearch,
+  readListingSearch,
+  type ListingWindow,
+} from "@/lib/listing-link";
 import {
   getNavigationSnapshot,
   getServerNavigationSnapshot,
@@ -49,6 +56,23 @@ type PageTemplate = {
   icon: string | null;
 };
 
+
+
+/** The address never changes behind this component's back, so it needs no
+ * listeners; React still re-reads it after hydration. */
+const subscribeToAddress = () => () => {};
+
+/** The first and last moment of a local calendar day, as ISO instants. */
+function dayStart(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day).toISOString();
+}
+
+function dayEnd(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day, 23, 59, 59, 999).toISOString();
+}
+
 export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolean }) {
   const router = useRouter();
   const showDatabasePages = useSyncExternalStore(
@@ -58,18 +82,61 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
   ).showDatabasePages;
 
   const [pages, setPages] = useState<PageSummary[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [allTags, setAllTags] = useState<
     { id: string; name: string }[]
   >([]);
-  const [selectedTagId, setSelectedTagId] = useState("");
-  const [updatedFrom, setUpdatedFrom] = useState("");
-  const [updatedThrough, setUpdatedThrough] = useState("");
-  const [sortOrder, setSortOrder] = useState("updated-desc");
+  // The address is an external store: the server has none, the browser has the
+  // real one, so the first client render matches the server and the listing
+  // adopts the URL on the render right after.
+  const hydrated = useSyncExternalStore(subscribeToAddress, () => true, () => false);
+  const addressSearch = useSyncExternalStore(
+    subscribeToAddress,
+    () => window.location.search,
+    () => "",
+  );
+  const addressListing = readListingSearch(addressSearch);
+
+  // Until the reader touches a control, the address decides the listing: its
+  // page, sort, search term, tag and date bounds all come from there.
+  const [selection, setSelection] = useState<ListingWindow | null>(null);
+  const page = selection?.page ?? addressListing.page;
+  const offset = (page - 1) * LISTING_PAGE_SIZE;
+  const sortOrder = selection?.sort ?? addressListing.sort ?? LISTING_DEFAULT_SORT;
+  const appliedQuery = selection?.query ?? addressListing.query ?? "";
+  const selectedTagId = selection?.tagId ?? addressListing.tagId ?? "";
+  const updatedFrom = selection?.from ?? addressListing.from ?? "";
+  const updatedThrough = selection?.through ?? addressListing.through ?? "";
+
+  // Typed text stays local until the pause ends; the listing (and the address)
+  // follow the applied query.
+  const [typedSearch, setTypedSearch] = useState<string | null>(null);
+  const search = typedSearch ?? appliedQuery;
+
+  const updateSelection = useCallback(
+    (patch: Partial<ListingWindow>) => {
+      setSelection((current) => ({
+        page: current?.page ?? addressListing.page,
+        sort: current?.sort ?? addressListing.sort ?? LISTING_DEFAULT_SORT,
+        query: current?.query ?? addressListing.query ?? "",
+        tagId: current?.tagId ?? addressListing.tagId ?? "",
+        from: current?.from ?? addressListing.from ?? "",
+        through: current?.through ?? addressListing.through ?? "",
+        ...patch,
+      }));
+    },
+    [
+      addressListing.page,
+      addressListing.sort,
+      addressListing.query,
+      addressListing.tagId,
+      addressListing.from,
+      addressListing.through,
+    ],
+  );
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [retryKey, setRetryKey] = useState(0);
@@ -149,14 +216,37 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
   }, [templates]);
 
   useEffect(() => {
+    // Nothing to apply while the box still matches the listing it came from.
+    if (search.trim() === appliedQuery) return;
     const timer = setTimeout(() => {
-      setDebouncedSearch(search.trim());
+      updateSelection({ query: search.trim(), page: 1 });
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, appliedQuery, updateSelection]);
+
+  // The listing writes its own position and filters into the address; the
+  // defaults stay out of it so a plain listing keeps its clean address.
+  useEffect(() => {
+    if (!hydrated) return;
+    const next = `${window.location.pathname}${listingSearch(window.location.search, {
+      page,
+      sort: sortOrder,
+      query: appliedQuery,
+      tagId: selectedTagId,
+      from: updatedFrom,
+      through: updatedThrough,
+    })}`;
+    const current = `${window.location.pathname}${window.location.search}`;
+    // Replacing rather than pushing: the listing's own position is not a place
+    // the reader should have to walk back through.
+    if (next !== current) window.history.replaceState(null, "", next);
+  }, [hydrated, page, sortOrder, appliedQuery, selectedTagId, updatedFrom, updatedThrough]);
 
   useEffect(() => {
+    // Nothing is asked for until the address has been read, so a restored page
+    // is fetched once rather than after an extra default request.
+    if (!hydrated) return;
     let cancelled = false;
 
     async function fetchPages() {
@@ -164,8 +254,8 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
       try {
         const params = new URLSearchParams();
 
-        if (debouncedSearch) {
-          params.set("q", debouncedSearch);
+        if (appliedQuery) {
+          params.set("q", appliedQuery);
         }
 
         if (selectedTagId) {
@@ -176,16 +266,25 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
 
         if (showDatabasePages) params.set("includeRecordPages", "true");
 
+        // One screenful arrives already ordered and date-filtered, so the
+        // browser never holds every matching page to sort it itself.
+        params.set("sort", sortOrder);
+        params.set("limit", String(LISTING_PAGE_SIZE));
+        params.set("offset", String(offset));
+        if (updatedFrom) params.set("updatedFrom", dayStart(updatedFrom));
+        if (updatedThrough) params.set("updatedThrough", dayEnd(updatedThrough));
+
         const response = await fetch(`/api/pages?${params.toString()}`);
 
         if (!response.ok) {
           throw new Error("Failed to load pages");
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as { pages: PageSummary[]; total: number };
 
         if (!cancelled) {
-          setPages(data);
+          setPages(data.pages);
+          setTotal(data.total);
           setLoadError("");
         }
       } catch (error) {
@@ -206,12 +305,17 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
       cancelled = true;
     };
   }, [
-    debouncedSearch,
+    appliedQuery,
     selectedTagId,
     favoritesOnly,
     refreshKey,
     retryKey,
     showDatabasePages,
+    sortOrder,
+    updatedFrom,
+    updatedThrough,
+    offset,
+    hydrated,
   ]);
 
   async function toggleFavorite(page: PageSummary) {
@@ -231,6 +335,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
               item.id === page.id ? { ...item, isFavorite } : item,
             ),
       );
+      if (favoritesOnly && !isFavorite) setTotal((current) => Math.max(0, current - 1));
     } catch {
       setError("Could not update favorite. Please try again.");
     }
@@ -352,12 +457,12 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
     setImporting(false);
   }
 
-  async function deletePage(page: PageSummary) {
-    setDeletingId(page.id);
+  async function deletePage(target: PageSummary) {
+    setDeletingId(target.id);
     setError("");
 
     try {
-      const response = await fetch(`/api/pages/${page.id}`, {
+      const response = await fetch(`/api/pages/${target.id}`, {
         method: "DELETE",
       });
 
@@ -366,8 +471,11 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
       }
 
       setPages((previous) =>
-        previous.filter((item) => item.id !== page.id)
+        previous.filter((item) => item.id !== target.id)
       );
+      setTotal((current) => Math.max(0, current - 1));
+      // Removing the only row on a later page leaves the window past the end.
+      if (pages.length === 1 && page > 1) updateSelection({ page: page - 1 });
 
       // Notify the sidebar that its page tree needs refreshing.
       window.dispatchEvent(new Event("pages-updated"));
@@ -379,31 +487,11 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
     }
   }
 
-  const dateKey = (value: string) => {
-    const date = new Date(value);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-  const filteredPages = pages
-    .filter((page) => {
-      const updated = dateKey(page.updatedAt);
-      return (!updatedFrom || updated >= updatedFrom) &&
-        (!updatedThrough || updated <= updatedThrough);
-    })
-    .sort((left, right) => {
-      switch (sortOrder) {
-        case "updated-asc": return new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime();
-        case "created-desc": return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-        case "created-asc": return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
-        case "title-asc": return left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
-        case "title-desc": return right.title.localeCompare(left.title, undefined, { sensitivity: "base" });
-        default: return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-      }
-    });
   const hasFilters = Boolean(
     search.trim() || selectedTagId || updatedFrom || updatedThrough,
+  );
+  const isFiltered = Boolean(
+    appliedQuery || selectedTagId || updatedFrom || updatedThrough,
   );
   const activeFilterCount = [selectedTagId, updatedFrom, updatedThrough].filter(
     Boolean,
@@ -574,7 +662,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
             type="search"
             placeholder="Search pages..."
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => setTypedSearch(event.target.value)}
             className="w-full rounded-md border bg-background px-3 py-2 pl-9 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
 
@@ -613,7 +701,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                 <select
                   aria-label="Filter pages by tag"
                   value={selectedTagId}
-                  onChange={(event) => setSelectedTagId(event.target.value)}
+                  onChange={(event) => updateSelection({ tagId: event.target.value, page: 1 })}
                   className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground"
                 >
                   <option value="">All tags</option>
@@ -627,16 +715,16 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
               <div className="grid grid-cols-2 gap-2">
                 <label className="grid gap-1 text-xs text-muted-foreground">
                   Updated from
-                  <input type="date" value={updatedFrom} max={updatedThrough || undefined} onChange={(event) => setUpdatedFrom(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
+                  <input type="date" value={updatedFrom} max={updatedThrough || undefined} onChange={(event) => updateSelection({ from: event.target.value, page: 1 })} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
                 </label>
                 <label className="grid gap-1 text-xs text-muted-foreground">
                   Updated through
-                  <input type="date" value={updatedThrough} min={updatedFrom || undefined} onChange={(event) => setUpdatedThrough(event.target.value)} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
+                  <input type="date" value={updatedThrough} min={updatedFrom || undefined} onChange={(event) => updateSelection({ through: event.target.value, page: 1 })} className="w-full rounded-md border bg-background px-2 py-2 text-sm text-foreground" />
                 </label>
               </div>
               <label className="grid gap-1 text-xs text-muted-foreground">
                 Sort
-                <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground">
+                <select value={sortOrder} onChange={(event) => updateSelection({ sort: event.target.value, page: 1 })} className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground">
                   <option value="updated-desc">Recently updated</option>
                   <option value="updated-asc">Least recently updated</option>
                   <option value="created-desc">Recently created</option>
@@ -645,17 +733,21 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
                   <option value="title-desc">Title Z–A</option>
                 </select>
               </label>
-              {hasFilters && (
+              {isFiltered && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    setSearch("");
-                    setSelectedTagId("");
-                    setUpdatedFrom("");
-                    setUpdatedThrough("");
-                    setSortOrder("updated-desc");
+                    setTypedSearch("");
+                    updateSelection({
+                      query: "",
+                      tagId: "",
+                      from: "",
+                      through: "",
+                      sort: LISTING_DEFAULT_SORT,
+                      page: 1,
+                    });
                   }}
                 >
                   Clear filters
@@ -672,9 +764,9 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
         )}
         {importMessage && <p role="status" className="text-sm text-muted-foreground">{importMessage}</p>}
 
-        {!loading && !loadError && (
+        {!loading && !loadError && total > 0 && (
           <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
-            Showing {filteredPages.length} {favoritesOnly ? "favorite" : "page"}{filteredPages.length === 1 ? "" : "s"}
+            Showing {offset + 1}–{offset + pages.length} of {total} {favoritesOnly ? "favorite" : "page"}{total === 1 ? "" : "s"}
           </p>
         )}
 
@@ -692,7 +784,7 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
             <p className="text-sm text-destructive">{loadError}</p>
             <Button type="button" variant="outline" size="sm" onClick={() => { setLoading(true); setRetryKey((current) => current + 1); }}>Try again</Button>
           </div>
-        ) : filteredPages.length === 0 ? (
+        ) : pages.length === 0 ? (
           <div className="rounded-xl border bg-card p-8 text-center">
             <p className="font-medium">
               {hasFilters ? "No matching pages" : "No pages yet"}
@@ -704,8 +796,9 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
             </p>
           </div>
         ) : (
+          <>
           <div className="grid gap-3 sm:grid-cols-2">
-            {filteredPages.map((page) => (
+            {pages.map((page) => (
               <div
                 key={page.id}
                 className="flex min-w-0 items-start gap-2 rounded-xl border bg-card p-4 transition-colors hover:border-primary/25 hover:bg-accent/20 sm:p-5"
@@ -764,6 +857,30 @@ export function PagesBrowser({ favoritesOnly = false }: { favoritesOnly?: boolea
               </div>
             ))}
           </div>
+
+          {(offset > 0 || offset + pages.length < total) && (
+            <div className="flex items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={offset === 0}
+                onClick={() => updateSelection({ page: page - 1 })}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={offset + pages.length >= total}
+                onClick={() => updateSelection({ page: page + 1 })}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+          </>
         )}
       </div>
 

@@ -1,4 +1,5 @@
-import { and, eq, inArray, isNull, ne, notExists, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -19,8 +20,16 @@ import {
 } from "@/lib/related-pages";
 
 type Context = { params: Promise<{ id: string }> };
+
+// The candidate side of a link or record signal, as opposed to the page being
+// viewed. Ranking a candidate needs its own state and recency, not the target's.
+const sourcePage = alias(pages, "source_page");
 const idSchema = z.string().uuid();
 const RELATED_LIMIT = 5;
+
+// Sharing one tag with a large part of the workspace is a weak hint, so the tag
+// signal ranks its candidates in SQL and reads only this many of them.
+const RELATED_CANDIDATE_WINDOW = 60;
 
 /**
  * Suggests pages connected by signals the workspace already stores: shared
@@ -83,47 +92,102 @@ export async function GET(request: Request, context: Context) {
     }
 
     const [tagMatches, linkMatches, recordMatches] = await Promise.all([
+      // One broad tag can be shared with thousands of pages, so the shared tags
+      // are counted per candidate in the database and only the strongest window
+      // is read. These filters match the candidate query below, so a page that
+      // would be dropped there never takes up a window slot.
       tagIds.length > 0
         ? db
-            .select({ pageId: pageTags.pageId, name: tags.name })
+            .select({
+              pageId: pageTags.pageId,
+              names: sql<string[]>`array_agg(${tags.name} ORDER BY ${tags.name})`,
+            })
             .from(pageTags)
             .innerJoin(tags, eq(pageTags.tagId, tags.id))
-            .where(and(inArray(pageTags.tagId, tagIds), ne(pageTags.pageId, id)))
+            .innerJoin(pages, eq(pages.id, pageTags.pageId))
+            .where(
+              and(
+                inArray(pageTags.tagId, tagIds),
+                ne(pageTags.pageId, id),
+                isNull(pages.deletedAt),
+                eq(pages.isInbox, false),
+                notExists(
+                  db
+                    .select({ id: databaseRecords.id })
+                    .from(databaseRecords)
+                    .where(eq(databaseRecords.pageId, pages.id)),
+                ),
+              ),
+            )
+            .groupBy(pageTags.pageId, pages.updatedAt)
+            .orderBy(desc(sql`count(*)`), desc(pages.updatedAt))
+            .limit(RELATED_CANDIDATE_WINDOW)
         : Promise.resolve([]),
+      // A hub page is linked from all over the workspace, so the pages that
+      // link to it are grouped per candidate, filtered before they take up a
+      // slot, and read only up to the same window as the tag signal.
       targetIds.length > 0
         ? db
             .select({
               pageId: pageLinks.sourcePageId,
-              id: pages.id,
-              title: pages.title,
+              targets: sql<{ id: string; title: string }[]>`json_agg(
+                json_build_object('id', ${pages.id}, 'title', ${pages.title})
+                ORDER BY ${pages.title}
+              )`,
             })
             .from(pageLinks)
             .innerJoin(pages, eq(pageLinks.targetPageId, pages.id))
+            .innerJoin(sourcePage, eq(pageLinks.sourcePageId, sourcePage.id))
             .where(
               and(
                 inArray(pageLinks.targetPageId, targetIds),
                 ne(pageLinks.sourcePageId, id),
                 isNull(pages.deletedAt),
+                isNull(sourcePage.deletedAt),
+                eq(sourcePage.isInbox, false),
+                notExists(
+                  db
+                    .select({ id: databaseRecords.id })
+                    .from(databaseRecords)
+                    .where(eq(databaseRecords.pageId, sourcePage.id)),
+                ),
               ),
             )
+            .groupBy(pageLinks.sourcePageId, sourcePage.updatedAt)
+            .orderBy(desc(sql`count(*)`), desc(sourcePage.updatedAt))
+            .limit(RELATED_CANDIDATE_WINDOW)
         : Promise.resolve([]),
+      // Records fan out the same way when one record is linked from many pages.
       recordIds.length > 0
         ? db
             .select({
               pageId: pageRecordLinks.pageId,
-              id: databaseRecords.id,
-              title: databaseRecords.title,
-              databaseName: databases.name,
+              records: sql<{ id: string; title: string; databaseName: string }[]>`json_agg(
+                json_build_object('id', ${databaseRecords.id}, 'title', ${databaseRecords.title}, 'databaseName', ${databases.name})
+                ORDER BY ${databaseRecords.title}
+              )`,
             })
             .from(pageRecordLinks)
             .innerJoin(databaseRecords, eq(pageRecordLinks.recordId, databaseRecords.id))
             .innerJoin(databases, eq(databaseRecords.databaseId, databases.id))
+            .innerJoin(sourcePage, eq(pageRecordLinks.pageId, sourcePage.id))
             .where(
               and(
                 inArray(pageRecordLinks.recordId, recordIds),
                 ne(pageRecordLinks.pageId, id),
+                isNull(sourcePage.deletedAt),
+                eq(sourcePage.isInbox, false),
+                notExists(
+                  db
+                    .select({ id: databaseRecords.id })
+                    .from(databaseRecords)
+                    .where(eq(databaseRecords.pageId, sourcePage.id)),
+                ),
               ),
             )
+            .groupBy(pageRecordLinks.pageId, sourcePage.updatedAt)
+            .orderBy(desc(sql`count(*)`), desc(sourcePage.updatedAt))
+            .limit(RELATED_CANDIDATE_WINDOW)
         : Promise.resolve([]),
     ]);
 
@@ -144,19 +208,15 @@ export async function GET(request: Request, context: Context) {
 
     for (const match of tagMatches) {
       if (connectedIds.has(match.pageId)) continue;
-      signalsFor(match.pageId).tags.push(match.name);
+      signalsFor(match.pageId).tags.push(...match.names);
     }
     for (const match of linkMatches) {
       if (connectedIds.has(match.pageId)) continue;
-      signalsFor(match.pageId).pageLinks.push({ id: match.id, title: match.title });
+      signalsFor(match.pageId).pageLinks.push(...match.targets);
     }
     for (const match of recordMatches) {
       if (connectedIds.has(match.pageId)) continue;
-      signalsFor(match.pageId).records.push({
-        id: match.id,
-        title: match.title,
-        databaseName: match.databaseName,
-      });
+      signalsFor(match.pageId).records.push(...match.records);
     }
 
     const candidateIds = [...signalsByPage.keys()];

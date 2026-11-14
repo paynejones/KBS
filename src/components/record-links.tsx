@@ -6,10 +6,12 @@ import { Link2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type PageRef = { id: string; title: string };
-type RecordConnections = { pages: PageRef[]; options: PageRef[] };
+type RecordConnections = { pages: PageRef[]; options: PageRef[]; hasMore?: boolean };
 
-async function fetchRecordConnections(recordId: string): Promise<RecordConnections> {
-  const response = await fetch(`/api/records/${recordId}/pages`);
+/** The picker asks for one screenful of titles instead of every page. */
+async function fetchRecordConnections(recordId: string, query: string): Promise<RecordConnections> {
+  const search = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
+  const response = await fetch(`/api/records/${recordId}/pages${search}`);
   if (!response.ok) throw new Error("Could not load linked pages.");
   return (await response.json()) as RecordConnections;
 }
@@ -27,45 +29,58 @@ export function RecordPageLinks({
 }) {
   const [pages, setPages] = useState<PageRef[]>([]);
   const [options, setOptions] = useState<PageRef[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [query, setQuery] = useState("");
   const [targetId, setTargetId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const loadConnections = useCallback(async () => {
-    const data = await fetchRecordConnections(recordId);
-    setPages(data.pages);
-    setOptions(data.options);
-  }, [recordId]);
+  const loadConnections = useCallback(
+    async (search: string) => {
+      const data = await fetchRecordConnections(recordId, search);
+      setPages(data.pages);
+      setOptions(data.options);
+      setHasMore(Boolean(data.hasMore));
+      // A chosen page may have been narrowed out of the list.
+      setTargetId("");
+    },
+    [recordId],
+  );
 
   useEffect(() => {
     let cancelled = false;
-
-    async function load() {
-      try {
-        const data = await fetchRecordConnections(recordId);
-        if (!cancelled) {
-          setPages(data.pages);
-          setOptions(data.options);
+    // Typing narrows the picker; the pause keeps one request per quiet moment.
+    const timer = setTimeout(
+      async () => {
+        try {
+          const data = await fetchRecordConnections(recordId, query);
+          if (!cancelled) {
+            setPages(data.pages);
+            setOptions(data.options);
+            setHasMore(Boolean(data.hasMore));
+            setTargetId("");
+            setLoading(false);
+          }
+        } catch (loadError) {
+          if (!cancelled) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Could not load linked pages.",
+            );
+            setLoading(false);
+          }
         }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Could not load linked pages.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+      },
+      query.trim() ? 250 : 0,
+    );
 
-    void load();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [recordId]);
+  }, [recordId, query]);
 
   async function addLink() {
     if (!targetId) return;
@@ -79,7 +94,7 @@ export function RecordPageLinks({
       });
       if (!response.ok) throw new Error("Could not link this page.");
       setTargetId("");
-      await loadConnections();
+      await loadConnections(query);
     } catch (saveError) {
       setError(
         saveError instanceof Error ? saveError.message : "Could not link this page.",
@@ -99,7 +114,7 @@ export function RecordPageLinks({
         body: JSON.stringify({ pageId }),
       });
       if (!response.ok) throw new Error("Could not remove this page link.");
-      await loadConnections();
+      await loadConnections(query);
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -156,28 +171,43 @@ export function RecordPageLinks({
       )}
 
       {!readOnly && (
-      <div className="mt-4 flex gap-2">
-        <select
-          aria-label="Linked pages: choose a page to link"
-          value={targetId}
-          onChange={(event) => setTargetId(event.target.value)}
-          disabled={saving || options.length === 0}
-          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
-        >
-          <option value="">Choose a page…</option>
-          {options.map((page) => (
-            <option key={page.id} value={page.id}>{page.title || "Untitled"}</option>
-          ))}
-        </select>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void addLink()}
-          disabled={!targetId || saving}
-        >
-          Link page
-        </Button>
+      <div className="mt-4 space-y-2">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search pages…"
+          aria-label="Search pages to link"
+          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+        />
+        <div className="flex gap-2">
+          <select
+            aria-label="Linked pages: choose a page to link"
+            value={targetId}
+            onChange={(event) => setTargetId(event.target.value)}
+            disabled={saving || options.length === 0}
+            className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
+          >
+            <option value="">Choose a page…</option>
+            {options.map((page) => (
+              <option key={page.id} value={page.id}>{page.title || "Untitled"}</option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void addLink()}
+            disabled={!targetId || saving}
+          >
+            Link page
+          </Button>
+        </div>
+        {hasMore && (
+          <p className="text-xs text-muted-foreground">
+            Showing the first {options.length} matches. Keep typing to narrow the list.
+          </p>
+        )}
       </div>
       )}
 

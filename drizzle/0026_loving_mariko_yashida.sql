@@ -1,0 +1,2 @@
+CREATE INDEX "database_records_database_title_idx" ON "database_records" USING btree ("database_id","title");--> statement-breakpoint
+CREATE INDEX "pages_title_active_idx" ON "pages" USING btree ("title") WHERE "pages"."deleted_at" is null and not "pages"."is_inbox";

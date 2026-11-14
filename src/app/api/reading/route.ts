@@ -38,6 +38,8 @@ export async function GET(request: Request) {
         // A trashed notes page hides its item until the page is restored.
         .where(isNull(pages.deletedAt))
         .orderBy(desc(readingItems.updatedAt)),
+      // Only highlights of items this list returns, so a trashed item's notes
+      // stay out and the read grows with the list rather than the workspace.
       db.select({
         id: readingHighlights.id,
         itemId: readingHighlights.itemId,
@@ -46,6 +48,9 @@ export async function GET(request: Request) {
         createdAt: readingHighlights.createdAt,
       })
         .from(readingHighlights)
+        .innerJoin(readingItems, eq(readingHighlights.itemId, readingItems.id))
+        .innerJoin(pages, eq(readingItems.pageId, pages.id))
+        .where(isNull(pages.deletedAt))
         .orderBy(asc(readingHighlights.createdAt)),
     ]);
 

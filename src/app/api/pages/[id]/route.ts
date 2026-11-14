@@ -1,6 +1,6 @@
 
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray, isNull, max } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, max, ne, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseRecords, pageRevisions, pages } from "@/db/schema";
@@ -78,9 +78,10 @@ export async function PATCH(request: Request, context: Context) {
   }
 
   try {
-  // Confirm the page exists.
+  // Confirm the page exists without reading its body. Every save touches this
+  // row, and a favorite, cover, icon, quote, or move save never needs the text.
     const [existingPage] = await db
-    .select()
+    .select({ id: pages.id, parentId: pages.parentId })
     .from(pages)
     .where(and(eq(pages.id, id), isNull(pages.deletedAt)))
     .limit(1);
@@ -165,27 +166,35 @@ export async function PATCH(request: Request, context: Context) {
   }
 
   const page = await db.transaction(async (tx) => {
-    const contentChanged =
-      (parsed.data.title !== undefined && parsed.data.title !== existingPage.title) ||
-      (parsed.data.content !== undefined && parsed.data.content !== existingPage.content) ||
-      (parsed.data.contentJson !== undefined && JSON.stringify(parsed.data.contentJson) !== JSON.stringify(existingPage.contentJson));
+    // A revision snapshots the row being replaced, so the comparison and the
+    // copy both happen in one statement. A save reads the old body only when a
+    // revision is actually due, and that body never has to travel through Node.
+    const changedFields = [
+      parsed.data.title !== undefined ? sql`title IS DISTINCT FROM ${parsed.data.title}` : undefined,
+      parsed.data.content !== undefined ? sql`content IS DISTINCT FROM ${parsed.data.content}` : undefined,
+      parsed.data.contentJson !== undefined
+        ? sql`content_json IS DISTINCT FROM ${JSON.stringify(parsed.data.contentJson)}::jsonb`
+        : undefined,
+    ].filter((clause): clause is SQL => clause !== undefined);
 
-    if (contentChanged) {
-      const [latestRevision] = await tx
-        .select({ createdAt: pageRevisions.createdAt })
-        .from(pageRevisions)
-        .where(eq(pageRevisions.pageId, id))
-        .orderBy(desc(pageRevisions.createdAt))
-        .limit(1);
+    if (changedFields.length > 0) {
+      // One snapshot a minute keeps edit bursts from filling the history. The
+      // window is checked in the same statement, so a save that changes
+      // nothing, or arrives too soon after the last snapshot, reads nothing.
+      const inserted = await tx.execute(sql`
+        INSERT INTO page_revisions (page_id, title, content, content_json)
+        SELECT id, title, content, content_json
+        FROM pages
+        WHERE id = ${id}
+          AND (${sql.join(changedFields, sql` OR `)})
+          AND NOT EXISTS (
+            SELECT 1 FROM page_revisions
+            WHERE page_id = ${id} AND created_at > now() - interval '60 seconds'
+          )
+        RETURNING id
+      `);
 
-      if (!latestRevision || Date.now() - latestRevision.createdAt.getTime() >= 60_000) {
-        await tx.insert(pageRevisions).values({
-          pageId: id,
-          title: existingPage.title,
-          content: existingPage.content,
-          contentJson: existingPage.contentJson,
-        });
-
+      if (inserted.rows.length > 0) {
         const oldRevisions = await tx
           .select({ id: pageRevisions.id })
           .from(pageRevisions)
@@ -211,11 +220,13 @@ export async function PATCH(request: Request, context: Context) {
 
     // A record's page keeps the record title in step so the full record view
     // and the standalone page never disagree.
-    if (parsed.data.title !== undefined && parsed.data.title !== existingPage.title) {
+    if (parsed.data.title !== undefined) {
       await tx
         .update(databaseRecords)
         .set({ title: parsed.data.title, updatedAt: new Date() })
-        .where(eq(databaseRecords.pageId, id));
+        // Comparing in the update keeps an unchanged title from touching the
+        // record's own timestamp, without reading the old title first.
+        .where(and(eq(databaseRecords.pageId, id), ne(databaseRecords.title, parsed.data.title)));
     }
 
     return updatedPage;

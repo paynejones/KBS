@@ -23,12 +23,12 @@ import {
 type PagePreview = { id: string; title: string; updatedAt: string };
 type SearchResult = { total: number; pages: PagePreview[]; failed: boolean };
 
-const PREVIEW_LIMIT = 6;
-
 /**
  * Collections are read through the page browser's own endpoint, so a saved
  * search never stores results: each visit counts and lists whatever matches
- * right now.
+ * right now. The request is bounded to the rows the card shows, with the
+ * matching total alongside, so a broad collection costs a few rows instead of
+ * its whole result set.
  */
 async function fetchResults(searches: SavedSearch[]): Promise<Record<string, SearchResult>> {
   const entries = await Promise.all(
@@ -36,10 +36,10 @@ async function fetchResults(searches: SavedSearch[]): Promise<Record<string, Sea
       try {
         const response = await fetch(`/api/pages?${savedSearchPageParams(search).toString()}`);
         if (!response.ok) throw new Error("Failed to load pages.");
-        const pages = await response.json() as PagePreview[];
+        const payload = await response.json() as { pages: PagePreview[]; total: number };
         return [search.id, {
-          total: pages.length,
-          pages: pages.slice(0, PREVIEW_LIMIT),
+          total: payload.total,
+          pages: payload.pages,
           failed: false,
         }] as const;
       } catch {

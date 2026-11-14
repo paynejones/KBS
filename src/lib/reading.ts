@@ -34,14 +34,6 @@ export type ReadingItem = {
   highlights: ReadingHighlight[];
 };
 
-export function isReadingKind(value: unknown): value is ReadingKind {
-  return typeof value === "string" && (READING_KINDS as readonly string[]).includes(value);
-}
-
-export function isReadingStatus(value: unknown): value is ReadingStatus {
-  return typeof value === "string" && (READING_STATUSES as readonly string[]).includes(value);
-}
-
 /** A link is optional, but when given it must be a usable web address. */
 export type ReadingUrlResult = { ok: true; url: string | null } | { ok: false };
 

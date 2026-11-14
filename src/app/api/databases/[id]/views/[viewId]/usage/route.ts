@@ -1,4 +1,4 @@
-import { asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -53,6 +53,14 @@ export async function GET(request: Request, context: Context) {
     const knownViewIds = new Set(viewRows.map((candidate) => candidate.id));
     const firstViewId = viewRows[0]?.id;
 
+    // Only a document that embeds some database view can use this one, so the
+    // check starts in the database: reading every page's editor document to ask
+    // about one view made opening the usage panel cost the size of the
+    // workspace. The exact match, including the first-view fallback, is still
+    // decided below on the documents that survive this filter.
+    const embedsAnyView = sql`jsonb_path_exists(${pages.contentJson}, ${'$.**.type ? (@ == "databaseEmbed")'})`;
+    const templateEmbedsAnyView = sql`jsonb_path_exists(${pageTemplates.contentJson}, ${'$.**.type ? (@ == "databaseEmbed")'})`;
+
     const [pageRows, templateRows] = await Promise.all([
       db.select({
         id: pages.id,
@@ -60,7 +68,7 @@ export async function GET(request: Request, context: Context) {
         contentJson: pages.contentJson,
       })
         .from(pages)
-        .where(isNull(pages.deletedAt))
+        .where(and(isNull(pages.deletedAt), embedsAnyView))
         .orderBy(asc(pages.title)),
       db.select({
         id: pageTemplates.id,
@@ -68,6 +76,7 @@ export async function GET(request: Request, context: Context) {
         contentJson: pageTemplates.contentJson,
       })
         .from(pageTemplates)
+        .where(templateEmbedsAnyView)
         .orderBy(asc(pageTemplates.name)),
     ]);
 

@@ -71,7 +71,7 @@ type PageData = {
 };
 
 type SaveStatus = "loading" | "dirty" | "saving" | "saved" | "error";
-type PageRevision = { id: string; title: string; content: string; createdAt: string };
+type PageRevision = { id: string; title: string; preview: string | null; createdAt: string };
 
 type SlashCommand = {
   label: string;
@@ -1628,7 +1628,7 @@ while (foundDescendant) {
               <article key={revision.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{revision.title || "Untitled"}</p>
-                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">{revision.content || "Empty page"}</p>
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">{revision.preview || "Empty page"}</p>
                   <time className="mt-1 block text-xs text-muted-foreground" dateTime={revision.createdAt}>
                     {new Date(revision.createdAt).toLocaleString()}
                   </time>

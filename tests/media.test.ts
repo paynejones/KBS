@@ -6,7 +6,6 @@ import {
   attachmentTypeLabel,
   attachmentUrl,
   FILE_MIME_TYPES,
-  fileValueSearchText,
   LINKED_FILE_MIME_TYPES,
   IMAGE_MIME_TYPES,
   isAllowedMediaUrl,
@@ -157,20 +156,4 @@ test("file property values reject mismatched, unsafe, and oversized payloads", (
   assert.equal(parseFilePropertyValue({ url: attachmentUrl(A), mimeType: "x".repeat(101) }), undefined);
 });
 
-test("file property search text prefers parsed metadata", () => {
-  assert.equal(
-    fileValueSearchText({
-      url: attachmentUrl(A),
-      attachmentId: A,
-      alt: "A cover",
-      filename: "cover.png",
-      mimeType: "image/png",
-    }),
-    `cover.png A cover ${attachmentUrl(A)}`,
-  );
-  assert.equal(fileValueSearchText(null), "");
-  assert.equal(fileValueSearchText(undefined), "");
-  assert.equal(fileValueSearchText("legacy value"), "legacy value");
-  assert.equal(fileValueSearchText({ url: "javascript:alert(1)" }), "");
-  assert.equal(fileValueSearchText(12), "");
-});
+

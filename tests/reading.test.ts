@@ -1,23 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  isReadingKind,
-  isReadingStatus,
   normalizeReadingUrl,
   readingSourceLabel,
   readingStatusCounts,
 } from "../src/lib/reading";
-
-test("kind and status guards accept only known values", () => {
-  assert.equal(isReadingKind("book"), true);
-  assert.equal(isReadingKind("article"), true);
-  assert.equal(isReadingKind("film"), false);
-  assert.equal(isReadingKind(3), false);
-
-  assert.equal(isReadingStatus("to-read"), true);
-  assert.equal(isReadingStatus("finished"), true);
-  assert.equal(isReadingStatus("paused"), false);
-});
 
 test("a link is optional but must be a usable web address", () => {
   assert.deepEqual(normalizeReadingUrl(""), { ok: true, url: null });

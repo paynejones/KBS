@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { todayKey } from "@/lib/calendar";
+import { refreshDashboard, useDashboardRequest } from "@/lib/dashboard-request";
 import { recordHref } from "@/lib/record-link";
 import {
   DEFAULT_TIMELINE_RANGE,
@@ -45,42 +46,15 @@ function formatDay(date: string): string {
  */
 export function DashboardTimeline() {
   const [range, setRange] = useState<TimelineRange>(DEFAULT_TIMELINE_RANGE);
-  const [data, setData] = useState<TimelineData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [retryKey, setRetryKey] = useState(0);
-
-  const requestParams = `timeline=1&timelineDays=${range}&today=${todayKey()}`;
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadTimeline() {
-      setLoading(true);
-      setLoadError("");
-      try {
-        const response = await fetch(`/api/dashboard?${requestParams}`);
-        if (!response.ok) throw new Error("Could not load your timeline.");
-        const payload: { timeline: TimelineData | null } = await response.json();
-        if (!cancelled) setData(payload.timeline);
-      } catch (loadFailure) {
-        if (!cancelled) {
-          setLoadError(
-            loadFailure instanceof Error
-              ? loadFailure.message
-              : "Could not load your timeline.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void loadTimeline();
-    return () => {
-      cancelled = true;
-    };
-  }, [requestParams, retryKey]);
+  // The horizon is this widget's only contribution to the shared dashboard
+  // request; the payload arrives already scoped to it.
+  const { data: payload, loading, failed } = useDashboardRequest("timeline", {
+    timeline: true,
+    timelineDays: String(range),
+    today: todayKey(),
+  });
+  const data = (payload as { timeline: TimelineData | null } | null)?.timeline ?? null;
+  const loadError = failed ? "Could not load your timeline." : "";
 
   const days = groupTimelineEntries(data?.entries ?? []);
   const today = data?.today ?? "";
@@ -133,7 +107,7 @@ export function DashboardTimeline() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setRetryKey((current) => current + 1)}
+            onClick={() => void refreshDashboard()}
           >
             Try again
           </Button>

@@ -1,6 +1,10 @@
 export const SAVED_SEARCH_NAME_LIMIT = 80;
 export const SAVED_SEARCH_QUERY_LIMIT = 200;
 
+// A collection card shows a short preview and a count, so it asks the page
+// browser for that many rows instead of downloading every match.
+export const SAVED_SEARCH_PREVIEW_LIMIT = 6;
+
 export type SavedSearchFilters = {
   query: string;
   tagId: string | null;
@@ -24,6 +28,7 @@ export function savedSearchPageParams(search: SavedSearchFilters): URLSearchPara
   if (query) params.set("q", query);
   if (search.tagId) params.set("tagId", search.tagId);
   if (search.favoritesOnly) params.set("favorite", "true");
+  params.set("limit", String(SAVED_SEARCH_PREVIEW_LIMIT));
   return params;
 }
 

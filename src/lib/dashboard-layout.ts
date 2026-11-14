@@ -160,23 +160,6 @@ export function parseDashboardLayout(serialized: string | null): DashboardLayout
   return normalizeDashboardLayout(parsed);
 }
 
-/** Swaps a widget with its neighbour, ignoring moves past either end. */
-export function moveDashboardWidget(
-  layout: DashboardLayout,
-  id: DashboardWidgetId,
-  direction: "up" | "down",
-): DashboardLayout {
-  const index = layout.order.indexOf(id);
-  if (index === -1) return layout;
-
-  const target = direction === "up" ? index - 1 : index + 1;
-  if (target < 0 || target >= layout.order.length) return layout;
-
-  const order = [...layout.order];
-  [order[index], order[target]] = [order[target], order[index]];
-  return { ...layout, order };
-}
-
 /**
  * Moves a dragged widget in front of `beforeId`; a null target appends it to the
  * end. Dropping a widget on itself is a no-op.

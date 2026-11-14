@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { ArrowRight, CalendarClock, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { todayKey } from "@/lib/calendar";
+import { refreshDashboard, useDashboardRequest } from "@/lib/dashboard-request";
 import {
   DUE_SOON_DAYS,
   describeDue,
@@ -71,61 +72,22 @@ export function DashboardQueues() {
     getDashboardQueuesSnapshot,
     getEmptyDashboardQueuesSnapshot,
   );
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [retryKey, setRetryKey] = useState(0);
-
   const taskConfig = queues.tasks;
   const projectConfig = queues.projects;
   const today = todayKey();
-  const requestParams = [
-    taskConfig ? `taskDatabaseId=${encodeURIComponent(taskConfig.databaseId)}` : "",
-    taskConfig?.propertyId ? `taskPropertyId=${encodeURIComponent(taskConfig.propertyId)}` : "",
-    taskConfig?.statusPropertyId
-      ? `taskStatusPropertyId=${encodeURIComponent(taskConfig.statusPropertyId)}`
-      : "",
-    projectConfig ? `projectDatabaseId=${encodeURIComponent(projectConfig.databaseId)}` : "",
-    projectConfig?.propertyId
-      ? `projectPropertyId=${encodeURIComponent(projectConfig.propertyId)}`
-      : "",
-    ...(projectConfig?.excludedStatuses ?? []).map(
-      (status) => `projectExcludedStatus=${encodeURIComponent(status)}`,
-    ),
-    `today=${today}`,
-  ]
-    .filter(Boolean)
-    .join("&");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadQueues() {
-      setLoading(true);
-      setLoadError("");
-      try {
-        const response = await fetch(`/api/dashboard?${requestParams}`);
-        if (!response.ok) throw new Error("Could not load your queues.");
-        const payload: DashboardData = await response.json();
-        if (!cancelled) setData(payload);
-      } catch (loadFailure) {
-        if (!cancelled) {
-          setLoadError(
-            loadFailure instanceof Error
-              ? loadFailure.message
-              : "Could not load your queues.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void loadQueues();
-    return () => {
-      cancelled = true;
-    };
-  }, [requestParams, retryKey]);
+  // The queues contribute their two configured sources to the shared dashboard
+  // request, which is why the page makes one call instead of three.
+  const { data: payload, loading, failed } = useDashboardRequest("queues", {
+    today,
+    taskDatabaseId: taskConfig?.databaseId,
+    taskPropertyId: taskConfig?.propertyId || undefined,
+    taskStatusPropertyId: taskConfig?.statusPropertyId || undefined,
+    projectDatabaseId: projectConfig?.databaseId,
+    projectPropertyId: projectConfig?.propertyId || undefined,
+    projectExcludedStatuses: projectConfig?.excludedStatuses ?? [],
+  });
+  const data = payload as DashboardData | null;
+  const loadError = failed ? "Could not load your queues." : "";
 
   const databases = data?.databases ?? [];
   const taskQueue = data?.tasks ?? null;
@@ -304,7 +266,7 @@ export function DashboardQueues() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setRetryKey((current) => current + 1)}
+            onClick={() => void refreshDashboard()}
           >
             Try again
           </Button>

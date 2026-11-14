@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -22,6 +22,12 @@ import { subtreeIds } from "@/db/page-tree";
 
 type Context = { params: Promise<{ id: string }> };
 const idSchema = z.string().uuid();
+/**
+ * Editor documents are read a batch at a time, in the order tasks are listed,
+ * so a project with many subpages does not load every document at once and
+ * stops as soon as the task list is full.
+ */
+const TASK_DOCUMENT_BATCH = 8;
 
 /**
  * Everything one project needs on one screen: the task lists from the project
@@ -44,6 +50,8 @@ export async function GET(request: Request, context: Context) {
       return NextResponse.json({ error: "Page not found" }, { status: 404 });
     }
 
+    // Titles and tree shape only: the documents that hold the tasks are read
+    // afterwards, once the order they appear in is known.
     const pageRows = await db
       .select({
         id: pages.id,
@@ -51,7 +59,6 @@ export async function GET(request: Request, context: Context) {
         icon: pages.icon,
         isFavorite: pages.isFavorite,
         parentId: pages.parentId,
-        contentJson: pages.contentJson,
         sortOrder: pages.sortOrder,
       })
       .from(pages)
@@ -74,11 +81,34 @@ export async function GET(request: Request, context: Context) {
           left.title.localeCompare(right.title, undefined, { sensitivity: "base" }),
       );
 
+    const taskPages = [project, ...descendants];
     const tasks: FocusTask[] = [];
-    for (const row of [project, ...descendants]) {
-      const remaining = FOCUS_TASK_LIMIT - tasks.length;
-      if (remaining <= 0) break;
-      tasks.push(...focusTasks(row.contentJson, row.id, row.title, remaining));
+
+    for (
+      let start = 0;
+      start < taskPages.length && tasks.length < FOCUS_TASK_LIMIT;
+      start += TASK_DOCUMENT_BATCH
+    ) {
+      const batch = taskPages.slice(start, start + TASK_DOCUMENT_BATCH);
+      const documents = await db
+        .select({ id: pages.id, contentJson: pages.contentJson })
+        .from(pages)
+        .where(
+          and(
+            inArray(pages.id, batch.map((row) => row.id)),
+            // A document with no task nodes cannot add a task, so it is not
+            // worth sending: projects are often mostly prose. The check runs
+            // in the database, which means those documents never leave it.
+            sql`jsonb_path_exists(${pages.contentJson}, ${'$.**.type ? (@ == "taskItem")'})`
+          )
+        );
+      const documentById = new Map(documents.map((row) => [row.id, row.contentJson]));
+
+      for (const row of batch) {
+        const remaining = FOCUS_TASK_LIMIT - tasks.length;
+        if (remaining <= 0) break;
+        tasks.push(...focusTasks(documentById.get(row.id), row.id, row.title, remaining));
+      }
     }
 
     const [linkRows, backlinkRows, recordRows, tagRows, parentRows] = await Promise.all([

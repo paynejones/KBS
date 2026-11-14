@@ -396,25 +396,8 @@ export function renameSidebarSection(
   );
 }
 
-/** Back-compat helper for the old sidebar order; sections now drive rendering. */
-export function sidebarKeysFromSections(sections: SidebarSection[]): NavigationKey[] {
-  return sections.flatMap((section) =>
-    section.entries.flatMap((entry) =>
-      entry.kind === "navigation" ? [entry.key] : [],
-    ),
-  );
-}
-
 function normalizeHiddenKeys(value: unknown): NavigationKey[] {
   return uniqueKeys(value);
-}
-
-/** The sidebar shows the saved order minus destinations hidden on this device. */
-export function visibleSidebarKeys(
-  preferences: NavigationPreferences,
-): NavigationKey[] {
-  const hidden = new Set(preferences.hidden);
-  return preferences.sidebar.filter((key) => !hidden.has(key));
 }
 
 export function toggleHiddenNavigationKey(
@@ -465,41 +448,6 @@ export function parseNavigationPreferences(
       : defaultSidebarSections(sidebar),
     locked: candidate.locked === true,
   };
-}
-
-export function moveNavigationKeyBy(
-  order: NavigationKey[],
-  key: NavigationKey,
-  direction: "up" | "down",
-): NavigationKey[] {
-  const index = order.indexOf(key);
-  if (index === -1) return order;
-
-  const target = direction === "up" ? index - 1 : index + 1;
-  if (target < 0 || target >= order.length) return order;
-
-  const next = [...order];
-  next.splice(index, 1);
-  next.splice(target, 0, key);
-
-  return next;
-}
-
-export function moveNavigationKeyTo(
-  order: NavigationKey[],
-  key: NavigationKey,
-  targetKey: NavigationKey,
-): NavigationKey[] {
-  const from = order.indexOf(key);
-  const to = order.indexOf(targetKey);
-
-  if (from === -1 || to === -1 || from === to) return order;
-
-  const next = [...order];
-  next.splice(from, 1);
-  next.splice(to, 0, key);
-
-  return next;
 }
 
 /**

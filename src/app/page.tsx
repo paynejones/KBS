@@ -40,12 +40,13 @@ import {
   getServerNavigationSnapshot,
   subscribeToNavigation,
 } from "@/lib/navigation";
+import { previewText } from "@/lib/utils";
 
 type PageSummary = {
   id: string;
   title: string;
   updatedAt: string;
-  content?: string | null;
+  snippet?: string | null;
   tags?: { id: string; name: string }[];
 };
 
@@ -87,26 +88,6 @@ function formatEdited(iso: string, reference: number): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/**
- * Page content is stored as editor HTML. The resume cards only need a readable
- * preview, so tags are stripped and entities are decoded before trimming.
- */
-function snippetFrom(content: string | null | undefined): string {
-  if (!content) return "";
-
-  return content
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 160);
-}
-
 export default function Home() {
   const router = useRouter();
   const showDatabasePages = useSyncExternalStore(
@@ -144,9 +125,12 @@ export default function Home() {
       setLoading(true);
       setLoadError("");
       try {
-        const response = await fetch(
-          `/api/pages${showDatabasePages ? "?includeRecordPages=true" : ""}`,
-        );
+        // The cards below the greeting are the only listing consumer that
+        // shows page text, so the preview is asked for explicitly.
+        const params = new URLSearchParams({ snippets: "7" });
+        if (showDatabasePages) params.set("includeRecordPages", "true");
+
+        const response = await fetch(`/api/pages?${params.toString()}`);
         if (!response.ok) throw new Error("Could not load your pages.");
         const data: PageSummary[] = await response.json();
         if (!cancelled) {
@@ -211,9 +195,10 @@ export default function Home() {
         month: "long",
       })
     : "";
+  const recentPages = pages.slice(3, 7);
   const snippets: Record<string, string> = {};
-  for (const page of pages) {
-    const snippet = snippetFrom(page.content);
+  for (const page of [...resumePages, ...recentPages]) {
+    const snippet = previewText(page.snippet);
     if (snippet) snippets[page.id] = snippet;
   }
 
@@ -455,7 +440,7 @@ export default function Home() {
               timeline: <DashboardTimeline />,
               recent: (
                 <section aria-labelledby="recent-pages-heading" className="min-w-0">
-                  <RecentPages snippets={snippets} fallback={pages.slice(3, 7)} />
+                  <RecentPages snippets={snippets} fallback={recentPages} />
                 </section>
               ),
               views: (

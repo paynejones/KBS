@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -36,21 +36,29 @@ export async function GET(request: Request, context: Context) {
         .innerJoin(pages, eq(pageLinks.targetPageId, pages.id))
         .where(and(eq(pageLinks.sourcePageId, id), isNull(pages.deletedAt)))
         .orderBy(pages.title),
-      db
-        .select({ id: pages.id, title: pages.title, contentJson: pages.contentJson })
-        .from(pageLinks)
-        .innerJoin(pages, eq(pageLinks.sourcePageId, pages.id))
-        .where(and(eq(pageLinks.targetPageId, id), isNull(pages.deletedAt)))
-        .orderBy(pages.title),
+      // Only the blocks that mention this page leave the database. The panel
+      // shows the sentence around each link, and every source page's whole
+      // editor document used to be shipped to Node to find them. The id is a
+      // validated UUID, so it can sit in the path as a pattern.
+      db.execute<{ id: string; title: string; blocks: unknown }>(sql`
+        SELECT
+          source.id,
+          source.title,
+          jsonb_path_query_array(source.content_json, ${`$.content[*] ? (exists(@.**.marks[*] ? (@.type == "link" && @.attrs.href like_regex "${id}")))`}::jsonpath) AS blocks
+        FROM page_links link
+        INNER JOIN pages source ON source.id = link.source_page_id
+        WHERE link.target_page_id = ${id} AND source.deleted_at IS NULL
+        ORDER BY source.title
+      `),
     ]);
 
     // Quote the sentence around each inline link so a backlink can be judged
     // without opening the source page. Links added from the connections panel
     // have no content behind them and therefore no snippets.
-    const backlinks = backlinkRows.map(({ id: sourceId, title, contentJson }) => ({
+    const backlinks = backlinkRows.rows.map(({ id: sourceId, title, blocks }) => ({
       id: sourceId,
       title,
-      contexts: backlinkContexts(contentJson, id),
+      contexts: backlinkContexts({ type: "doc", content: blocks ?? [] }, id),
     }));
 
     return NextResponse.json({ links, backlinks });

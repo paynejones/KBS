@@ -95,6 +95,12 @@ export const pages = pgTable(
     // prefers one.
     index("pages_title_trgm_idx").using("gin", sql`${table.title} gin_trgm_ops`),
     index("pages_content_trgm_idx").using("gin", sql`${table.content} gin_trgm_ops`),
+    // The connection pickers list pages in title order and stop at the first
+    // screenful, so the index carries the filters they always apply; without
+    // it, the first page of that list sorted every page title.
+    index("pages_title_active_idx")
+      .on(table.title)
+      .where(sql`${table.deletedAt} is null and not ${table.isInbox}`),
   ],
 );
 
@@ -276,6 +282,31 @@ export const attachments = pgTable(
   (table) => [index("attachments_created_at_idx").on(table.createdAt)],
 );
 
+/**
+ * Which stored files each page, revision, record or template refers to.
+ *
+ * A file is named by its URL inside an editor document, so answering "is this
+ * file still used?" meant opening every document in the workspace. The rows are
+ * maintained by database triggers (see the migration that creates them), which
+ * turns that question into an index lookup over the references themselves.
+ */
+export const attachmentReferences = pgTable(
+  "attachment_references",
+  {
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    attachmentId: uuid("attachment_id")
+      .notNull()
+      .references(() => attachments.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.sourceType, table.sourceId, table.attachmentId],
+    }),
+    index("attachment_references_attachment_id_idx").on(table.attachmentId),
+  ],
+);
+
 // A small log of tasks checked off from the focus view or the home page, so a
 // pinned project card can show what was finished recently. A row is keyed by
 // the task's text on its page; unchecking the task removes the row again.
@@ -377,10 +408,17 @@ export const databaseRecords = pgTable(
   },
   (table) => [
     index("database_records_database_id_idx").on(table.databaseId),
+    // A record's page is looked up by id on every page listing (the "is this a
+    // record page?" anti-join), when a page title syncs to its record, and by
+    // the related-pages panel; without this each of those scans the table.
+    index("database_records_page_id_idx").on(table.pageId),
     index("database_records_updated_at_idx").on(table.updatedAt),
     // Search reads record titles and every property value as text; both keep
     // their trigram index so record lookups stay indexed as a workspace grows.
     index("database_records_title_trgm_idx").using("gin", sql`${table.title} gin_trgm_ops`),
+    // A record's titles in one database are read in order by the record picker
+    // and by the database's own list, so keep them ordered in the index.
+    index("database_records_database_title_idx").on(table.databaseId, table.title),
     index("database_records_values_trgm_idx").using(
       "gin",
       sql`(${table.values}::text) gin_trgm_ops`,

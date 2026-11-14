@@ -1,4 +1,4 @@
-import { asc } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import {
@@ -42,6 +42,11 @@ import {
   type TimelineEntry,
 } from "@/lib/timeline";
 
+// Scope ids are compared against uuid columns, so a malformed one has to be
+// dropped at the edge instead of turning a bad query string into a 500.
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuidOrEmpty = (value: string) => (uuidPattern.test(value) ? value : "");
+
 const WIDGET_RECORD_LIMIT = 5;
 const QUEUE_RECORD_LIMIT = 5;
 const MAX_EXCLUDED_STATUSES = 24;
@@ -64,15 +69,15 @@ export async function GET(request: Request) {
   const viewIds = (searchParams.get("viewIds") ?? "")
     .split(",")
     .map((value) => value.trim())
-    .filter(Boolean)
+    .filter((value) => value !== "" && uuidPattern.test(value))
     .slice(0, MAX_REQUESTED_VIEWS);
   // The browser sends its own local date so a queue agrees with the calendar
   // the user is looking at; the server date is only a fallback.
   const today = dateKey(searchParams.get("today")) ?? todayKey();
-  const taskDatabaseId = searchParams.get("taskDatabaseId")?.trim() ?? "";
+  const taskDatabaseId = uuidOrEmpty(searchParams.get("taskDatabaseId")?.trim() ?? "");
   const taskPropertyId = searchParams.get("taskPropertyId")?.trim() ?? "";
   const taskStatusPropertyId = searchParams.get("taskStatusPropertyId")?.trim() ?? "";
-  const projectDatabaseId = searchParams.get("projectDatabaseId")?.trim() ?? "";
+  const projectDatabaseId = uuidOrEmpty(searchParams.get("projectDatabaseId")?.trim() ?? "");
   const projectPropertyId = searchParams.get("projectPropertyId")?.trim() ?? "";
   const projectExcludedStatuses = searchParams
     .getAll("projectExcludedStatus")
@@ -83,15 +88,114 @@ export async function GET(request: Request) {
   const timelineRange = parseTimelineRange(searchParams.get("timelineDays"));
 
   try {
-    const [databaseRows, propertyRows, recordRows, viewRows, relationRows] = await Promise.all([
+    const [databaseRows, propertyRows, viewRows] = await Promise.all([
       db.select({ id: databases.id, name: databases.name }).from(databases).orderBy(asc(databases.name)),
+      // The pickers list every database with its properties, so choosing one
+      // can offer its date and status fields without another request.
       db.select().from(databaseProperties).orderBy(asc(databaseProperties.sortOrder)),
-      db.select().from(databaseRecords).orderBy(asc(databaseRecords.sortOrder)),
-      db.select().from(databaseViews).orderBy(asc(databaseViews.sortOrder)),
-      db.select().from(databaseRecordRelations),
+      // The picker lists every view, but a view's saved config is only read
+      // for the views this request actually previews (below).
+      db.select({
+        id: databaseViews.id,
+        name: databaseViews.name,
+        type: databaseViews.type,
+        databaseId: databaseViews.databaseId,
+      }).from(databaseViews).orderBy(asc(databaseViews.sortOrder)),
     ]);
 
     const databaseNames = new Map(databaseRows.map((database) => [database.id, database.name]));
+
+    // Only the databases this request reads are loaded whole, and only a pinned
+    // view needs that: filters, charts and derived columns can read any property
+    // of a record. A queue reads a date and a status, and the timeline reads
+    // dates, so both take the narrow read built below.
+    const loadedDatabaseIds = new Set<string>();
+    for (const view of viewRows) {
+      if (viewIds.includes(view.id)) loadedDatabaseIds.add(view.databaseId);
+    }
+
+    const queueDatabaseIds = new Set<string>();
+    if (taskDatabaseId) queueDatabaseIds.add(taskDatabaseId);
+    if (projectDatabaseId) queueDatabaseIds.add(projectDatabaseId);
+
+    // The timeline spans every database because any date property can
+    // contribute, but it only ever looks at date values.
+    const timelineDatabaseIds = new Set<string>(
+      timelineRequested ? databaseRows.map((database) => database.id) : [],
+    );
+
+    // A rollup or formula reads through its relation, so the databases on the
+    // other side of that relation join the scope even though nothing on the
+    // page names them.
+    const targetDatabaseIds = new Set<string>();
+    for (const property of propertyRows) {
+      if (property.type !== "relation" || !loadedDatabaseIds.has(property.databaseId)) continue;
+      const relatedId = property.options.relatedDatabaseId;
+      if (typeof relatedId === "string" && !loadedDatabaseIds.has(relatedId)) {
+        targetDatabaseIds.add(relatedId);
+      }
+    }
+
+    // A database that a view or a rollup also needs is already read whole, so
+    // only the queue- or timeline-only ones get the narrow read.
+    const projectedQueueIds = new Set(
+      [...queueDatabaseIds].filter(
+        (databaseId) =>
+          !loadedDatabaseIds.has(databaseId) && !targetDatabaseIds.has(databaseId),
+      ),
+    );
+    const projectedTimelineIds = new Set(
+      [...timelineDatabaseIds].filter(
+        (databaseId) =>
+          !loadedDatabaseIds.has(databaseId) && !targetDatabaseIds.has(databaseId),
+      ),
+    );
+    const projectedDatabaseIds = [...new Set([...projectedQueueIds, ...projectedTimelineIds])];
+
+    const recordDatabaseIds = [...new Set([...loadedDatabaseIds, ...targetDatabaseIds])];
+    const calculatedProperties = propertyRows.filter(
+      (property) =>
+        loadedDatabaseIds.has(property.databaseId) || targetDatabaseIds.has(property.databaseId),
+    );
+
+    // Relations only matter to a calculation, and then only from the records
+    // this request loaded, so a dashboard of plain views reads none of them.
+    const needsRelations = calculatedProperties.some(
+      (property) =>
+        property.type === "relation" || property.type === "rollup" || property.type === "formula",
+    );
+
+    const [recordRows, viewConfigRows, relationRows] = await Promise.all([
+      recordDatabaseIds.length === 0
+        ? []
+        : db
+            .select()
+            .from(databaseRecords)
+            .where(inArray(databaseRecords.databaseId, recordDatabaseIds))
+            .orderBy(asc(databaseRecords.sortOrder)),
+      viewIds.length === 0
+        ? []
+        : db
+            .select({ id: databaseViews.id, config: databaseViews.config })
+            .from(databaseViews)
+            .where(inArray(databaseViews.id, viewIds)),
+      needsRelations && recordDatabaseIds.length > 0
+        ? db
+            .select()
+            .from(databaseRecordRelations)
+            .where(
+              inArray(
+                databaseRecordRelations.sourceRecordId,
+                db
+                  .select({ id: databaseRecords.id })
+                  .from(databaseRecords)
+                  .where(inArray(databaseRecords.databaseId, recordDatabaseIds)),
+              ),
+            )
+        : [],
+    ]);
+
+    const viewConfigs = new Map(viewConfigRows.map((view) => [view.id, view.config]));
 
     const propertiesByDatabase = new Map<string, typeof propertyRows>();
     for (const property of propertyRows) {
@@ -109,6 +213,56 @@ export async function GET(request: Request) {
       ]);
     }
 
+    /** The fields a preview reads: its title, its page, when it changed, and the
+     *  date and status values — not every property of every record. */
+    type PreviewRecordRow = {
+      id: string;
+      title: string;
+      pageId: string | null;
+      updatedAt: Date;
+      values: Record<string, unknown>;
+    };
+
+    const projectedRows = new Map<string, PreviewRecordRow[]>();
+    await Promise.all(
+      projectedDatabaseIds.map(async (databaseId) => {
+        // The timeline only asks for dates; a queue also asks for a status.
+        const wantsSelects = projectedQueueIds.has(databaseId);
+        const previewProperties = (propertiesByDatabase.get(databaseId) ?? []).filter(
+          (property) => property.type === "date" || (wantsSelects && property.type === "select"),
+        );
+        // Only the values a preview can look at travel; text, files, relations
+        // and derived columns stay in the database, unread.
+        const values = previewProperties.length === 0
+          ? sql<Record<string, unknown>>`'{}'::jsonb`
+          : sql<Record<string, unknown>>`jsonb_build_object(${sql.join(
+              previewProperties.flatMap((property) => [
+                sql`${property.id}::text`,
+                sql`${databaseRecords.values}->>${property.id}`,
+              ]),
+              sql`, `,
+            )})`;
+
+        const rows = await db
+          .select({
+            id: databaseRecords.id,
+            title: databaseRecords.title,
+            pageId: databaseRecords.pageId,
+            updatedAt: databaseRecords.updatedAt,
+            values,
+          })
+          .from(databaseRecords)
+          .where(eq(databaseRecords.databaseId, databaseId));
+
+        projectedRows.set(databaseId, rows);
+      }),
+    );
+
+    /** A queue or the timeline reads through here: whole records when a view also
+     *  needs them, otherwise the narrow read of just the values it looks at. */
+    const previewRecords = (databaseId: string): PreviewRecordRow[] =>
+      recordsByDatabase.get(databaseId) ?? projectedRows.get(databaseId) ?? [];
+
     const relationsByRecord = new Map<string, Record<string, string[]>>();
     for (const relation of relationRows) {
       const recordRelations = relationsByRecord.get(relation.sourceRecordId) ?? {};
@@ -122,16 +276,14 @@ export async function GET(request: Request) {
     // Chart widgets resolve formulas and rollups the same way the database page
     // does, so a calculated column charts the number it displays.
     const relationTargets: RelationTargetMap = {};
-    for (const database of databaseRows) {
-      for (const property of propertiesByDatabase.get(database.id) ?? []) {
-        if (property.type !== "relation") continue;
-        const relatedId = property.options.relatedDatabaseId;
-        if (typeof relatedId !== "string") continue;
-        relationTargets[property.id] = {
-          properties: (propertiesByDatabase.get(relatedId) ?? []) as unknown as CalculationProperty[],
-          records: (recordsByDatabase.get(relatedId) ?? []).map(({ id, values }) => ({ id, values })),
-        };
-      }
+    for (const property of propertyRows) {
+      if (property.type !== "relation") continue;
+      const relatedId = property.options.relatedDatabaseId;
+      if (typeof relatedId !== "string") continue;
+      relationTargets[property.id] = {
+        properties: (propertiesByDatabase.get(relatedId) ?? []) as unknown as CalculationProperty[],
+        records: (recordsByDatabase.get(relatedId) ?? []).map(({ id, values }) => ({ id, values })),
+      };
     }
 
     const views = viewRows
@@ -148,6 +300,7 @@ export async function GET(request: Request) {
       const view = viewRows.find((candidate) => candidate.id === viewId);
       if (!view) return [];
 
+      const config = viewConfigs.get(view.id) ?? {};
       const properties = propertiesByDatabase.get(view.databaseId) ?? [];
       const records = (recordsByDatabase.get(view.databaseId) ?? []).map((record) => ({
         ...record,
@@ -174,8 +327,8 @@ export async function GET(request: Request) {
       const visible = applyView(
         records,
         properties,
-        parseViewFilters(view.config),
-        parseViewSorts(view.config),
+        parseViewFilters(config),
+        parseViewSorts(config),
         { valueFor },
       );
 
@@ -186,14 +339,14 @@ export async function GET(request: Request) {
         const numeric = properties.filter((property) =>
           property.type === "number" || property.type === "formula" || property.type === "rollup",
         );
-        const propertyId = typeof view.config.chartPropertyId === "string"
-          ? view.config.chartPropertyId
+        const propertyId = typeof config.chartPropertyId === "string"
+          ? config.chartPropertyId
           : "";
         const property = numeric.find((candidate) => candidate.id === propertyId) ?? numeric[0];
         if (!property) return null;
 
-        const groupId = typeof view.config.chartGroupPropertyId === "string"
-          ? view.config.chartGroupPropertyId
+        const groupId = typeof config.chartGroupPropertyId === "string"
+          ? config.chartGroupPropertyId
           : "";
         const group = properties.find((candidate) =>
           candidate.id === groupId && candidate.type === "select",
@@ -201,17 +354,17 @@ export async function GET(request: Request) {
         const choices = group && Array.isArray(group.options.choices)
           ? group.options.choices.filter((choice): choice is string => typeof choice === "string")
           : [];
-        const dateId = typeof view.config.chartDatePropertyId === "string"
-          ? view.config.chartDatePropertyId
+        const dateId = typeof config.chartDatePropertyId === "string"
+          ? config.chartDatePropertyId
           : "";
         const dateProperty = properties.find((candidate) =>
           candidate.id === dateId && candidate.type === "date",
         );
-        const dateRange = parseTimelineRange(view.config.chartDateRange);
-        const dateOffset = parseChartDateOffset(view.config.chartDateOffset);
-        const dateStart = parseChartDateBound(view.config.chartDateStart);
-        const dateEnd = parseChartDateBound(view.config.chartDateEnd);
-        const datePreset = parseChartDatePreset(view.config.chartDatePreset);
+        const dateRange = parseTimelineRange(config.chartDateRange);
+        const dateOffset = parseChartDateOffset(config.chartDateOffset);
+        const dateStart = parseChartDateBound(config.chartDateStart);
+        const dateEnd = parseChartDateBound(config.chartDateEnd);
+        const datePreset = parseChartDatePreset(config.chartDatePreset);
         const dateWindow = dateProperty
           ? chartDateWindow(today, dateRange, dateOffset, dateStart, dateEnd, datePreset)
           : null;
@@ -230,7 +383,7 @@ export async function GET(request: Request) {
           dateProperty,
           dateWindow,
         });
-        const type = parseChartType(view.config.chartType);
+        const type = parseChartType(config.chartType);
 
         return {
           type,
@@ -262,7 +415,7 @@ export async function GET(request: Request) {
           id: view.id,
           name: view.name,
           type: view.type,
-          config: view.config,
+          config,
           databaseId: view.databaseId,
           databaseName: databaseNames.get(view.databaseId) ?? "",
         },
@@ -318,7 +471,7 @@ export async function GET(request: Request) {
           ? null
           : requestedStatus ?? properties.find((property) => property.type === "select") ?? null;
 
-      const records = (recordsByDatabase.get(database.id) ?? [])
+      const records = previewRecords(database.id)
         .flatMap((record) => {
           if (statusProperty && isCompletedStatus(record.values[statusProperty.id])) return [];
           const due = dateKey(record.values[dateProperty.id]);
@@ -367,7 +520,7 @@ export async function GET(request: Request) {
           ? isExcludedStatus(status, projectExcludedStatuses)
           : isCompletedStatus(status);
 
-      const records = [...(recordsByDatabase.get(database.id) ?? [])]
+      const records = [...previewRecords(database.id)]
         .filter((record) => !isFinished(statusProperty ? record.values[statusProperty.id] : ""))
         .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
         .map((record) => {
@@ -406,7 +559,7 @@ export async function GET(request: Request) {
         dateProperties += datedProperties.length;
         if (datedProperties.length === 0) continue;
 
-        const records = recordsByDatabase.get(database.id) ?? [];
+        const records = previewRecords(database.id);
         for (const property of datedProperties) {
           for (const record of records) {
             const date = dateKey(record.values[property.id]);

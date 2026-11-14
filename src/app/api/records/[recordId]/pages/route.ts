@@ -1,9 +1,10 @@
-import { and, asc, eq, isNull, notExists } from "drizzle-orm";
+import { and, asc, eq, ilike, isNull, ne, notExists } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseRecords, pageRecordLinks, pages } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api-log";
+import { PICKER_OPTION_LIMIT, pickerPattern, pickerQuery } from "@/lib/picker-options";
 
 type Context = { params: Promise<{ recordId: string }> };
 const idSchema = z.string().uuid();
@@ -29,7 +30,10 @@ export async function GET(request: Request, context: Context) {
       return NextResponse.json({ error: "Record not found" }, { status: 404 });
     }
 
-    const [linked, all] = await Promise.all([
+    // The picker used to answer with every page in the workspace. It now
+    // returns one screenful of titles, narrowed by the search it is given.
+    const query = pickerQuery(request);
+    const [linked, options] = await Promise.all([
       db
         .select({ id: pages.id, title: pages.title })
         .from(pageRecordLinks)
@@ -51,15 +55,30 @@ export async function GET(request: Request, context: Context) {
                 .from(databaseRecords)
                 .where(eq(databaseRecords.pageId, pages.id)),
             ),
+            // The record's own page is listed above as its page, not offered.
+            record.pageId ? ne(pages.id, record.pageId) : undefined,
+            notExists(
+              db
+                .select({ pageId: pageRecordLinks.pageId })
+                .from(pageRecordLinks)
+                .where(
+                  and(
+                    eq(pageRecordLinks.recordId, recordId),
+                    eq(pageRecordLinks.pageId, pages.id),
+                  ),
+                ),
+            ),
+            query ? ilike(pages.title, pickerPattern(query)) : undefined,
           ),
         )
-        .orderBy(asc(pages.title)),
+        .orderBy(asc(pages.title))
+        .limit(PICKER_OPTION_LIMIT + 1),
     ]);
 
-    const linkedIds = new Set(linked.map((page) => page.id));
     return NextResponse.json({
       pages: linked,
-      options: all.filter((page) => !linkedIds.has(page.id) && page.id !== record.pageId),
+      options: options.slice(0, PICKER_OPTION_LIMIT),
+      hasMore: options.length > PICKER_OPTION_LIMIT,
     });
   } catch (error) {
     return apiErrorResponse(request, "Failed to load record pages", error, { status: 500, logMessage: "Failed to load record pages:" });
