@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { ButtonCell } from "@/components/button-cell";
+import { PropertyTypeIcon } from "@/components/property-display";
 import type { ListRow } from "@/lib/database-list";
 import { recordHref } from "@/lib/record-link";
 
@@ -45,8 +46,11 @@ export function DatabaseList({
             {row.values.length > 0 && (
               <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 {row.values.map((value) => (
-                  <div key={value.id} className="flex min-w-0 items-baseline gap-1">
-                    <dt>{value.name}</dt>
+                  <div key={value.id} className="flex min-w-0 items-center gap-1">
+                    <dt className="flex items-center gap-1">
+                      <PropertyTypeIcon type={value.propertyType ?? "text"} size={10} />
+                      {value.name}
+                    </dt>
                     <dd className="min-w-0 break-words text-foreground">
                       {value.type === "button" && onRunButton ? (
                         <ButtonCell

@@ -139,7 +139,8 @@ test("shows the tag chip tooltip only when the name is truncated", async ({ page
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/pages/${tagged.id}`);
-    await page.getByText("Page settings", { exact: true }).click();
+    await page.getByRole("button", { name: "Page settings" }).click();
+    await page.locator("summary").filter({ hasText: "Details" }).click();
 
     const triggers = page.locator('[data-slot="tooltip-trigger"]');
     const longChip = triggers.filter({ hasText: longName });

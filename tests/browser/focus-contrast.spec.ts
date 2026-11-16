@@ -18,7 +18,7 @@ for (const theme of THEMES) {
     await page.addInitScript((value) => {
       window.localStorage.setItem("kbs:theme", value);
     }, theme);
-    await page.goto("/");
+    await page.goto("/settings");
 
     const result = await page.evaluate((surfaces) => {
       const root = document.documentElement;

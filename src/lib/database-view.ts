@@ -112,10 +112,29 @@ export function parseViewSorts(config: Record<string, unknown> | undefined): Vie
   return sorts.length > 0 ? sorts : DEFAULT_VIEW_SORTS;
 }
 
+/** Gallery card densities; only a gallery view reads this. */
+export const GALLERY_CARD_SIZES = ["small", "medium", "large"] as const;
+export type GalleryCardSize = (typeof GALLERY_CARD_SIZES)[number];
+
+/**
+ * A gallery saved before the size choice existed has no `cardSize`, so it keeps
+ * the medium grid it was drawn with. Unknown values fall back the same way.
+ */
+export function parseGalleryCardSize(
+  config: Record<string, unknown> | undefined,
+): GalleryCardSize {
+  const raw = config?.cardSize;
+  return typeof raw === "string" && (GALLERY_CARD_SIZES as readonly string[]).includes(raw)
+    ? (raw as GalleryCardSize)
+    : "medium";
+}
+
 export function operatorsForProperty(type: string): ViewFilterOperator[] {
   switch (type) {
     case "number":
     case "formula":
+    // A rollup resolves to a number, so it compares like one.
+    case "rollup":
       return ["is", "is_not", "greater_than", "less_than", "is_empty", "is_not_empty"];
     case "date":
       return ["is", "is_not", "before", "after", "is_empty", "is_not_empty"];
@@ -125,13 +144,18 @@ export function operatorsForProperty(type: string): ViewFilterOperator[] {
       return ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"];
     case "multi_select":
       return ["contains", "does_not_contain", "is_empty", "is_not_empty"];
+    // A relation filter names a record, so "is" means "is linked to".
+    case "relation":
+      return ["is", "is_not", "is_empty", "is_not_empty"];
     default:
       return ["contains", "does_not_contain", "is", "is_not", "is_empty", "is_not_empty"];
   }
 }
 
 export function isFilterableProperty(type: string) {
-  return type !== "relation" && type !== "rollup" && type !== "file";
+  // A file value is an attachment object rather than text or a number, so it
+  // is the one type a view cannot filter on.
+  return type !== "file";
 }
 
 export function filterNeedsValue(operator: ViewFilterOperator) {
@@ -158,6 +182,22 @@ function isEmptyValue(value: unknown): boolean {
     || (Array.isArray(value) && value.length === 0);
 }
 
+/** The records a relation links to. `valueFor` supplies them as an id array. */
+function linkedRecordIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => stringValue(entry).toLocaleLowerCase()).filter(Boolean);
+}
+
+/**
+ * "Empty" differs by type: a rollup with nothing to sum renders a dash rather
+ * than a blank, and a relation holds ids instead of a value.
+ */
+function isEmptyFor(property: ViewProperty, value: unknown): boolean {
+  if (property.type === "rollup") return numberValue(value) === null;
+  if (property.type === "relation") return linkedRecordIds(value).length === 0;
+  return isEmptyValue(value);
+}
+
 function numberValue(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   const text = stringValue(value).trim();
@@ -179,7 +219,8 @@ function isFilterActive(filter: ViewFilter, property: ViewProperty): boolean {
   if (!filterNeedsValue(filter.operator)) return true;
   if (filter.value.trim() === "") return false;
 
-  if ((property.type === "number" || property.type === "formula") && ["is", "is_not", "greater_than", "less_than"].includes(filter.operator)) {
+  if ((property.type === "number" || property.type === "formula" || property.type === "rollup")
+    && ["is", "is_not", "greater_than", "less_than"].includes(filter.operator)) {
     return numberValue(filter.value) !== null;
   }
   if (property.type === "date" && ["is", "is_not", "before", "after"].includes(filter.operator)) {
@@ -197,9 +238,9 @@ function matchesFilter(
 
   switch (filter.operator) {
     case "is_empty":
-      return isEmptyValue(value);
+      return isEmptyFor(property, value);
     case "is_not_empty":
-      return !isEmptyValue(value);
+      return !isEmptyFor(property, value);
     case "is_checked":
       return value === true;
     case "is_not_checked":
@@ -213,8 +254,9 @@ function matchesFilter(
         ? !selectedValues(value).includes(needle)
         : !stringValue(value).toLocaleLowerCase().includes(needle);
     case "is":
+      if (property.type === "relation") return linkedRecordIds(value).includes(needle);
       if (property.type === "multi_select") return selectedValues(value).includes(needle);
-      if (property.type === "number" || property.type === "formula") {
+      if (property.type === "number" || property.type === "formula" || property.type === "rollup") {
         const current = numberValue(value);
         const target = numberValue(filter.value);
         return current !== null && target !== null && current === target;
@@ -226,8 +268,9 @@ function matchesFilter(
       }
       return stringValue(value).toLocaleLowerCase() === needle;
     case "is_not":
+      if (property.type === "relation") return !linkedRecordIds(value).includes(needle);
       if (property.type === "multi_select") return !selectedValues(value).includes(needle);
-      if (property.type === "number" || property.type === "formula") {
+      if (property.type === "number" || property.type === "formula" || property.type === "rollup") {
         const current = numberValue(value);
         const target = numberValue(filter.value);
         return !(current !== null && target !== null && current === target);

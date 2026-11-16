@@ -24,7 +24,8 @@ function newFilterId() {
 
 function inputTypeFor(type: string) {
   if (type === "date") return "date";
-  if (type === "number") return "number";
+  // A rollup resolves to a number, so its filter value is numeric too.
+  if (type === "number" || type === "rollup") return "number";
   return "text";
 }
 
@@ -34,6 +35,7 @@ export function DatabaseViewControls({
   filters,
   sorts,
   recordCount,
+  relationOptions,
   onFilterTextChange,
   onFiltersChange,
   onSortsChange,
@@ -43,6 +45,8 @@ export function DatabaseViewControls({
   filters: ViewFilter[];
   sorts: ViewSort[];
   recordCount: number;
+  /** The records each relation property can link to, keyed by property id. */
+  relationOptions?: Record<string, { id: string; title: string }[]>;
   onFilterTextChange: (value: string) => void;
   onFiltersChange: (filters: ViewFilter[]) => void;
   onSortsChange: (sorts: ViewSort[]) => void;
@@ -128,6 +132,9 @@ export function DatabaseViewControls({
             const choices = Array.isArray(property?.options?.choices)
               ? property.options.choices.filter((choice): choice is string => typeof choice === "string")
               : [];
+            const linkedRecords = property?.type === "relation"
+              ? relationOptions?.[filter.propertyId] ?? []
+              : [];
 
             return (
               <li key={filter.id} className="flex flex-wrap items-center gap-2 text-sm">
@@ -152,7 +159,26 @@ export function DatabaseViewControls({
                   ))}
                 </select>
                 {filterNeedsValue(filter.operator) && (
-                  choices.length > 0 ? (
+                  property?.type === "relation" ? (
+                    linkedRecords.length > 0 ? (
+                      <select
+                        aria-label="Filter value"
+                        value={filter.value}
+                        onChange={(event) => updateFilter(filter.id, { value: event.target.value })}
+                        className="min-w-40 rounded-md border bg-background px-2 py-1.5"
+                      >
+                        <option value="">Choose a record…</option>
+                        {filter.value && !linkedRecords.some((record) => record.id === filter.value) && (
+                          <option value={filter.value}>Missing record</option>
+                        )}
+                        {linkedRecords.map((record) => (
+                          <option key={record.id} value={record.id}>{record.title || "Untitled"}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No records to choose yet.</span>
+                    )
+                  ) : choices.length > 0 ? (
                     <select
                       aria-label="Filter value"
                       value={filter.value}

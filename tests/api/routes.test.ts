@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import type { Pool } from "pg";
-import { databaseRecords as databaseRecordTable, pages as pagesTable } from "../../src/db/schema";
+import {
+  databaseRecords as databaseRecordTable,
+  databases as databasesTable,
+  pages as pagesTable,
+} from "../../src/db/schema";
 import { createTestDatabase, type TestDatabase } from "./db-harness";
 
 type ApiModules = {
@@ -40,6 +44,7 @@ type ApiModules = {
   database: typeof import("../../src/app/api/databases/[id]/route");
   properties: typeof import("../../src/app/api/databases/[id]/properties/route");
   propertyUpdate: typeof import("../../src/app/api/databases/[id]/properties/[propertyId]/route");
+  propertyReorder: typeof import("../../src/app/api/databases/[id]/properties/reorder/route");
   views: typeof import("../../src/app/api/databases/[id]/views/route");
   view: typeof import("../../src/app/api/databases/[id]/views/[viewId]/route");
   viewUsage: typeof import("../../src/app/api/databases/[id]/views/[viewId]/usage/route");
@@ -212,6 +217,7 @@ before(async () => {
     database,
     properties,
     propertyUpdate,
+    propertyReorder,
     views,
     view,
     viewUsage,
@@ -261,6 +267,7 @@ before(async () => {
     import("../../src/app/api/databases/[id]/route"),
     import("../../src/app/api/databases/[id]/properties/route"),
     import("../../src/app/api/databases/[id]/properties/[propertyId]/route"),
+    import("../../src/app/api/databases/[id]/properties/reorder/route"),
     import("../../src/app/api/databases/[id]/views/route"),
     import("../../src/app/api/databases/[id]/views/[viewId]/route"),
     import("../../src/app/api/databases/[id]/views/[viewId]/usage/route"),
@@ -282,7 +289,7 @@ before(async () => {
     import("../../src/app/api/orphans/route"),
   ]);
 
-  api = { pages, page, move, reorder, revisions, pageTags, links, related, tags, savedSearches, savedSearch, reading, readingItem, readingHighlights, readingHighlight, graph, focus, focusPinned, taskCompletions, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, propertyUpdate, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, button, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
+  api = { pages, page, move, reorder, revisions, pageTags, links, related, tags, savedSearches, savedSearch, reading, readingItem, readingHighlights, readingHighlight, graph, focus, focusPinned, taskCompletions, records, inbox, inboxItem, attachments, attachment, orphans, databases, database, properties, propertyUpdate, propertyReorder, views, view, viewUsage, viewReorder, templates, template, pageTemplatesList, pageTemplate, record, button, dashboard, search, exportWorkspace, trash, trashItem, trashRestore, pageRecords, recordPages, connections };
 });
 
 after(async () => {
@@ -1492,6 +1499,212 @@ describe("database metadata API", () => {
     assert.equal(badAggregation.status, 400);
   });
 
+  it("renames, reorders, and deletes database properties, and adds choices", async () => {
+    const database = await createDatabase("Property management");
+    const context = routeContext({ id: database.id });
+
+    const status = await createDatabaseProperty(database.id, {
+      name: "Status",
+      type: "select",
+      options: { choices: ["To do", "Done"] },
+    });
+    const points = await createDatabaseProperty(database.id, { name: "Points", type: "number" });
+    const progress = await createDatabaseProperty(database.id, {
+      name: "Progress",
+      type: "formula",
+      options: { expression: "{Points} * 2" },
+    });
+    const record = await createDatabaseRecord(database.id, {
+      title: "A task",
+      values: { [status.id]: "To do", [points.id]: 3 },
+    });
+
+    // A rename lands, and the formula that reads the old name follows it.
+    const renamed = await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${points.id}`, "PATCH", { name: "Effort" }),
+      routeContext({ id: database.id, propertyId: points.id }),
+    );
+    assert.equal(renamed.status, 200);
+    assert.equal((await body<{ name: string }>(renamed)).name, "Effort");
+
+    const afterRename = await body<{ properties: { id: string; options: Record<string, unknown> }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${database.id}`, "GET"), context),
+    );
+    assert.equal(
+      afterRename.properties.find((property) => property.id === progress.id)?.options.expression,
+      "{Effort} * 2",
+      "a rename rewrites the formulas that read the old name",
+    );
+
+    // Names stay unique so a formula reference always resolves to one property.
+    assert.equal((await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${points.id}`, "PATCH", { name: "status" }),
+      routeContext({ id: database.id, propertyId: points.id }),
+    )).status, 400);
+
+    // A choice added after creation can then be stored on a record.
+    const choices = await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${status.id}`, "PATCH", {
+        choices: ["To do", "Done", "Dropped"],
+      }),
+      routeContext({ id: database.id, propertyId: status.id }),
+    );
+    assert.equal(choices.status, 200);
+    assert.deepEqual(
+      (await body<{ options: { choices: string[] } }>(choices)).options.choices,
+      ["To do", "Done", "Dropped"],
+    );
+
+    assert.equal((await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+        values: { [status.id]: "Dropped" },
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    )).status, 200);
+
+    // Choices only belong to Select properties.
+    assert.equal((await api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${points.id}`, "PATCH", { choices: ["Any"] }),
+      routeContext({ id: database.id, propertyId: points.id }),
+    )).status, 400);
+
+    // The whole column order is saved at once, and it must be complete.
+    assert.equal((await api.propertyReorder.POST(
+      jsonRequest(`/api/databases/${database.id}/properties/reorder`, "POST", {
+        propertyIds: [progress.id, status.id, points.id],
+      }),
+      context,
+    )).status, 200);
+    assert.equal((await api.propertyReorder.POST(
+      jsonRequest(`/api/databases/${database.id}/properties/reorder`, "POST", { propertyIds: [status.id] }),
+      context,
+    )).status, 400);
+
+    const afterReorder = await body<{ properties: { id: string }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${database.id}`, "GET"), context),
+    );
+    assert.deepEqual(
+      afterReorder.properties.map((property) => property.id),
+      [progress.id, status.id, points.id],
+    );
+
+    // A formula that reads the property blocks its deletion until it is gone.
+    const blocked = await api.propertyUpdate.DELETE(
+      jsonRequest(`/api/databases/${database.id}/properties/${points.id}`, "DELETE"),
+      routeContext({ id: database.id, propertyId: points.id }),
+    );
+    assert.equal(blocked.status, 400);
+    assert.match(String((await body(blocked)).error), /Progress/);
+
+    assert.equal((await api.propertyUpdate.DELETE(
+      jsonRequest(`/api/databases/${database.id}/properties/${progress.id}`, "DELETE"),
+      routeContext({ id: database.id, propertyId: progress.id }),
+    )).status, 200);
+    assert.equal((await api.propertyUpdate.DELETE(
+      jsonRequest(`/api/databases/${database.id}/properties/${points.id}`, "DELETE"),
+      routeContext({ id: database.id, propertyId: points.id }),
+    )).status, 200);
+
+    const [row] = await db.select().from(databaseRecordTable).where(eq(databaseRecordTable.id, record.id));
+    const values = row.values as Record<string, unknown>;
+    assert.equal(points.id in values, false, "the deleted property's stored value is removed");
+    assert.equal(values[status.id], "Dropped", "other values are left alone");
+  });
+
+  it("edits formula expressions and rollup calculations with create-time validation", async () => {
+    const database = await createDatabase("Calculated properties");
+    const source = await createDatabase("Rollup source");
+    const context = routeContext({ id: database.id });
+
+    const watched = await createDatabaseProperty(database.id, { name: "Watched", type: "number" });
+    await createDatabaseProperty(database.id, { name: "Total", type: "number" });
+    const progress = await createDatabaseProperty(database.id, {
+      name: "Progress",
+      type: "formula",
+      options: { expression: "{Watched} / {Total} * 100" },
+    });
+    const link = await createDatabaseProperty(database.id, {
+      name: "Source",
+      type: "relation",
+      options: { relatedDatabaseId: source.id },
+    });
+    const score = await createDatabaseProperty(source.id, { name: "Score", type: "number" });
+    await createDatabaseProperty(database.id, {
+      name: "Score total",
+      type: "rollup",
+      options: { relationPropertyId: link.id, aggregation: "count" },
+    });
+
+    const editFormula = (propertyId: string, expression: string) => api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${propertyId}`, "PATCH", { expression }),
+      routeContext({ id: database.id, propertyId }),
+    );
+
+    // A formula can be rewritten after creation.
+    const edited = await editFormula(progress.id, "{Watched} / {Total} * 100 + 1");
+    assert.equal(edited.status, 200);
+    assert.equal(
+      (await body<{ options: { expression: string } }>(edited)).options.expression,
+      "{Watched} / {Total} * 100 + 1",
+    );
+
+    // The edit path applies the same rules the create path does.
+    assert.equal((await editFormula(progress.id, "{Watched} /")).status, 400, "syntax is checked");
+    assert.equal((await editFormula(progress.id, "{Missing} * 2")).status, 400, "unknown names are checked");
+    assert.equal((await editFormula(progress.id, "{Progress} + 1")).status, 400, "a formula cannot reference itself");
+    assert.equal((await editFormula(watched.id, "1 + 1")).status, 400, "only formulas have expressions");
+
+    const editRollup = (rollup: Json) => api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${link.id}`, "PATCH", { rollup }),
+      routeContext({ id: database.id, propertyId: link.id }),
+    );
+
+    // Changing a rollup's calculation and target is validated like creation.
+    assert.equal((await editRollup({
+      relationPropertyId: link.id,
+      aggregation: "sum",
+      targetPropertyId: score.id,
+    })).status, 400, "only rollups have calculations");
+
+    const rollups = await body<{ properties: { id: string; type: string }[] }>(
+      await api.database.GET(jsonRequest(`/api/databases/${database.id}`, "GET"), context),
+    );
+    const rollupId = rollups.properties.find((property) => property.type === "rollup")!.id;
+    const editExistingRollup = (rollup: Json) => api.propertyUpdate.PATCH(
+      jsonRequest(`/api/databases/${database.id}/properties/${rollupId}`, "PATCH", { rollup }),
+      routeContext({ id: database.id, propertyId: rollupId }),
+    );
+
+    const summed = await editExistingRollup({
+      relationPropertyId: link.id,
+      aggregation: "sum",
+      targetPropertyId: score.id,
+    });
+    assert.equal(summed.status, 200);
+    assert.deepEqual(
+      (await body<{ options: Record<string, unknown> }>(summed)).options,
+      { relationPropertyId: link.id, aggregation: "sum", targetPropertyId: score.id },
+    );
+
+    const note = await createDatabaseProperty(source.id, { name: "Note", type: "text" });
+    assert.equal((await editExistingRollup({
+      relationPropertyId: link.id,
+      aggregation: "max",
+      targetPropertyId: note.id,
+    })).status, 400, "a rollup summarizes a number property");
+    assert.equal((await editExistingRollup({
+      relationPropertyId: link.id,
+      aggregation: "median",
+    })).status, 400, "an unknown aggregation is refused");
+
+    // Counting has no number to read, so the stored target is dropped.
+    const counted = await editExistingRollup({ relationPropertyId: link.id, aggregation: "count" });
+    assert.equal(counted.status, 200);
+    const countOptions = (await body<{ options: Record<string, unknown> }>(counted)).options;
+    assert.equal(countOptions.aggregation, "count");
+    assert.equal("targetPropertyId" in countOptions, false);
+  });
+
   it("validates formula property definitions", async () => {
     const database = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
       name: "Formula validation",
@@ -2060,6 +2273,18 @@ describe("database records API", () => {
     assert.deepEqual(record.values, {});
     assert.deepEqual(record.relations, {});
 
+    const databaseDetail = await body<{ pageId: string }>(await api.database.GET(
+      jsonRequest(`/api/databases/${database.id}`, "GET"),
+      routeContext({ id: database.id }),
+    ));
+    assert.ok(databaseDetail.pageId, "a database owns a page that groups its record pages");
+    const recordPage = await body<{ parentId: string | null }>(await api.page.GET(
+      jsonRequest(`/api/pages/${record.pageId}`, "GET"),
+      routeContext({ id: record.pageId }),
+    ));
+    assert.equal(recordPage.parentId, databaseDetail.pageId,
+      "record pages live under their database's grouping page");
+
     const fetchedResponse = await api.record.GET(
       jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "GET"),
       routeContext({ id: database.id, recordId: record.id }),
@@ -2133,6 +2358,50 @@ describe("database records API", () => {
       )).status,
       404,
     );
+  });
+
+  it("groups existing record pages under their database page in one pass", async () => {
+    const database = await createDatabase("Record page grouping");
+    const first = await createDatabaseRecord(database.id, { title: "Grouped first" });
+    const second = await createDatabaseRecord(database.id, { title: "Grouped second" });
+
+    // Simulate record pages created before databases owned a grouping page.
+    await db.update(pagesTable)
+      .set({ parentId: null })
+      .where(inArray(pagesTable.id, [first.pageId, second.pageId]));
+
+    const { groupRecordPages } = await import("../../src/lib/database-page");
+    const summary = await groupRecordPages(database.id);
+    assert.equal(summary.movedPages, 2, "both root record pages move");
+    assert.equal(summary.createdPages, 0, "the existing grouping page is reused");
+
+    const [owner] = await db.select({ pageId: databasesTable.pageId })
+      .from(databasesTable).where(eq(databasesTable.id, database.id));
+    assert.ok(owner?.pageId, "the database has a grouping page");
+    const grouped = await db.select({
+      id: pagesTable.id,
+      parentId: pagesTable.parentId,
+      sortOrder: pagesTable.sortOrder,
+    })
+      .from(pagesTable)
+      .where(inArray(pagesTable.id, [first.pageId, second.pageId]))
+      .orderBy(asc(pagesTable.sortOrder));
+    assert.deepEqual(grouped.map((page) => page.id), [first.pageId, second.pageId],
+      "the pages keep their order under the database page");
+    assert.ok(grouped.every((page) => page.parentId === owner?.pageId),
+      "root record pages move under the database page");
+
+    const repeat = await groupRecordPages(database.id);
+    assert.equal(repeat.movedPages, 0, "a second pass moves nothing");
+
+    // A database that predates grouping pages gets one on the same pass.
+    await db.update(databasesTable).set({ pageId: null })
+      .where(eq(databasesTable.id, database.id));
+    await db.update(pagesTable).set({ parentId: null })
+      .where(inArray(pagesTable.id, [first.pageId, second.pageId]));
+    const legacy = await groupRecordPages(database.id);
+    assert.equal(legacy.createdPages, 1, "a missing grouping page is created");
+    assert.equal(legacy.movedPages, 2, "its root record pages move under it");
   });
 
   it("repairs a record whose linked page was removed", async () => {

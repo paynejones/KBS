@@ -2,8 +2,9 @@
  * Database formulas are small arithmetic expressions over other properties, for
  * example `{Episodes watched} / {Episodes total} * 100`. They support the four
  * operators, parentheses, numeric literals, `{Property}` references, and
- * `round(value, digits)`. Everything else is rejected rather than evaluated, so
- * a stored formula cannot run arbitrary code.
+ * `round(value, digits)`. A caller may also opt into `today()`, which a button
+ * uses to write today's date; a formula never asks for it. Everything else is
+ * rejected rather than evaluated, so a stored formula cannot run arbitrary code.
  */
 
 export const MAX_FORMULA_LENGTH = 500;
@@ -20,6 +21,9 @@ export type FormulaNode =
 export type FormulaParseResult =
   | { ok: true; references: string[]; ast: FormulaNode }
   | { ok: false; error: string };
+
+/** `today()` is only meaningful where dates are written, so it is opt-in. */
+export type FormulaOptions = { allowToday?: boolean };
 
 type Token =
   | { type: "number"; value: number }
@@ -102,7 +106,10 @@ class FormulaParser {
   private position = 0;
   private depth = 0;
 
-  constructor(private readonly tokens: Token[]) {}
+  constructor(
+    private readonly tokens: Token[],
+    private readonly options: FormulaOptions = {},
+  ) {}
 
   parse(): FormulaParseResult {
     if (this.tokens.length === 0) return { ok: false, error: "Enter a formula." };
@@ -201,6 +208,23 @@ class FormulaParser {
   }
 
   private parseCall(name: string): FormulaNode | string {
+    if (name === "today") {
+      if (!this.options.allowToday) {
+        return "Unknown function “today”. Use {Property} to reference a property.";
+      }
+      const opening = this.peek();
+      if (opening?.type !== "paren" || opening.value !== "(") {
+        return "today() needs parentheses: write today().";
+      }
+      this.position += 1;
+      const closing = this.peek();
+      if (closing?.type !== "paren" || closing.value !== ")") {
+        return "today() takes no arguments.";
+      }
+      this.position += 1;
+      return { kind: "call", name, args: [] };
+    }
+
     if (!SUPPORTED_FUNCTIONS.has(name)) {
       return `Unknown function “${name}”. Use {Property} to reference a property.`;
     }
@@ -260,7 +284,10 @@ function collectReferences(node: FormulaNode, references: string[] = []): string
   return references;
 }
 
-export function parseFormula(expression: string): FormulaParseResult {
+export function parseFormula(
+  expression: string,
+  options: FormulaOptions = {},
+): FormulaParseResult {
   const trimmed = expression.trim();
   if (!trimmed) return { ok: false, error: "Enter a formula." };
   if (trimmed.length > MAX_FORMULA_LENGTH) {
@@ -270,7 +297,7 @@ export function parseFormula(expression: string): FormulaParseResult {
   const tokenized = tokenize(trimmed);
   if (!tokenized.ok) return tokenized;
 
-  return new FormulaParser(tokenized.tokens).parse();
+  return new FormulaParser(tokenized.tokens, options).parse();
 }
 
 function roundTo(value: number, digits: number) {
@@ -312,6 +339,8 @@ export function evaluateFormula(
       return null;
     }
     case "call": {
+      // `today()` carries no number for a formula to compute with.
+      if (ast.args.length === 0) return null;
       const value = evaluateFormula(ast.args[0], resolve);
       if (value === null) return null;
       if (ast.args.length === 1) return roundTo(value, 0);

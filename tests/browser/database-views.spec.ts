@@ -419,6 +419,38 @@ test("shows a linked page cover inside an embedded gallery", async ({ page, requ
   }
 });
 
+test("renames the active view from the tab strip", async ({ page, request }) => {
+  const token = `rename-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const database = await post<{ id: string }>(request, "/api/databases", {
+    name: `${token} database`,
+  });
+  const renamed = `${token} renamed`;
+
+  try {
+    await page.goto(`/databases/${database.id}`);
+    await page.locator("summary").filter({ hasText: "More" }).click();
+    await page.getByRole("button", { name: "Rename view" }).click();
+
+    const input = page.getByRole("textbox", { name: "View name" });
+    await expect(input).toBeVisible();
+    await input.fill(renamed);
+    await input.press("Enter");
+
+    await expect(page.getByRole("button", { name: renamed, exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "View name" })).toHaveCount(0);
+
+    const detail = await json<{ views: { name: string }[] }>(
+      await request.get(`/api/databases/${database.id}`),
+    );
+    assert.equal(detail.views[0]?.name, renamed);
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: renamed, exact: true })).toBeVisible();
+  } finally {
+    await request.delete(`/api/databases/${database.id}`);
+  }
+});
+
 test("renders list, timeline, and chart views inside database embeds", async ({ page, request }) => {
   const token = `embed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const database = await post<{ id: string }>(request, "/api/databases", {
@@ -499,11 +531,99 @@ test("renders list, timeline, and chart views inside database embeds", async ({ 
     await expect(chart.getByRole("link", { name: alpha, exact: true })).toBeVisible();
     await expect(chart.getByText("7", { exact: true })).toBeVisible();
     await expect(chart.getByText("1 record has no Score value.")).toBeVisible();
+
+    // Switching an embed's view is written back to the page, so reloading
+    // returns to the same tab instead of the original saved view.
+    const embedTabs = page.getByRole("group", { name: "Database views in this embed" }).first();
+    const savedEmbed = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/pages/${fixture.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await embedTabs.getByRole("button", { name: "Chart", exact: true }).click();
+    assert.equal((await savedEmbed).status(), 200);
+    await page.reload();
+    await expect(
+      page.getByRole("group", { name: "Database views in this embed" }).first()
+        .getByRole("button", { name: "Chart", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
   } finally {
     if (fixtureId) {
       await request.delete(`/api/pages/${fixtureId}`);
       await request.delete(`/api/trash/${fixtureId}`);
     }
+    await request.delete(`/api/databases/${database.id}`);
+  }
+});
+
+test("stacks a second group property inside each board column", async ({ page, request }) => {
+  const token = `board-groups-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const database = await post<{ id: string }>(request, "/api/databases", {
+    name: `${token} database`,
+  });
+
+  try {
+    const status = await post<{ id: string }>(
+      request,
+      `/api/databases/${database.id}/properties`,
+      { name: "Status", type: "select", options: { choices: ["Todo", "Done"] } },
+    );
+    const owner = await post<{ id: string }>(
+      request,
+      `/api/databases/${database.id}/properties`,
+      { name: "Owner", type: "select", options: { choices: ["Ada", "Bo"] } },
+    );
+
+    const alpha = `${token} Alpha`;
+    const beta = `${token} Beta`;
+    const gamma = `${token} Gamma`;
+    const seed = async (title: string, values: Record<string, unknown>) => {
+      const record = await post<{ id: string }>(
+        request,
+        `/api/databases/${database.id}/records`,
+        { title },
+      );
+      await json(
+        await request.patch(`/api/databases/${database.id}/records/${record.id}`, {
+          data: { values: { [status.id]: values.status, [owner.id]: values.owner } },
+        }),
+      );
+    };
+    await seed(alpha, { status: "Todo", owner: "Ada" });
+    await seed(beta, { status: "Todo", owner: "Bo" });
+    await seed(gamma, { status: "Done", owner: "Ada" });
+
+    const boardView = await post<{ id: string }>(request, `/api/databases/${database.id}/views`, {
+      name: "Board",
+      type: "board",
+      config: { groupBy: status.id, secondaryGroupBy: owner.id },
+    });
+
+    await page.goto(`/databases/${database.id}`);
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+
+    const board = page.getByRole("region", { name: "Status board" });
+    await expect(board).toBeVisible();
+    const todo = board.getByRole("region", { name: "Todo column" });
+    const adaTodo = todo.getByRole("group", { name: "Ada group" });
+    await expect(adaTodo.getByRole("link", { name: alpha })).toBeVisible();
+    await expect(todo.getByRole("group", { name: "Bo group" }).getByRole("link", { name: beta }))
+      .toBeVisible();
+    await expect(todo.getByRole("group", { name: "Ada group" }).getByRole("link", { name: beta }))
+      .toHaveCount(0);
+    const done = board.getByRole("region", { name: "Done column" });
+    await expect(done.getByRole("group", { name: "Ada group" }).getByRole("link", { name: gamma }))
+      .toBeVisible();
+
+    // Clearing the second property saves flat columns again.
+    const saved = page.waitForResponse((response) =>
+      response.url().endsWith(`/api/databases/${database.id}/views/${boardView.id}`)
+      && response.request().method() === "PATCH",
+    );
+    await board.getByLabel("Then group by").selectOption("");
+    assert.equal((await saved).status(), 200);
+    await expect(board.getByRole("group", { name: "Ada group" })).toHaveCount(0);
+    await expect(todo.getByRole("link", { name: alpha })).toBeVisible();
+  } finally {
     await request.delete(`/api/databases/${database.id}`);
   }
 });

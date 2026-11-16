@@ -29,7 +29,7 @@ function buttonValueError(
   if (!isButtonExpressionWritableProperty(target)) {
     return `${target.name} cannot use an expression value`;
   }
-  return buttonExpressionError(value.expression, sourceProperties);
+  return buttonExpressionError(value.expression, sourceProperties, target.type);
 }
 
 /**

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type DragEvent as ReactDragEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronUp, Eye, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpRight, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, Link2, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ButtonCell, buttonResultMessage, runDatabaseButton } from "@/components/button-cell";
 import { ButtonSettingsDialog } from "@/components/button-settings-dialog";
@@ -17,15 +17,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { MultiSelectCell } from "@/components/database-cell-editors";
+import {
+  BooleanPill,
+  CalculatedValue,
+  DateLabel,
+  PropertyTypeBadge,
+  StatusChips,
+} from "@/components/property-display";
 import { FileCell } from "@/components/file-cell";
 import { PageEditorLoader } from "@/components/page-editor-loader";
-import { RecordBacklinks, type RecordBacklink } from "@/components/record-backlinks";
-import { RecordPageLinks } from "@/components/record-links";
+import { RecordConnections } from "@/components/record-connections";
+import type { RecordBacklink } from "@/components/record-backlinks";
 import { RelationCell } from "@/components/relation-cell";
 import { Button } from "@/components/ui/button";
 import { formatFormulaValue } from "@/lib/database-formula";
 import type { DatabasePropertyType } from "@/lib/database-property";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
+import { readHiddenPropertyIds, setPropertyHidden, writeHiddenPropertyIds } from "@/lib/database-record-prefs";
 import { recordHref } from "@/lib/record-link";
 import { isViewMode, viewModeHref } from "@/lib/view-mode";
 
@@ -58,6 +67,8 @@ type RecordDetail = RecordRow & {
   database: { id: string; name: string };
 };
 
+const PROPERTY_DRAG_MIME = "application/x-kbs-record-property";
+
 export function DatabaseRecordWorkspace({
   databaseId,
   recordId,
@@ -79,7 +90,12 @@ export function DatabaseRecordWorkspace({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingButtonProperty, setEditingButtonProperty] = useState<Property | null>(null);
+  const [showConnections, setShowConnections] = useState(false);
   const [showProperties, setShowProperties] = useState(true);
+  const [hiddenPropertyIds, setHiddenPropertyIds] = useState<string[]>(() => readHiddenPropertyIds(databaseId));
+  const [reorderingProperties, setReorderingProperties] = useState(false);
+  const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -176,6 +192,81 @@ export function DatabaseRecordWorkspace({
     void applyUpdate({ relations: { ...record.relations, [property.id]: selected } });
   }
 
+  /**
+   * Property order is the database's column order, so a move made here also
+   * moves the column in every view and every other record. The list updates
+   * first and returns to its previous order if the request fails.
+   */
+  async function savePropertyOrder(propertyIds: string[], previous: Property[]) {
+    const byId = new Map(previous.map((property) => [property.id, property]));
+    setProperties(
+      propertyIds
+        .map((propertyId) => byId.get(propertyId))
+        .filter((property): property is Property => Boolean(property)),
+    );
+
+    setReorderingProperties(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/databases/${databaseId}/properties/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ propertyIds }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || "Could not move this property.");
+      }
+    } catch (moveError) {
+      setProperties(previous);
+      setError(moveError instanceof Error ? moveError.message : "Could not move this property.");
+    } finally {
+      setReorderingProperties(false);
+    }
+  }
+
+  async function moveProperty(propertyId: string, direction: "up" | "down") {
+    if (reorderingProperties) return;
+    const index = properties.findIndex((property) => property.id === propertyId);
+    const target = direction === "up" ? index - 1 : index + 1;
+    if (index === -1 || target < 0 || target >= properties.length) return;
+
+    const propertyIds = properties.map((property) => property.id);
+    [propertyIds[index], propertyIds[target]] = [propertyIds[target], propertyIds[index]];
+    await savePropertyOrder(propertyIds, properties);
+  }
+
+  /** Drops one property in front of `beforeId`, or at the end when it is null. */
+  async function movePropertyTo(propertyId: string, beforeId: string | null) {
+    if (reorderingProperties || propertyId === beforeId) return;
+    const propertyIds = properties.map((property) => property.id).filter((id) => id !== propertyId);
+    const target = beforeId === null ? propertyIds.length : propertyIds.indexOf(beforeId);
+    if (target === -1) return;
+    propertyIds.splice(target, 0, propertyId);
+    await savePropertyOrder(propertyIds, properties);
+  }
+
+  function startPropertyDrag(event: ReactDragEvent<HTMLElement>, propertyId: string) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(PROPERTY_DRAG_MIME, propertyId);
+    event.dataTransfer.setData("text/plain", propertyId);
+    setDraggedPropertyId(propertyId);
+  }
+
+  function finishPropertyDrag() {
+    setDraggedPropertyId(null);
+    setDropTarget(null);
+  }
+
+  function dropProperty(event: ReactDragEvent<HTMLElement>, beforeId: string | null) {
+    event.preventDefault();
+    const raw =
+      event.dataTransfer.getData(PROPERTY_DRAG_MIME) || event.dataTransfer.getData("text/plain");
+    const propertyId = properties.some((property) => property.id === raw) ? raw : draggedPropertyId;
+    if (propertyId) void movePropertyTo(propertyId, beforeId);
+    finishPropertyDrag();
+  }
+
   function getRollupValue(property: Property): number | string {
     if (!record) return "—";
     return rollupValue(record, property, relationTargets);
@@ -245,18 +336,18 @@ export function DatabaseRecordWorkspace({
 
     if (property.type === "formula") {
       return (
-        <span className="block px-3 py-2 text-sm" aria-label={`${property.name} calculated value`}>
-          {formatFormulaValue(getFormulaValue(property))}
-        </span>
+        <div className="px-3 py-2" aria-label={`${property.name} calculated value`}>
+          <CalculatedValue value={formatFormulaValue(getFormulaValue(property))} />
+        </div>
       );
     }
 
     if (property.type === "rollup") {
       const rollup = getRollupValue(property);
       return (
-        <span className="block px-3 py-2 text-sm" aria-label={`${property.name} calculated value`}>
-          {typeof rollup === "number" ? rollup.toLocaleString() : rollup}
-        </span>
+        <div className="px-3 py-2" aria-label={`${property.name} calculated value`}>
+          <CalculatedValue value={typeof rollup === "number" ? rollup.toLocaleString() : rollup} />
+        </div>
       );
     }
 
@@ -275,12 +366,12 @@ export function DatabaseRecordWorkspace({
               <Link
                 key={targetId}
                 href={recordHref(relatedDatabaseId, targetId, target?.pageId)}
-                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:border-primary/30 hover:text-primary"
+                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-700 hover:border-indigo-300 hover:text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-300"
               >
                 {label} <ArrowUpRight size={11} aria-hidden="true" />
               </Link>
             ) : (
-              <span key={targetId} className="rounded-md border bg-background px-2 py-1 text-xs">
+              <span key={targetId} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-300">
                 {label}
               </span>
             );
@@ -302,7 +393,9 @@ export function DatabaseRecordWorkspace({
 
     if (readOnly && property.type === "checkbox") {
       return (
-        <span className="block px-3 py-2 text-sm">{value ? "Checked" : "Unchecked"}</span>
+        <div className="px-3 py-2">
+          <BooleanPill value={Boolean(value)} />
+        </div>
       );
     }
 
@@ -311,9 +404,9 @@ export function DatabaseRecordWorkspace({
         ? value.filter((choice): choice is string => typeof choice === "string")
         : [];
       return (
-        <span className="block px-3 py-2 text-sm">
-          {choices.length > 0 ? choices.join(", ") : <span className="text-muted-foreground">—</span>}
-        </span>
+        <div className="px-3 py-2">
+          <StatusChips values={choices} />
+        </div>
       );
     }
 
@@ -321,6 +414,20 @@ export function DatabaseRecordWorkspace({
       const currentValue = value === null || value === undefined || value === ""
         ? ""
         : String(value);
+      if (property.type === "date") {
+        return (
+          <div className="px-3 py-2">
+            <DateLabel value={currentValue} />
+          </div>
+        );
+      }
+      if (property.type === "select") {
+        return (
+          <div className="px-3 py-2">
+            <StatusChips values={currentValue ? [currentValue] : []} />
+          </div>
+        );
+      }
       if (property.type === "url" && currentValue) {
         return (
           <a
@@ -334,7 +441,11 @@ export function DatabaseRecordWorkspace({
         );
       }
       return (
-        <span className="block whitespace-pre-wrap break-words px-3 py-2 text-sm">
+        <span
+          className={`block whitespace-pre-wrap break-words px-3 py-2 text-sm ${
+            property.type === "number" ? "font-medium tabular-nums" : ""
+          }`}
+        >
           {currentValue || <span className="text-muted-foreground">—</span>}
         </span>
       );
@@ -398,19 +509,15 @@ export function DatabaseRecordWorkspace({
 
     if (property.type === "multi_select") {
       return (
-        <select
-          multiple
-          aria-label={property.name}
-          value={Array.isArray(value) ? value.filter((choice): choice is string => typeof choice === "string") : []}
-          onChange={(event) =>
-            updateValue(property.id, Array.from(event.currentTarget.selectedOptions, (option) => option.value))
-          }
-          className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
-        >
-          {(property.options.choices ?? []).map((choice) => (
-            <option key={choice} value={choice}>{choice}</option>
-          ))}
-        </select>
+        <MultiSelectCell
+          label={property.name}
+          recordTitle={record.title}
+          value={Array.isArray(value)
+            ? value.filter((choice): choice is string => typeof choice === "string")
+            : []}
+          choices={property.options.choices ?? []}
+          onChange={(next) => updateValue(property.id, next)}
+        />
       );
     }
 
@@ -450,7 +557,7 @@ export function DatabaseRecordWorkspace({
   if (loading) {
     return (
       <AppShell>
-        <div role="status" aria-label="Loading record" className="mx-auto max-w-4xl animate-pulse space-y-6">
+        <div role="status" aria-label="Loading record" className="w-full animate-pulse space-y-6">
           <div className="h-4 w-32 rounded bg-muted" />
           <div className="h-10 w-2/3 rounded bg-muted" />
           <div className="h-56 rounded-xl border bg-muted/20" />
@@ -463,7 +570,7 @@ export function DatabaseRecordWorkspace({
   if (!record) {
     return (
       <AppShell>
-        <div role="alert" className="mx-auto max-w-4xl space-y-3 rounded-lg border border-destructive/30 p-4">
+        <div role="alert" className="w-full space-y-3 rounded-lg border border-destructive/30 p-4">
           <p className="text-sm text-destructive">{error || "Record not found."}</p>
           <Button type="button" variant="outline" size="sm" onClick={() => router.push(`/databases/${databaseId}`)}>
             Back to database
@@ -473,9 +580,190 @@ export function DatabaseRecordWorkspace({
     );
   }
 
+  function hideProperty(propertyId: string) {
+    setHiddenPropertyIds(setPropertyHidden(databaseId, propertyId, true));
+  }
+
+  function showProperty(propertyId: string) {
+    setHiddenPropertyIds(setPropertyHidden(databaseId, propertyId, false));
+  }
+
+  function showAllProperties() {
+    setHiddenPropertyIds(writeHiddenPropertyIds(databaseId, []));
+  }
+
+  const hiddenPropertySet = new Set(hiddenPropertyIds);
+  const visibleProperties = properties.filter((property) => !hiddenPropertySet.has(property.id));
+  const hiddenProperties = properties.filter((property) => hiddenPropertySet.has(property.id));
+
+  // The properties render inside the page editor, right above the body, so a
+  // record reads as one page instead of a page with a properties block bolted
+  // onto the bottom.
+  const propertiesPanel = (
+    <section
+      id="record-properties"
+      aria-labelledby="record-properties-heading"
+      hidden={!showProperties}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2
+          id="record-properties-heading"
+          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          Properties
+        </h2>
+        {hiddenProperties.length > 0 && (
+          <details className="relative">
+            <summary
+              title="Show a hidden property"
+              className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden"
+            >
+              Hidden properties
+              <span className="tabular-nums">{hiddenProperties.length}</span>
+              <ChevronDown size={12} aria-hidden="true" />
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 w-60 rounded-lg border bg-popover p-1 shadow-lg">
+              <p className="px-1 pb-1 text-[11px] font-medium text-muted-foreground">Hidden on entry pages</p>
+              <div className="max-h-64 overflow-y-auto">
+                {hiddenProperties.map((property) => (
+                  <button
+                    key={property.id}
+                    type="button"
+                    aria-label={`Show ${property.name}`}
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      showProperty(property.id);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Eye size={14} aria-hidden="true" />
+                    <span className="min-w-0 truncate">{property.name}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={showAllProperties}
+                className="mt-1 w-full rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                Show all properties
+              </button>
+            </div>
+          </details>
+        )}
+      </div>
+      <div className="pt-3">
+        {properties.length === 0 ? (
+          <p className="text-sm text-muted-foreground">This database has no properties yet.</p>
+        ) : visibleProperties.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            All properties are hidden. Use “Hidden properties” above to show one.
+          </p>
+        ) : (
+          <dl className="grid gap-5 sm:grid-cols-2">
+            {visibleProperties.map((property) => {
+              const propertyIndex = properties.findIndex((candidate) => candidate.id === property.id);
+              return (
+              <div
+                key={property.id}
+                data-record-property={property.id}
+                onDragOver={readOnly ? undefined : (event) => {
+                  if (!draggedPropertyId) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDropTarget(property.id);
+                }}
+                onDragLeave={readOnly ? undefined : () =>
+                  setDropTarget((current) => (current === property.id ? null : current))}
+                onDrop={readOnly ? undefined : (event) => dropProperty(event, property.id)}
+                className={`min-w-0 space-y-1.5 rounded-md ${
+                  dropTarget === property.id && draggedPropertyId !== property.id
+                    ? "outline outline-1 outline-offset-2 outline-primary/40"
+                    : ""
+                } ${draggedPropertyId === property.id ? "opacity-50" : ""}`}
+              >
+                <dt className="flex items-center gap-2 text-sm font-medium">
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      draggable
+                      aria-label={`Drag ${property.name} to reorder`}
+                      title="Drag to reorder"
+                      onDragStart={(event) => startPropertyDrag(event, property.id)}
+                      onDragEnd={finishPropertyDrag}
+                      className="cursor-grab rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+                    >
+                      <GripVertical size={13} aria-hidden="true" />
+                    </button>
+                  )}
+                  <span className="min-w-0 break-words">{property.name}</span>
+                  <PropertyTypeBadge type={property.type} />
+                  {!readOnly && (
+                    <span className="ml-auto flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        aria-label={`Move ${property.name} up`}
+                        title="Move this property up (the order is shared by every record and view)"
+                        onClick={() => void moveProperty(property.id, "up")}
+                        disabled={reorderingProperties || propertyIndex === 0}
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30"
+                      >
+                        <ArrowUp size={13} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move ${property.name} down`}
+                        title="Move this property down (the order is shared by every record and view)"
+                        onClick={() => void moveProperty(property.id, "down")}
+                        disabled={reorderingProperties || propertyIndex === properties.length - 1}
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30"
+                      >
+                        <ArrowDown size={13} aria-hidden="true" />
+                      </button>
+                    </span>
+                  )}
+                  <span className={`${readOnly ? "ml-auto " : ""}flex items-center`}>
+                    <button
+                      type="button"
+                      aria-label={`Hide ${property.name}`}
+                      title="Hide this property on entry pages"
+                      onClick={() => hideProperty(property.id)}
+                      className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <EyeOff size={13} aria-hidden="true" />
+                    </button>
+                  </span>
+                </dt>
+                <dd className="min-w-0">{renderProperty(property)}</dd>
+              </div>
+              );
+            })}
+          </dl>
+        )}
+        {!readOnly && draggedPropertyId && (
+          <div
+            data-record-property-drop-end
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDropTarget("end");
+            }}
+            onDragLeave={() => setDropTarget((current) => (current === "end" ? null : current))}
+            onDrop={(event) => dropProperty(event, null)}
+            className={`mt-3 flex items-center justify-center rounded-md border border-dashed p-2 text-xs ${
+              dropTarget === "end" ? "border-primary text-primary" : "text-muted-foreground"
+            }`}
+          >
+            Drop here to move it to the end
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
   return (
     <AppShell>
-      <div className="mx-auto max-w-4xl space-y-8">
+      <div className="w-full space-y-8">
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <button
@@ -490,6 +778,44 @@ export function DatabaseRecordWorkspace({
             <Link href={`/databases/${databaseId}`} className="rounded hover:text-foreground">
               {databaseName || "Database"}
             </Link>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-expanded={showProperties}
+              aria-controls="record-properties"
+              aria-label={showProperties ? "Hide properties" : "Show properties"}
+              title={showProperties ? "Hide properties" : "Show properties"}
+              onClick={() => setShowProperties((current) => !current)}
+              className="ml-auto h-7 gap-1 px-2 text-xs text-muted-foreground"
+            >
+              <SlidersHorizontal size={14} aria-hidden="true" />
+              <span className="hidden sm:inline">Properties</span>
+              {showProperties ? (
+                <ChevronUp size={13} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={13} aria-hidden="true" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Connections"
+              aria-expanded={showConnections}
+              aria-controls="record-connections"
+              onClick={() => setShowConnections((current) => !current)}
+              title="Connections"
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+            >
+              <Link2 size={14} aria-hidden="true" />
+              <span className="hidden sm:inline">Connections</span>
+              {showConnections ? (
+                <ChevronUp size={13} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={13} aria-hidden="true" />
+              )}
+            </Button>
           </div>
           <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-5">
             <div className="min-w-0 flex-1">
@@ -543,74 +869,26 @@ export function DatabaseRecordWorkspace({
 
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
-        <RecordBacklinks backlinks={backlinks} />
+        {showConnections && (
+          <RecordConnections recordId={record.id} backlinks={backlinks} readOnly={readOnly} />
+        )}
 
-        <RecordPageLinks recordId={record.id} readOnly={readOnly} />
-
-        <section aria-labelledby="record-page-heading" className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-            <h2
-              id="record-page-heading"
-              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-            >
-              Page content
-            </h2>
-            {record.pageId && (
-              <Link
-                href={`/pages/${record.pageId}`}
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                Open standalone page <ArrowUpRight size={13} />
-              </Link>
-            )}
-          </div>
+        <section className="space-y-4">
           {record.pageId ? (
-            <PageEditorLoader id={record.pageId} hideTitle readOnly={readOnly} hidePageConnections />
+            <PageEditorLoader
+              id={record.pageId}
+              hideTitle
+              readOnly={readOnly}
+              hidePageConnections
+              pageProperties={propertiesPanel}
+              pagePropertiesHidden={!showProperties}
+            />
           ) : (
-            <p className="text-sm text-muted-foreground">Preparing this record’s page…</p>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">Preparing this record’s page…</p>
+              {propertiesPanel}
+            </div>
           )}
-
-          <section aria-labelledby="record-properties-heading" className="border-t pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2
-                id="record-properties-heading"
-                className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-              >
-                Properties
-              </h2>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                aria-expanded={showProperties}
-                aria-controls="record-properties"
-                onClick={() => setShowProperties((current) => !current)}
-                className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-              >
-                {showProperties ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
-                {showProperties ? "Collapse" : "Expand"}
-              </Button>
-            </div>
-            <div id="record-properties" hidden={!showProperties} className="pt-3">
-              {properties.length === 0 ? (
-                <p className="text-sm text-muted-foreground">This database has no properties yet.</p>
-              ) : (
-                <dl className="grid gap-5 sm:grid-cols-2">
-                  {properties.map((property) => (
-                    <div key={property.id} className="min-w-0 space-y-1.5">
-                      <dt className="flex items-center gap-2 text-sm font-medium">
-                        {property.name}
-                        <span className="rounded border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
-                          {property.type.replace("_", " ")}
-                        </span>
-                      </dt>
-                      <dd className="min-w-0">{renderProperty(property)}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-            </div>
-          </section>
         </section>
       </div>
 

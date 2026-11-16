@@ -15,7 +15,15 @@ type Property = {
 
 afterEach(cleanup);
 
-function Harness({ properties, recordCount = 3 }: { properties: Property[]; recordCount?: number }) {
+function Harness({
+  properties,
+  recordCount = 3,
+  relationOptions,
+}: {
+  properties: Property[];
+  recordCount?: number;
+  relationOptions?: Record<string, { id: string; title: string }[]>;
+}) {
   const [filterText, setFilterText] = useState("");
   const [filters, setFilters] = useState<ViewFilter[]>([]);
   const [sorts, setSorts] = useState<ViewSort[]>([]);
@@ -27,6 +35,7 @@ function Harness({ properties, recordCount = 3 }: { properties: Property[]; reco
       filters={filters}
       sorts={sorts}
       recordCount={recordCount}
+      relationOptions={relationOptions}
       onFilterTextChange={setFilterText}
       onFiltersChange={setFilters}
       onSortsChange={setSorts}
@@ -109,11 +118,46 @@ test("DatabaseViewControls uses choices for select filters and hides values for 
 
 test("DatabaseViewControls disables filtering when every property is unsupported", () => {
   render(<Harness properties={[
-    { id: "related", name: "Related", type: "relation" },
-    { id: "total", name: "Rollup", type: "rollup" },
     { id: "file", name: "File", type: "file" },
   ]} />);
 
   assert.equal((screen.getByRole("button", { name: "Filter" }) as HTMLButtonElement).disabled, true);
   assert.equal((screen.getByRole("button", { name: "Sort" }) as HTMLButtonElement).disabled, false);
+});
+
+test("DatabaseViewControls filters relations by record and rollups by number", () => {
+  render(
+    <Harness
+      properties={[
+        { id: "project", name: "Project", type: "relation" },
+        { id: "total", name: "Total", type: "rollup" },
+      ]}
+      relationOptions={{
+        project: [
+          { id: "p1", title: "Alpha project" },
+          { id: "p2", title: "Beta project" },
+        ],
+      }}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  const property = screen.getByLabelText("Filter property") as HTMLSelectElement;
+  assert.equal(property.value, "project");
+  assert.equal((screen.getByLabelText("Filter operator") as HTMLSelectElement).value, "is");
+
+  const records = screen.getByLabelText("Filter value") as HTMLSelectElement;
+  assert.deepEqual(
+    Array.from(records.options).map((option) => option.textContent),
+    ["Choose a record…", "Alpha project", "Beta project"],
+  );
+  fireEvent.change(records, { target: { value: "p2" } });
+  assert.equal((screen.getByLabelText("Filter value") as HTMLSelectElement).value, "p2");
+
+  fireEvent.change(property, { target: { value: "total" } });
+  assert.equal((screen.getByLabelText("Filter operator") as HTMLSelectElement).value, "is");
+  assert.equal(screen.getByLabelText("Filter value").getAttribute("type"), "number");
+
+  fireEvent.change(screen.getByLabelText("Filter operator"), { target: { value: "is_empty" } });
+  assert.equal(screen.queryByLabelText("Filter value"), null);
 });

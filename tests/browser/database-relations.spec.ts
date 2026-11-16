@@ -238,13 +238,14 @@ test("shows the records whose relations point at a record", async ({ page, reque
     assert.ok(assigned.ok(), `assigning the relation returned ${assigned.status()}`);
 
     await page.goto(`/databases/${targetDatabase.id}/records/${targetRecord.id}`);
+    await page.getByRole("button", { name: "Connections" }).click();
     await expect(page.getByRole("heading", { name: "Linked from" })).toBeVisible();
 
     const sourceLink = page.getByRole("link", { name: sourceRecord.title });
     await expect(sourceLink).toBeVisible();
     await expect(sourceLink).toHaveAttribute(
       "href",
-      `/databases/${ownerDatabase.id}/records/${sourceRecord.id}`,
+      `/pages/${sourceRecord.pageId}`,
     );
 
     const sourceItem = page.getByRole("listitem").filter({

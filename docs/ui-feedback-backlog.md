@@ -9,6 +9,194 @@ Effort scale: **XS** under an hour · **S** half a day · **M** 1–2 days ·
 
 ## Progress
 
+- 2026-11-15 — the scattered preference controls now live only in Settings.
+  The header theme picker, sidebar collapse and sign-out shortcuts, sidebar and
+  mobile navigation-editor buttons, the navigation editor's page-visibility,
+  reset, and lock controls, the home dashboard's lock, reset, and hidden-widget
+  controls, and the Trash backup/export/unused-file panels were removed. Home
+  still owns Customize for ordering, widths, and hiding widgets; Settings owns
+  their lock, reset, and restore controls. Trash keeps deleted-page recovery and
+  links to Settings → Data & backups.
+- 2026-11-15 — Settings is the central preferences page. Besides the workspace
+  password, it now collects appearance (the same seven themes), navigation and
+  sidebar controls (show database pages, collapse the desktop rail, edit or
+  reset navigation, unlock a locked navigation), home layout summary with
+  lock-aware hidden-widget restore and reset, database display preferences with
+  a confirmation before resetting remembered views, hidden view tabs, and hidden
+  entry-page properties, editor draft status with a discard action, data and
+  backups (JSON export, full checked backup, backup history with per-backup
+  checks, and an explicit unused-file scan before cleanup), and security (sign
+  out this browser plus the password form's other-session sign-out behavior).
+  Data-safety history and storage scans load on demand with retryable errors.
+  Reset is unavailable while navigation or the home layout is locked. Browser
+  preferences use the existing local stores, and backup/export/orphan actions
+  use the existing signed-in endpoints. Covered by
+  `tests/dom/settings-preferences.test.ts` for the scoped local-storage resets.
+- 2026-11-15 — individual properties can be hidden on database entry pages.
+  Each property row has a hide control, and the Properties heading offers a
+  “Hidden properties” menu with per-property Show actions and Show all. Hidden
+  ids are kept per database in this browser
+  (`kbs:database-hidden-properties:<databaseId>`), so the choice follows every
+  entry page in that database and survives reloads; it does not change database
+  views or the underlying values. The whole-block Properties toggle still hides
+  the section.
+- 2026-11-15 — database entry pages can hide their properties. A Properties
+  control in the record header hides the whole properties block, including its
+  heading, and “Show properties” brings it back. The panel stays mounted while
+  hidden, so an edit in progress is not dropped, and the choice lasts for the
+  current visit. This replaces the old heading-level Collapse/Expand control
+  with one header toggle.
+- 2026-11-15 — the app shell and page editor use the full available width. The
+  shell no longer caps content at 80rem, and the editor no longer caps itself at
+  72rem, so pages and database views fill the space beside the sidebar and gain
+  the extra room when it collapses. Record pages use the same full-width frame,
+  so their header, properties, and page body follow it; the editor's
+  contents/properties rail is unchanged. On very
+  large monitors the prose column can run wide; a readable line-length limit can
+  be added for body text without shrinking the page frame.
+- 2026-11-15 — database views can be renamed. “Rename view” in the database's
+  More menu turns the current tab into an inline field with the view name
+  selected; Enter saves, Escape cancels, and clicking away also saves. The new
+  name goes through the existing view PATCH endpoint, so it is stored with the
+  view and appears on every surface that reads it, including embeds and the
+  home dashboard's view picker. A blank name or the unchanged name closes the
+  field without a request, and a failed save restores the previous name and
+  reports that it could not be saved.
+- 2026-11-15 — database view tabs can be hidden, and a database page reopens on
+  the view you last read. “Hide view” in the More menu removes the current tab
+  (including the default All records view) without deleting it; the last visible
+  view cannot be hidden, and “Show hidden views” brings hidden tabs back in a
+  faded style, where the active one can be unhidden. The selected view is
+  remembered per database in this browser, so leaving the page and returning
+  restores it. An explicit `?view=` link still wins, and a hidden remembered
+  view falls back to the table view.
+- 2026-11-15 — database properties have a shared visual vocabulary. Every type
+  now has its own colour and icon (text slate, number sky, checkbox emerald,
+  date amber, URL cyan, select violet, multi-select fuchsia, relation indigo,
+  rollup purple, formula teal, file orange, button rose), and the table headers,
+  record-page type badges, gallery labels, list labels, board labels, and embed
+  rows and headers use it.
+  Values read the way their type suggests: select and multi-select values are
+  status-coloured chips, checkboxes are Yes/No pills, dates show a calendar and
+  a short date, rollups and formulas carry a sigma marker, relations are indigo
+  chips, numbers are tabular and emphasised, and empty cells share one muted
+  dash.
+- 2026-11-15 — multi-select properties now let you pick more than one choice.
+  The database table and the record page both used a native `<select multiple>`,
+  where a plain click replaces the selection unless you hold Ctrl/Cmd; they now
+  use a checkable choice list (`MultiSelectCell`), where clicking a choice adds
+  or removes it, the menu stays open for the next pick, selected choices show a
+  check, and Clear or Done finish the edit. The trigger shows one chip per
+  chosen value. Single-select, relation, and date cells are unchanged.
+- 2026-11-15 — a one-pass backfill moves existing record pages under their
+  database's central page. `npm run db:group-record-pages` walks every database,
+  creates its grouping page when it does not have one (or has lost it), and
+  moves its root-level record pages underneath in their existing page order,
+  after any pages already grouped there. Pages a user deliberately nested
+  somewhere else keep that placement, and a second run moves nothing. The
+  shared `groupRecordPages()` helper accepts a database id, so the API tests
+  exercise one database without disturbing the rest, and the command reports
+  how many pages it moved and created.
+- 2026-11-15 — a database now owns a central page, and its record pages are
+  created underneath it instead of at the root of the page tree. Creating a
+  database creates the page (named for the database) in the same transaction;
+  every record create path — the New record button, CSV import, button actions
+  that create records, the legacy page backfill on the record route, and the
+  "Create linked page" action — nests its page under it. A rename of the
+  database follows the page unless the page was renamed on its own. Databases
+  that predate the change get their grouping page the first time a record needs
+  it, and existing record pages stay where they are. A deleted grouping page
+  clears the link, so the next record creates a fresh one.
+- 2026-11-15 — the desktop sidebar collapses to an icon rail. A panel button
+  beside the logo collapses the 14rem sidebar to a 4rem rail and back; the
+  logo, search box, navigation, page and database shortcuts, and the footer
+  switch to icons with tooltips and `aria-label`s, section headings and the
+  page tree collapse away (a Pages icon stands in for it), and the choice is
+  remembered per browser in `localStorage` through a small external store, so
+  it survives navigation and reloads without a flash of the wrong state. The
+  mobile layout is unchanged, and the sidebar still starts expanded for anyone
+  who has not collapsed it.
+- 2026-11-15 — a new record opens its page right away. Creating one from the
+  database toolbar or the table's "New record" row still saves the record
+  first, then navigates to the page the create request already made for it
+  (`/pages/:pageId`, via the shared `recordHref`), so the title, properties,
+  and page content are all editable in one place instead of leaving an
+  "Untitled" row to find again. Records created from a template keep their
+  current stay-in-the-view behaviour.
+- 2026-11-15 — gallery views offer three card sizes. The gallery toolbar
+  (database page and every database embed) gains a Card size picker: small
+  tightens the grid to three or four columns with 24px covers, large drops to
+  one or two columns with 56px covers, and medium stays the existing two/three
+  column grid with 36px covers, so galleries saved before the choice look
+  unchanged. The choice is saved as `cardSize` in the view config, so it
+  follows the view across the database page, embeds, and reloads; unknown or
+  missing values parse back to medium.
+- 2026-11-15 — database embeds can show more than one view. When the embedded
+  database has two or more views, the embed draws a compact tab strip (the same
+  bordered-tab look as the database page) under its header, so a reader can
+  switch between table, board, list, gallery, calendar, timeline, and chart
+  views without opening the database. The view chosen in the insert picker is
+  the starting tab, the current tab uses the brand underline and
+  `aria-pressed`, and choosing another tab writes its id back to the embed so
+  the page autosave remembers it; reopening the page returns to that view. View
+  mode keeps the switch local so opening a shared page does not rewrite it. A
+  single-view embed still shows the view name badge and no strip.
+- 2026-11-15 — properties reorder by dragging on the record page too. Each row
+  in a record's Properties section gains a grip in edit mode: drag it onto
+  another property to drop in front of it, or onto the zone that appears below
+  the list to move it to the end. The dragged row dims, the row under the
+  pointer gets an outline, and the saved order goes through the same reorder
+  request the arrows use, so drag, arrows, the database property dialog, and
+  every view agree. The up and down arrows stay beside the grip as the
+  keyboard and touch path, since the native drag follows the dashboard grid's
+  HTML5 drag-and-drop rather than pointer events. View mode keeps no grips and
+  no drop handlers.
+- 2026-11-15 — properties reorder from the record page. Each row in a record's
+  Properties section now carries up and down buttons in edit mode (hidden in
+  view mode), which save the same database-wide column order the database's
+  property dialog writes, so the record, every other record, and every view
+  stay in step. The panel moves the row immediately and restores the previous
+  order if the reorder request fails, using the existing
+  `POST /api/databases/:id/properties/reorder`. View mode keeps the section
+  read-only, and the arrows are disabled at the first and last property.
+- 2026-11-15 — a date button can start from today. `today()` is now accepted in
+  an expression that writes a date (`today()`, `today() + 7`,
+  `today() + {Snooze days}`), and the action editor offers a “Use today”
+  shortcut plus a `today() + 7` placeholder. The date is computed when the
+  button runs, so a saved “set today” button writes the day it was clicked, not
+  the day it was configured. `today()` is opt-in at the parser
+  (`parseFormula(expression, { allowToday: true })`) and only the date button
+  path asks for it, so formulas, number targets, and button creation validation
+  for other types still reject it. Covered by `tests/database-formula.test.ts`
+  and `tests/database-calculations.test.ts`.
+- 2026-11-15 — button actions can now shift dates. A date target's expression
+  reads that record's date properties and moves them by whole days
+  (`{Due} + 7`, `{Due} - {Snooze days}`); number, rollup, and formula
+  references still work as day counts, the result must be a date, and a blank
+  reference leaves the value unwritten instead of storing a wrong date. Literal
+  dates already worked; the broken part was that expressions on a date target
+  were evaluated as numbers and then stringified. The shared formula language
+  stays numeric, so formulas and number targets are unchanged, and the action
+  editor lists date references only when the target is a date. Covered by
+  `tests/database-calculations.test.ts`.
+- 2026-11-15 — removed the record page's “Page content” subheader. It existed
+  to separate the page body from the Properties block below it; with the
+  properties now inside the editor card it labeled the only block left, added a
+  rule directly above the card's own border, and duplicated the editor's
+  `aria-label="Page content"`. The body region keeps its layout without the
+  heading.
+- 2026-11-15 — removed the record page's dead “Open standalone page” link.
+  It pointed at `/pages/<pageId>`, which now resolves back to the same record
+  workspace, so it only re-rendered the page it was on. The standalone page
+  editor is reachable only for pages that no record owns; a record's page
+  content, properties, and settings are all on the record page.
+- 2026-11-15 — record properties move into the page editor. The Properties
+  panel no longer sits below the page content: the record page hands it to the
+  editor (`pageProperties`), which renders it above the body inside the editor
+  card, so properties, quoted passage, and content read as one page. Collapse/
+  Expand, view-mode locking, button cells, relation pickers, and formula/rollup
+  values are unchanged, and a record that has no page yet still shows its
+  properties under the loading message.
 - 2026-11-13 — #12 editable home dashboard, first pass: the home page is now
   assembled from six widgets (Pick up where you left off, Today, Pinned
   projects, Timeline, Jump back in, Pinned views) whose order and hidden state
@@ -111,6 +299,22 @@ Effort scale: **XS** under an hour · **S** half a day · **M** 1–2 days ·
   record the click may write (`SELECT … FOR UPDATE`, in ID order, retried on a
   serialisation failure), so simultaneous clicks apply their expressions in
   sequence instead of both reading the same starting value.
+- 2026-11-14 — record connections move into the header. **Linked from** and
+  **Linked pages** no longer take a card row above the content: a compact
+  **Connections** control at the end of the record's breadcrumb row (icon-only
+  on phones) opens the same
+  reverse-relation list and page picker in a panel below the header, closed by
+  default, and closes again to reclaim the space. Adding, removing, and
+  view-mode locking still go through the same endpoints; standalone pages keep
+  their **Page connections** panel under Details.
+- 2026-11-14 — page settings move into the page header. The settings panel
+  that sat below the content is now a compact **Page settings** control beside
+  Export Markdown and the favorite star (icon-only on phones), closed by
+  default; Appearance, Details, tags, page connections, related pages, and
+  history open directly under the page header, above the editor. Appearance,
+  Details, and History each expand independently and start closed, so the
+  panel opens as three compact rows; history loads when its group opens, and
+  view mode still hides the control.
 - 2026-11-12 — #7 programmable button properties, first action set: a
   `button` property stores a validated list of actions in
   `database_properties.options`. Each click can write one literal value to a

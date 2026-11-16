@@ -1,9 +1,10 @@
-import { and, asc, eq, inArray, isNull, max } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databaseProperties, databaseRecordRelations, databaseRecords, databases, pages } from "@/db/schema";
 import { missingAttachmentIds } from "@/lib/attachment-store";
+import { createChildPage, ensureDatabasePage } from "@/lib/database-page";
 import { referencedAttachmentIds, validateDatabaseRecordValues } from "@/lib/database-values";
 import { apiErrorResponse } from "@/lib/api-log";
 
@@ -26,7 +27,7 @@ export async function GET(request: Request, context: Context) {
         .where(and(eq(databaseRecords.id, recordId), eq(databaseRecords.databaseId, id)))
         .limit(1);
       if (!record) return { error: "Record not found", status: 404 as const };
-      const [database] = await tx.select({ id: databases.id, name: databases.name })
+      const [database] = await tx.select({ id: databases.id, name: databases.name, pageId: databases.pageId })
         .from(databases).where(eq(databases.id, id)).limit(1);
       if (!database) return { error: "Database not found", status: 404 as const };
 
@@ -38,13 +39,8 @@ export async function GET(request: Request, context: Context) {
             .where(and(eq(pages.id, pageId), isNull(pages.deletedAt))).limit(1)
         : [];
       if (!linkedPage) {
-        const [pageOrder] = await tx.select({ value: max(pages.sortOrder) })
-          .from(pages).where(isNull(pages.parentId));
-        const [page] = await tx.insert(pages).values({
-          title: record.title,
-          sortOrder: (pageOrder?.value ?? -1) + 1,
-        }).returning({ id: pages.id });
-        pageId = page.id;
+        const databasePageId = await ensureDatabasePage(tx, database);
+        pageId = await createChildPage(tx, databasePageId, record.title);
         await tx.update(databaseRecords).set({ pageId, updatedAt: new Date() })
           .where(eq(databaseRecords.id, recordId));
       }

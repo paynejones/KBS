@@ -39,10 +39,11 @@ The gate answers who may enter, not what they may see. Before multi-user support
 ## Release checklist
 
 1. Set `DATABASE_URL`, `KBS_AUTH_PASSWORD`, and `KBS_AUTH_SECRET` in the host's secret manager. Use a dedicated production database and the provider's TLS connection string. Never commit `.env` or production credentials.
-2. Provision the production database, then run `npm run db:migrate` as a release step before starting the new application version (see [managed PostgreSQL deployment](managed-postgres.md)). Do not run `db:generate` in production. The latest migration enables the `pg_trgm` extension that backs search, so the migration role must be allowed to create extensions (`pg_trgm` is a trusted extension from PostgreSQL 13 onward, so the database owner can do it without superuser rights).
-3. Require the GitHub Actions workflow to pass before deployment. Its first run has passed. The database job creates and drops a uniquely named test database, so its CI role must be allowed to create databases.
-4. Build with `npm ci` and `npm run build`, then start with `npm run start`.
-5. Confirm that the deployed service can reach PostgreSQL, that an unauthenticated request is redirected to `/signin` (and `/api/*` returns `401`), and that signing in with `KBS_AUTH_PASSWORD` returns the expected page, database, and search results.
+2. Provision the production database, then run `npm run db:migrate` as a release step before starting the new application version (see [managed PostgreSQL deployment](managed-postgres.md)). Do not run `db:generate` in production. Migration `0023_search_trgm_indexes` enables the `pg_trgm` extension that backs search, so the migration role must be allowed to create extensions (`pg_trgm` is a trusted extension from PostgreSQL 13 onward, so the database owner can do it without superuser rights).
+3. After applying migration `0028_database_grouping_page`, run `npm run db:group-record-pages` once against production. It is idempotent and moves existing record pages under their database pages. In the container stack, run `docker compose run --rm migrate npm run db:group-record-pages`. The automated release script does not run this one-time backfill, so arrange it on the host after the migration and before users start working; the app remains usable with ungrouped legacy pages until it runs.
+4. Require the GitHub Actions workflow to pass before deployment. Its first run has passed. The database job creates and drops a uniquely named test database, so its CI role must be allowed to create databases.
+5. Build with `npm ci` and `npm run build`, then start with `npm run start`.
+6. Confirm that the deployed service can reach PostgreSQL, that an unauthenticated request is redirected to `/signin` (and `/api/*` returns `401`), and that signing in with `KBS_AUTH_PASSWORD` returns the expected page, database, and search results.
 
 ## Container deployment
 
@@ -85,7 +86,7 @@ sh scripts/deploy-release.sh
 
 ## Backups and restore
 
-The supplied `compose.yaml` persists local PostgreSQL data in a Docker volume; a volume is not a backup. Uploaded images and files are stored on disk under `data/attachments` unless `ATTACHMENTS_DIR` is set. A PostgreSQL dump does not include those files; back up that directory with the database. The app provides a full workspace JSON export (Trash → Backup), `npm run backup` for a dated folder containing the export plus every attachment, and a `npm run restore:export` restore path; see [backup and restore](backup-and-restore.md).
+The supplied `compose.yaml` persists local PostgreSQL data in a Docker volume; a volume is not a backup. Uploaded images and files are stored on disk under `data/attachments` unless `ATTACHMENTS_DIR` is set. A PostgreSQL dump does not include those files; back up that directory with the database. The app provides a full workspace JSON export (Settings → Data & backups), `npm run backup` for a dated folder containing the export plus every attachment, and a `npm run restore:export` restore path; see [backup and restore](backup-and-restore.md).
 
 For hosted production, enable the database provider's automated backups and point-in-time recovery where available. Set retention to match the recovery objective for the data.
 

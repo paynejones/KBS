@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CopyPlus, Download, Eye, EyeOff, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CopyPlus, Download, Eye, EyeOff, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { DatabaseCalendar } from "@/components/database-calendar";
 import { DatabaseChart } from "@/components/database-chart";
@@ -16,6 +16,7 @@ import { FileCell } from "@/components/file-cell";
 import { MediaImage } from "@/components/media-image";
 import { DatabaseViewControls } from "@/components/database-view-controls";
 import { ViewPropertiesMenu } from "@/components/view-properties-menu";
+import { PropertySettingsDialog, type PropertyChanges } from "@/components/property-settings-dialog";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -30,6 +31,7 @@ import {
 import {
   appendedViewName,
   applyView,
+  parseGalleryCardSize,
   parseViewFilters,
   parseViewSorts,
   parseVisibleProperties,
@@ -57,6 +59,7 @@ import {
   parseChartType,
 } from "@/lib/database-chart";
 import { listRows } from "@/lib/database-list";
+import { boardSectionsFor } from "@/lib/database-board";
 import { formatFormulaValue } from "@/lib/database-formula";
 import { buttonActionsError, type ButtonAction } from "@/lib/database-button";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
@@ -65,8 +68,23 @@ import { recordHref } from "@/lib/record-link";
 import { galleryCoverForRecord } from "@/lib/gallery-cover";
 import { dateKey, todayKey } from "@/lib/calendar";
 import { parseTimelineRange } from "@/lib/timeline";
-import { DateCell, SelectCell } from "@/components/database-cell-editors";
+import { DateCell, MultiSelectCell, SelectCell } from "@/components/database-cell-editors";
+import {
+  BooleanPill,
+  CalculatedValue,
+  DateLabel,
+  PropertyTypeIcon,
+  StatusChips,
+} from "@/components/property-display";
 import { isViewMode, viewModeHref } from "@/lib/view-mode";
+import {
+  chooseInitialViewId,
+  readHiddenViewIds,
+  readRememberedViewId,
+  rememberViewId,
+  setViewHidden,
+  writeHiddenViewIds,
+} from "@/lib/database-view-prefs";
 
 type Property = { id: string; name: string; type: DatabasePropertyType; options: { choices?: string[]; relatedDatabaseId?: string; relationPropertyId?: string; targetPropertyId?: string; aggregation?: string; expression?: string; actions?: ButtonAction[] } };
 type RecordRow = { id: string; title: string; values: Record<string, unknown>; pageId: string | null; pageCoverImageUrl?: string | null; relations: Record<string, string[]> };
@@ -76,7 +94,7 @@ type DatabaseOption = { id: string; name: string };
 type RelationTargetData = { properties: Property[]; records: RelatedRecordOption[] };
 type DatabaseView = { id: string; name: string; type: DatabaseViewType; config: Record<string, unknown> };
 type DatabaseTemplate = { id: string; name: string; title: string; values: Record<string, unknown> };
-type DatabaseData = { id: string; name: string; properties: Property[]; records: RecordRow[]; views: DatabaseView[]; templates: DatabaseTemplate[] };
+type DatabaseData = { id: string; name: string; pageId: string | null; properties: Property[]; records: RecordRow[]; views: DatabaseView[]; templates: DatabaseTemplate[] };
 type ViewUsage = {
   pages: { id: string; title: string }[];
   templates: { id: string; name: string }[];
@@ -204,11 +222,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [buttonDatabaseProperties, setButtonDatabaseProperties] = useState<Record<string, Property[]>>({});
   const [buttonDatabaseRecords, setButtonDatabaseRecords] = useState<Record<string, { id: string; title: string }[]>>({});
   const [editingButtonProperty, setEditingButtonProperty] = useState<Property | null>(null);
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [filterText, setFilterText] = useState("");
   const [filters, setFilters] = useState<ViewFilter[]>([]);
   const [sorts, setSorts] = useState<ViewSort[]>(parseViewSorts(undefined));
   const [viewSaveError, setViewSaveError] = useState("");
   const [activeViewId, setActiveViewId] = useState("");
+  const [hiddenViewIds, setHiddenViewIds] = useState<string[]>([]);
+  const [showHiddenViews, setShowHiddenViews] = useState(false);
+  const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
+  const [viewNameDraft, setViewNameDraft] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [viewPendingDelete, setViewPendingDelete] = useState<DatabaseView | null>(null);
   const [coverPendingRemoval, setCoverPendingRemoval] = useState<{ recordId: string; propertyId: string; title: string } | null>(null);
@@ -223,6 +246,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [importMessage, setImportMessage] = useState("");
   const [importError, setImportError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const cancelViewRenameRef = useRef(false);
 
   const loadDatabase = useCallback(async () => {
     try {
@@ -263,9 +287,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       }));
       setRelationTargets(Object.fromEntries(relatedOptions));
       const requestedViewId = new URLSearchParams(window.location.search).get("view");
-      const initialView = loadedDatabase.views.find((view) => view.id === requestedViewId)
-        ?? loadedDatabase.views.find((view) => view.type === "table")
-        ?? loadedDatabase.views[0];
+      const hiddenIds = readHiddenViewIds(id);
+      setHiddenViewIds(hiddenIds);
+      // A link can name a hidden view; show its tab so the active tab is visible.
+      setShowHiddenViews(Boolean(requestedViewId && hiddenIds.includes(requestedViewId)));
+      const initialViewId = chooseInitialViewId(loadedDatabase.views, {
+        requestedId: requestedViewId,
+        rememberedId: readRememberedViewId(id),
+        hiddenIds,
+      });
+      const initialView = loadedDatabase.views.find((view) => view.id === initialViewId);
       setActiveViewId(initialView?.id ?? "");
       const controls = viewControlsFromConfig(initialView?.config);
       setFilterText(controls.filterText);
@@ -276,7 +307,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, setDatabase]);
 
   useEffect(() => {
     const view = database?.views.find((candidate) => candidate.id === activeViewId);
@@ -326,6 +357,11 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       if (!response.ok) throw new Error("Could not add record.");
       const record: RecordRow = await response.json();
       setDatabase((current) => current ? { ...current, records: [...current.records, record] } : current);
+      // A new record opens its page, where the title, properties, and content
+      // can be filled in without hunting for the row first. The create request
+      // always makes the page, and recordHref falls back to the record route
+      // for any record that somehow has none.
+      router.push(recordHref(id, record.id, record.pageId));
     } catch (addError) {
       setError(addError instanceof Error ? addError.message : "Could not add record.");
     } finally {
@@ -524,8 +560,73 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     }
   }
 
+  /**
+   * Merges a saved property edit. A rename also rewrites the formulas and
+   * buttons that read the old name, so those rows are reloaded instead of
+   * leaving a stale expression on screen.
+   */
+  async function saveProperty(property: Property, changes: PropertyChanges) {
+    setDatabase((current) => current ? {
+      ...current,
+      properties: current.properties.map((candidate) => candidate.id === property.id ? {
+        ...candidate,
+        ...(changes.name ? { name: changes.name } : {}),
+        ...(changes.choices || changes.expression || changes.rollup ? {
+          options: {
+            ...candidate.options,
+            ...(changes.choices ? { choices: changes.choices } : {}),
+            ...(changes.expression ? { expression: changes.expression } : {}),
+            ...(changes.rollup ?? {}),
+          },
+        } : {}),
+      } : candidate),
+    } : current);
+
+    if (!changes.name) return;
+    try {
+      const response = await fetch(`/api/databases/${id}`);
+      if (!response.ok) return;
+      const refreshed: DatabaseData = await response.json();
+      setDatabase((current) => current ? {
+        ...current,
+        properties: refreshed.properties,
+        records: refreshed.records,
+      } : current);
+    } catch {
+      // The rename is saved; the next load shows the rewritten expressions.
+    }
+  }
+
+  function removeProperty(propertyId: string) {
+    setDatabase((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        properties: current.properties.filter((property) => property.id !== propertyId),
+        records: current.records.map((record) => {
+          if (!(propertyId in record.values)) return record;
+          const values = { ...record.values };
+          delete values[propertyId];
+          return { ...record, values };
+        }),
+      };
+    });
+  }
+
+  function reorderProperty(propertyIds: string[]) {
+    setDatabase((current) => {
+      if (!current) return current;
+      const byId = new Map(current.properties.map((property) => [property.id, property]));
+      const properties = propertyIds
+        .map((propertyId) => byId.get(propertyId))
+        .filter((property): property is Property => Boolean(property));
+      return { ...current, properties };
+    });
+  }
+
   async function addBoardView() {
-    const groupProperty = database?.properties.find((property) => property.type === "select");
+    const groupProperty = database?.properties.find((property) => property.type === "select")
+      ?? database?.properties.find((property) => property.type === "relation");
     if (!groupProperty) return;
     setBusy(true);
     setError("");
@@ -678,10 +779,75 @@ export function DatabaseWorkspace({ id }: { id: string }) {
 
   function selectView(view: DatabaseView) {
     setActiveViewId(view.id);
+    rememberViewId(id, view.id);
     const controls = viewControlsFromConfig(view.config);
     setFilterText(controls.filterText);
     setFilters(controls.filters);
     setSorts(controls.sorts);
+  }
+
+  function startRenamingView(view: DatabaseView) {
+    cancelViewRenameRef.current = false;
+    setRenamingViewId(view.id);
+    setViewNameDraft(view.name);
+  }
+
+  function cancelRenamingView() {
+    setRenamingViewId(null);
+    setViewNameDraft("");
+  }
+
+  async function saveViewName(view: DatabaseView) {
+    if (renamingViewId !== view.id) return;
+    const name = viewNameDraft.trim();
+    setRenamingViewId(null);
+    setViewNameDraft("");
+    if (!name || name === view.name) return;
+
+    setDatabase((current) => current ? {
+      ...current,
+      views: current.views.map((candidate) => candidate.id === view.id ? { ...candidate, name } : candidate),
+    } : current);
+    setViewSaveError("");
+    const response = await fetch(`/api/databases/${id}/views/${view.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      // Put the old name back rather than showing a rename that was not saved.
+      setDatabase((current) => current ? {
+        ...current,
+        views: current.views.map((candidate) => candidate.id === view.id ? { ...candidate, name: view.name } : candidate),
+      } : current);
+      setViewSaveError("View name could not be saved.");
+    }
+  }
+
+  function hideView(view: DatabaseView) {
+    if (!database || visibleViewCount <= 1) return;
+    const next = setViewHidden(id, view.id, true);
+    setHiddenViewIds(next);
+    if (activeViewId === view.id) {
+      const nextView = database.views.find(
+        (candidate) => candidate.id !== view.id && !next.includes(candidate.id),
+      );
+      if (nextView) selectView(nextView);
+    }
+  }
+
+  function showView(view: DatabaseView) {
+    setHiddenViewIds(setViewHidden(id, view.id, false));
+  }
+
+  function toggleHiddenViews() {
+    const next = !showHiddenViews;
+    setShowHiddenViews(next);
+    // The active tab must stay on screen, so fall back to a visible view.
+    if (!next && activeView && hiddenViewIds.includes(activeView.id)) {
+      const nextView = database?.views.find((candidate) => !hiddenViewIds.includes(candidate.id));
+      if (nextView) selectView(nextView);
+    }
   }
 
   async function setCoverHidden(view: DatabaseView, recordId: string, hidden: boolean) {
@@ -796,7 +962,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       const response = await fetch("/api/pages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: record.title }),
+        body: JSON.stringify({
+          title: record.title,
+          // A record page belongs under its database's grouping page when the
+          // database already has one.
+          ...(database?.pageId ? { parentId: database.pageId } : {}),
+        }),
       });
       if (!response.ok) throw new Error("Could not create a page for this record.");
       const page: PageOption = await response.json();
@@ -884,12 +1055,21 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         throw new Error(typeof result?.error === "string" ? result.error : "Could not delete view.");
       }
       const remaining = database.views.filter((candidate) => candidate.id !== view.id);
+      let nextHidden = hiddenViewIds.filter((hiddenId) => hiddenId !== view.id);
+      // Deleting the views around a hidden one must never leave the page tabless.
+      if (remaining.length > 0 && nextHidden.length === remaining.length) nextHidden = [];
+      if (nextHidden.length !== hiddenViewIds.length) {
+        writeHiddenViewIds(id, nextHidden);
+        setHiddenViewIds(nextHidden);
+      }
       setDatabase((current) => current ? {
         ...current,
         views: current.views.filter((candidate) => candidate.id !== view.id),
       } : current);
       if (!activeViewId || activeViewId === view.id) {
-        const nextView = remaining.find((candidate) => candidate.type === "table") ?? remaining[0];
+        const nextView = remaining.find((candidate) => candidate.type === "table" && !nextHidden.includes(candidate.id))
+          ?? remaining.find((candidate) => !nextHidden.includes(candidate.id))
+          ?? remaining[0];
         if (nextView) selectView(nextView);
       }
       setViewPendingDelete(null);
@@ -941,6 +1121,8 @@ export function DatabaseWorkspace({ id }: { id: string }) {
 
   const normalizedFilter = filterText.trim().toLocaleLowerCase();
   const activeView = database.views.find((view) => view.id === activeViewId) ?? database.views[0];
+  const activeViewHidden = activeView ? hiddenViewIds.includes(activeView.id) : false;
+  const visibleViewCount = database.views.filter((view) => !hiddenViewIds.includes(view.id)).length;
   const rangeRecordsView = database.views.find((view) =>
     view.type === "table" || view.type === "list" || view.type === "gallery"
   );
@@ -979,7 +1161,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       ? activeView.config.hiddenCoverRecordIds.filter((id): id is string => typeof id === "string")
       : [],
   );
-  const boardProperties = database.properties.filter((property) => property.type === "select");
+  // Card density is saved with the view; medium is the grid galleries had
+  // before the choice existed.
+  const galleryCardSize = parseGalleryCardSize(activeView?.config);
+  // A board can group by a Select's choices or by the records a relation links to.
+  const boardProperties = database.properties.filter((property) =>
+    property.type === "select" || property.type === "relation",
+  );
   const dateProperties = database.properties.filter((property) => property.type === "date");
   const relationProperties = database.properties.filter((property) => property.type === "relation");
   const getRollupValue = (record: RecordRow, property: Property) =>
@@ -988,6 +1176,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     formulaValue(record, property, database.properties, relationTargets);
   const boardProperty = activeView?.type === "board"
     ? boardProperties.find((property) => property.id === activeView.config.groupBy) ?? boardProperties[0]
+    : undefined;
+  // A board may stack a second group property inside each column. It must be a
+  // different property from the first, so a deleted or duplicated choice falls
+  // back to flat columns instead of repeating the same grouping.
+  const secondaryBoardProperty = activeView?.type === "board" && boardProperty
+    ? boardProperties.find((property) =>
+        property.id === activeView.config.secondaryGroupBy && property.id !== boardProperty.id)
     : undefined;
   const dateViewPropertyId = typeof activeView?.config.datePropertyId === "string" ? activeView.config.datePropertyId : "";
   const timelineRange = parseTimelineRange(activeView?.config.timelineRange);
@@ -1031,6 +1226,8 @@ export function DatabaseWorkspace({ id }: { id: string }) {
     const matchedProperty = database.properties.find((candidate) => candidate.id === property.id);
     if (property.type === "rollup" && matchedProperty) return getRollupValue(record, matchedProperty);
     if (property.type === "formula" && matchedProperty) return getFormulaValue(record, matchedProperty);
+    // Links live beside a record's values, so a relation filter reads them here.
+    if (property.type === "relation") return record.relations?.[property.id] ?? [];
     return record.values[property.id];
   };
   const matchingRecords = database.records.filter((record) => {
@@ -1046,6 +1243,21 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       (!adHocFilter || matchesAdHocFilter(record, adHocFilter)) &&
       (!adHocRangeFilter || matchesAdHocFilter(record, adHocRangeFilter)),
   );
+  const boardSections = boardProperty
+    ? boardSectionsFor({
+        property: boardProperty,
+        records: visibleRecords,
+        relationTargets: (relationTargets[boardProperty.id]?.records ?? [])
+          .map(({ id: targetId, title }) => ({ id: targetId, title })),
+        secondary: secondaryBoardProperty
+          ? {
+              property: secondaryBoardProperty,
+              relationTargets: (relationTargets[secondaryBoardProperty.id]?.records ?? [])
+                .map(({ id: targetId, title }) => ({ id: targetId, title })),
+            }
+          : undefined,
+      })
+    : [];
   const adHocFilterProperty = adHocFilter && adHocFilter.kind !== "record"
     ? database.properties.find((property) => property.id === adHocFilter.propertyId)
     : undefined;
@@ -1086,6 +1298,164 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       ? [...pages, { id: record.pageId, title: `${record.title || "Untitled"} (this record’s page)` }]
       : pages;
 
+  function boardGroupControl(record: RecordRow, property: Property) {
+    if (property.type === "relation") {
+      if (readOnly) {
+        return (
+          <p className="text-xs text-muted-foreground">
+            {(record.relations?.[property.id] ?? [])
+              .map((targetId) => relationTargets[property.id]?.records
+                .find((option) => option.id === targetId)?.title || "Untitled")
+              .join(", ") || "No links"}
+          </p>
+        );
+      }
+      return (
+        <select
+          multiple
+          aria-label={`${property.name} links for ${record.title}`}
+          defaultValue={record.relations?.[property.id] ?? []}
+          key={`${record.id}:${property.id}:${JSON.stringify(record.relations?.[property.id] ?? [])}`}
+          onBlur={(event) => void updateRecord(record, { relations: {
+            ...record.relations,
+            [property.id]: Array.from(event.currentTarget.selectedOptions, (option) => option.value),
+          } })}
+          className="min-h-16 w-full rounded border bg-background px-2 py-1.5 text-xs"
+        >
+          {(relationTargets[property.id]?.records ?? []).map((option) => (
+            <option key={option.id} value={option.id}>{option.title || "Untitled"}</option>
+          ))}
+        </select>
+      );
+    }
+    if (readOnly) {
+      return <p className="text-xs text-muted-foreground">{String(record.values[property.id] ?? "") || "No value"}</p>;
+    }
+    return (
+      <select
+        aria-label={`Move ${record.title} to another ${property.name} group`}
+        value={String(record.values[property.id] ?? "")}
+        onChange={(event) => void updateRecord(record, { values: { ...record.values, [property.id]: event.target.value } })}
+        className="w-full rounded border bg-background px-2 py-1.5 text-xs"
+      >
+        <option value="">No value</option>
+        {(property.options?.choices ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
+      </select>
+    );
+  }
+
+  // A card shows in every column it belongs to, so it is built from the record
+  // and the board's group properties rather than from one column.
+  function renderBoardCard(record: RecordRow) {
+    const groupProperties = [boardProperty, secondaryBoardProperty]
+      .filter((property): property is Property => Boolean(property));
+    return (
+      <article key={record.id} className="space-y-2 rounded-md border bg-background p-3 shadow-sm">
+        <div className="flex items-start gap-2">
+          <h3 className="min-w-0 flex-1 break-words text-sm font-medium">
+            <Link href={recordHref(id, record.id, record.pageId)} className="hover:text-primary hover:underline">{record.title}</Link>
+          </h3>
+          {!readOnly && (
+            <>
+              <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={14} /></Button>
+              <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={14} /></Button>
+            </>
+          )}
+        </div>
+        {record.pageId ? (
+          <Link href={`/pages/${record.pageId}`} className="block truncate text-xs text-primary hover:underline">Open linked page ↗</Link>
+        ) : readOnly ? (
+          <span className="block text-xs text-muted-foreground">No linked page</span>
+        ) : (
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-0 text-xs" onClick={() => void createPageForRecord(record)} disabled={busy}>Create linked page</Button>
+        )}
+        {visibleProperties.filter((property) => property.type === "button").map((property) => (
+          <ButtonCell
+            key={property.id}
+            compact
+            label={property.name}
+            onRun={() => runRecordButton(record, property)}
+            onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
+          />
+        ))}
+        {visibleProperties.filter((property) => property.type === "file").map((property) => (
+          <div key={property.id} className="space-y-0.5">
+            <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              <PropertyTypeIcon type={property.type} size={11} />
+              {property.name}
+            </p>
+            <FileCell
+              compact
+              label={property.name}
+              value={record.values[property.id]}
+              disabled={busy}
+              readOnly={readOnly}
+              onChange={(next) =>
+                void updateRecord(record, {
+                  values: { ...record.values, [property.id]: next },
+                })
+              }
+            />
+          </div>
+        ))}
+        {groupProperties.map((property) => (
+          <div key={property.id} className="space-y-1">
+            {groupProperties.length > 1 && (
+              <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <PropertyTypeIcon type={property.type} size={11} />
+                {property.name}
+              </p>
+            )}
+            {boardGroupControl(record, property)}
+          </div>
+        ))}
+      </article>
+    );
+  }
+
+  /** Gallery values use the same chips, pills, and markers as the table. */
+  function renderGalleryValue(record: RecordRow, property: Property) {
+    if (property.type === "formula") {
+      return <CalculatedValue value={formatFormulaValue(getFormulaValue(record, property))} />;
+    }
+    if (property.type === "rollup") {
+      return <CalculatedValue value={getRollupValue(record, property)} />;
+    }
+    const value = record.values[property.id];
+    if (property.type === "checkbox") return <BooleanPill value={Boolean(value)} />;
+    if (property.type === "select") {
+      return <StatusChips values={typeof value === "string" && value ? [value] : []} />;
+    }
+    if (property.type === "multi_select" || Array.isArray(value)) {
+      return (
+        <StatusChips
+          values={Array.isArray(value)
+            ? value.filter((choice): choice is string => typeof choice === "string")
+            : []}
+        />
+      );
+    }
+    if (property.type === "date") {
+      return <DateLabel value={typeof value === "string" ? value : ""} />;
+    }
+    if (property.type === "url" && typeof value === "string" && value) {
+      return (
+        <a href={value} target="_blank" rel="noreferrer" className="break-all text-primary hover:underline">
+          {value}
+        </a>
+      );
+    }
+    return (
+      <span className={property.type === "number" ? "font-medium tabular-nums" : ""}>
+        {value === null || value === undefined || value === "" ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          String(value)
+        )}
+      </span>
+    );
+  }
+
   function exportJson() {
     if (!database) return;
     const filename = `${database.name.replace(/[\\/:*?"<>|]/g, "-") || "database"}.json`;
@@ -1107,17 +1477,17 @@ export function DatabaseWorkspace({ id }: { id: string }) {
 
     if (property.type === "rollup") {
       return (
-        <span className="block px-2 py-1.5 text-sm" aria-label={`${property.name} calculated value`}>
-          {getRollupValue(record, property)}
-        </span>
+        <div className="px-2 py-1.5" aria-label={`${property.name} calculated value`}>
+          <CalculatedValue value={getRollupValue(record, property)} />
+        </div>
       );
     }
 
     if (property.type === "formula") {
       return (
-        <span className="block px-2 py-1.5 text-sm" aria-label={`${property.name} calculated value`}>
-          {formatFormulaValue(getFormulaValue(record, property))}
-        </span>
+        <div className="px-2 py-1.5" aria-label={`${property.name} calculated value`}>
+          <CalculatedValue value={formatFormulaValue(getFormulaValue(record, property))} />
+        </div>
       );
     }
 
@@ -1135,12 +1505,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               <Link
                 key={targetId}
                 href={recordHref(relatedDatabaseId, targetId, target?.pageId)}
-                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs hover:border-primary/30 hover:text-primary"
+                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:border-indigo-300 hover:text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-300"
               >
                 {label} <ArrowUpRight size={10} aria-hidden="true" />
               </Link>
             ) : (
-              <span key={targetId} className="rounded-md border bg-background px-2 py-0.5 text-xs">{label}</span>
+              <span key={targetId} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-300">{label}</span>
             );
           })}
         </div>
@@ -1161,21 +1531,54 @@ export function DatabaseWorkspace({ id }: { id: string }) {
 
     const value = record.values[property.id];
     if (property.type === "checkbox") {
-      return <span className="block px-2 py-1.5 text-sm">{value ? "Checked" : "Unchecked"}</span>;
+      return (
+        <div className="px-2 py-1.5">
+          <BooleanPill value={Boolean(value)} />
+        </div>
+      );
     }
     if (Array.isArray(value)) {
-      return <span className="block px-2 py-1.5 text-sm">{value.join(", ") || "—"}</span>;
+      return (
+        <div className="px-2 py-1.5">
+          <StatusChips
+            values={value.filter((choice): choice is string => typeof choice === "string")}
+          />
+        </div>
+      );
+    }
+    if (property.type === "select") {
+      return (
+        <div className="px-2 py-1.5">
+          <StatusChips values={typeof value === "string" && value ? [value] : []} />
+        </div>
+      );
+    }
+    if (property.type === "date") {
+      return (
+        <div className="px-2 py-1.5">
+          <DateLabel value={typeof value === "string" ? value : ""} />
+        </div>
+      );
     }
     if (property.type === "url" && typeof value === "string" && value) {
       return (
-        <a href={value} target="_blank" rel="noreferrer" className="block break-words px-2 py-1.5 text-sm text-primary hover:underline">
-          {value}
+        <a href={value} target="_blank" rel="noreferrer" className="flex items-center gap-1 break-words px-2 py-1.5 text-sm text-primary hover:underline">
+          <span className="min-w-0 break-all">{value}</span>
+          <ArrowUpRight size={11} aria-hidden="true" className="shrink-0" />
         </a>
       );
     }
     return (
-      <span className="block whitespace-pre-wrap break-words px-2 py-1.5 text-sm">
-        {value === null || value === undefined || value === "" ? "—" : String(value)}
+      <span
+        className={`block whitespace-pre-wrap break-words px-2 py-1.5 text-sm ${
+          property.type === "number" ? "font-medium tabular-nums" : ""
+        }`}
+      >
+        {value === null || value === undefined || value === "" ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          String(value)
+        )}
       </span>
     );
   }
@@ -1288,6 +1691,17 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
+                    if (activeView) startRenamingView(activeView);
+                  }}
+                  disabled={busy || !activeView}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                >
+                  <Pencil size={15} aria-hidden="true" /> Rename view
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
                     if (activeView) void duplicateView(activeView);
                   }}
                   disabled={busy || !activeView}
@@ -1317,6 +1731,52 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 >
                   <ArrowRight size={15} aria-hidden="true" /> Move view right
                 </button>
+                {activeView && activeViewHidden && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      showView(activeView);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Eye size={15} aria-hidden="true" /> Show view
+                  </button>
+                )}
+                {activeView && !activeViewHidden && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      hideView(activeView);
+                    }}
+                    disabled={busy || visibleViewCount <= 1}
+                    title={
+                      visibleViewCount <= 1
+                        ? "A database needs at least one visible view"
+                        : `Hide the “${activeView.name}” view`
+                    }
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                  >
+                    <EyeOff size={15} aria-hidden="true" /> Hide view
+                  </button>
+                )}
+                {hiddenViewIds.length > 0 && (
+                  <button
+                    type="button"
+                    aria-pressed={showHiddenViews}
+                    onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      toggleHiddenViews();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    {showHiddenViews
+                      ? <EyeOff size={15} aria-hidden="true" />
+                      : <Eye size={15} aria-hidden="true" />}
+                    {showHiddenViews ? "Hide hidden views" : `Show hidden views (${hiddenViewIds.length})`}
+                  </button>
+                )}
                 <div className="my-1 border-t" role="separator" />
                 <button
                   type="button"
@@ -1373,20 +1833,58 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-1 border-b">
-          {database.views.map((view) => (
-            <button
-              key={view.id}
-              type="button"
-              onClick={() => selectView(view)}
-              className={`-mb-px border-b-2 px-2.5 py-2 text-xs transition-colors ${
-                activeViewId === view.id
-                  ? "border-brand font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {view.name}
-            </button>
-          ))}
+          {database.views
+            .filter((view) => showHiddenViews || !hiddenViewIds.includes(view.id))
+            .map((view) => {
+              const hidden = hiddenViewIds.includes(view.id);
+              if (renamingViewId === view.id) {
+                return (
+                  <input
+                    key={view.id}
+                    autoFocus
+                    aria-label="View name"
+                    maxLength={100}
+                    value={viewNameDraft}
+                    onChange={(event) => setViewNameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelViewRenameRef.current = true;
+                        cancelRenamingView();
+                      }
+                    }}
+                    onBlur={() => {
+                      // Escape unmounts the input, and the blur that follows
+                      // must not save the draft the user just cancelled.
+                      if (cancelViewRenameRef.current) {
+                        cancelViewRenameRef.current = false;
+                        return;
+                      }
+                      void saveViewName(view);
+                    }}
+                    className="-mb-px w-24 rounded-sm border-b-2 border-brand bg-transparent px-2.5 py-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-32"
+                  />
+                );
+              }
+              return (
+                <button
+                  key={view.id}
+                  type="button"
+                  onClick={() => selectView(view)}
+                  title={hidden ? `${view.name} (hidden view)` : undefined}
+                  className={`-mb-px border-b-2 px-2.5 py-2 text-xs transition-colors ${
+                    activeViewId === view.id
+                      ? "border-brand font-medium text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  } ${hidden ? "opacity-55" : ""}`}
+                >
+                  {view.name}
+                </button>
+              );
+            })}
           <details className="relative">
             <summary
               aria-label="Add view"
@@ -1407,7 +1905,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               >
                 Board view
                 {boardProperties.length === 0 && (
-                  <span className="ml-auto text-[11px] text-muted-foreground">needs a Select property</span>
+                  <span className="ml-auto text-[11px] text-muted-foreground">needs a Select or Relation property</span>
                 )}
               </button>
               <button
@@ -1645,6 +2143,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               filters={filters}
               sorts={sorts}
               recordCount={visibleRecords.length}
+              relationOptions={Object.fromEntries(
+                relationProperties.map((property) => [
+                  property.id,
+                  (relationTargets[property.id]?.records ?? []).map(({ id: recordId, title }) => ({ id: recordId, title })),
+                ]),
+              )}
               onFilterTextChange={setFilterText}
               onFiltersChange={setFilters}
               onSortsChange={setSorts}
@@ -1655,6 +2159,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               properties={database.properties}
               visibleIds={parseVisibleProperties(activeView.config)}
               onChange={(ids) => void changeViewConfig(activeView, { visibleProperties: ids })}
+              onManage={readOnly ? undefined : (property) => {
+                const editable = database.properties.find((candidate) => candidate.id === property.id);
+                if (editable) setEditingProperty(editable);
+              }}
             />
           )}
         </div>
@@ -1743,22 +2251,43 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           />
         ) : activeView?.type === "gallery" ? (
           <section aria-label="Gallery view" className="space-y-3">
-            {galleryCoverProperties.length > 0 && (
-              <label className="flex flex-wrap items-center gap-2 text-sm">
-                Cover image
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              {galleryCoverProperties.length > 0 && (
+                <label className="flex flex-wrap items-center gap-2">
+                  Cover image
+                  <select
+                    value={galleryCoverProperty?.id ?? ""}
+                    onChange={(event) => void changeViewConfig(activeView, { coverPropertyId: event.target.value })}
+                    className="rounded-md border bg-background px-3 py-2"
+                  >
+                    <option value="">First image attachment</option>
+                    {galleryCoverProperties.map((property) => (
+                      <option key={property.id} value={property.id}>{property.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="flex flex-wrap items-center gap-2">
+                Card size
                 <select
-                  value={galleryCoverProperty?.id ?? ""}
-                  onChange={(event) => void changeViewConfig(activeView, { coverPropertyId: event.target.value })}
+                  aria-label="Gallery card size"
+                  value={galleryCardSize}
+                  onChange={(event) => void changeViewConfig(activeView, { cardSize: event.target.value })}
                   className="rounded-md border bg-background px-3 py-2"
                 >
-                  <option value="">First image attachment</option>
-                  {galleryCoverProperties.map((property) => (
-                    <option key={property.id} value={property.id}>{property.name}</option>
-                  ))}
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="large">Large</option>
                 </select>
               </label>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            </div>
+            <div className={
+              galleryCardSize === "small"
+                ? "grid gap-3 sm:grid-cols-3 lg:grid-cols-4"
+                : galleryCardSize === "large"
+                  ? "grid gap-4 sm:grid-cols-1 lg:grid-cols-2"
+                  : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            }>
             {visibleRecords.map((record) => {
               const fileProperties = visibleProperties.filter((property) => property.type === "file");
               // A file property still wins, then the record page's own cover
@@ -1787,7 +2316,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         <MediaImage
                           src={cover.url}
                           alt={cover.alt}
-                          className="h-36 w-full object-cover"
+                          className={`w-full object-cover ${
+                            galleryCardSize === "small"
+                              ? "h-24"
+                              : galleryCardSize === "large"
+                                ? "h-56"
+                                : "h-36"
+                          }`}
                         />
                       </Link>
                       <div className="absolute right-2 top-2 flex items-center gap-1">
@@ -1843,31 +2378,26 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   </div>
                   {filledProperties.length > 0 ? (
                     <dl className="mt-3 space-y-2 text-sm">
-                      {filledProperties.map((property) => {
-                        const rawValue = record.values[property.id];
-                        const displayValue = property.type === "formula"
-                          ? formatFormulaValue(getFormulaValue(record, property))
-                          : Array.isArray(rawValue)
-                            ? rawValue.join(", ")
-                            : typeof rawValue === "boolean"
-                              ? rawValue ? "Yes" : "No"
-                              : String(rawValue);
-                        return (
-                          <div key={property.id} className="flex items-start gap-3">
-                            <dt className="w-24 shrink-0 text-muted-foreground">{property.name}</dt>
-                            <dd className="min-w-0 break-words">
-                              {property.type === "button" ? (
-                                <ButtonCell
-                                  compact
-                                  label={property.name}
-                                  onRun={() => runRecordButton(record, property)}
-                                  onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
-                                />
-                              ) : displayValue}
-                            </dd>
-                          </div>
-                        );
-                      })}
+                      {filledProperties.map((property) => (
+                        <div key={property.id} className="flex items-start gap-3">
+                          <dt className="flex w-24 shrink-0 items-center gap-1 text-muted-foreground">
+                            <PropertyTypeIcon type={property.type} size={11} />
+                            <span className="min-w-0 truncate">{property.name}</span>
+                          </dt>
+                          <dd className="min-w-0 break-words">
+                            {property.type === "button" ? (
+                              <ButtonCell
+                                compact
+                                label={property.name}
+                                onRun={() => runRecordButton(record, property)}
+                                onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
+                              />
+                            ) : (
+                              renderGalleryValue(record, property)
+                            )}
+                          </dd>
+                        </div>
+                      ))}
                     </dl>
                   ) : fileProperties.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">No property values</p>
@@ -1916,92 +2446,64 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         ) : activeView?.type === "board" ? (
           boardProperty ? (
             <section className="space-y-4" aria-label={`${boardProperty.name} board`}>
-              <label className="flex items-center gap-2 text-sm">
-                Group by
-                <select value={boardProperty.id} onChange={(event) => void changeViewConfig(activeView, { groupBy: event.target.value })} className="rounded-md border bg-background px-3 py-2">
-                  {boardProperties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-                </select>
-              </label>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <label className="flex items-center gap-2">
+                  Group by
+                  <select
+                    value={boardProperty.id}
+                    onChange={(event) => void changeViewConfig(activeView, {
+                      groupBy: event.target.value,
+                      ...(secondaryBoardProperty?.id === event.target.value ? { secondaryGroupBy: "" } : {}),
+                    })}
+                    className="rounded-md border bg-background px-3 py-2"
+                  >
+                    {boardProperties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+                  </select>
+                </label>
+                {boardProperties.length > 1 && (
+                  <label className="flex items-center gap-2">
+                    Then group by
+                    <select
+                      value={secondaryBoardProperty?.id ?? ""}
+                      onChange={(event) => void changeViewConfig(activeView, { secondaryGroupBy: event.target.value })}
+                      className="rounded-md border bg-background px-3 py-2"
+                    >
+                      <option value="">None</option>
+                      {boardProperties.filter((property) => property.id !== boardProperty.id).map((property) => (
+                        <option key={property.id} value={property.id}>{property.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
               <div className="grid gap-4 overflow-x-auto pb-3 md:grid-flow-col md:auto-cols-[minmax(220px,1fr)]">
-                {["", ...(boardProperty.options?.choices ?? [])].map((choice) => {
-                  const columnRecords = visibleRecords.filter((record) => String(record.values[boardProperty.id] ?? "") === choice);
-                  return (
-                    <section key={choice || "__empty"} className="min-h-52 rounded-lg bg-muted/40 p-3" aria-label={`${choice || "No value"} column`}>
-                      <h2 className="mb-3 flex items-center justify-between text-sm font-medium">
-                        {choice || "No value"}<span className="text-xs text-muted-foreground">{columnRecords.length}</span>
-                      </h2>
-                      <div className="space-y-2">
-                        {columnRecords.map((record) => (
-                          <article key={record.id} className="space-y-2 rounded-md border bg-background p-3 shadow-sm">
-                            <div className="flex items-start gap-2">
-                              <h3 className="min-w-0 flex-1 break-words text-sm font-medium">
-                                <Link href={recordHref(id, record.id, record.pageId)} className="hover:text-primary hover:underline">{record.title}</Link>
-                              </h3>
-                              {!readOnly && (
-                                <>
-                                  <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => void saveRecordAsTemplate(record)} aria-label={`Save ${record.title} as a template`} title="Save as template"><CopyPlus size={14} /></Button>
-                                  <Button type="button" variant="ghost" size="icon" disabled={busy} onClick={() => setRecordPendingDelete(record)} aria-label={`Delete ${record.title}`} title="Delete record"><Trash2 size={14} /></Button>
-                                </>
-                              )}
-                            </div>
-                            {record.pageId ? (
-                              <Link href={`/pages/${record.pageId}`} className="block truncate text-xs text-primary hover:underline">Open linked page ↗</Link>
-                            ) : readOnly ? (
-                              <span className="block text-xs text-muted-foreground">No linked page</span>
-                            ) : (
-                              <Button type="button" variant="ghost" size="sm" className="h-6 px-0 text-xs" onClick={() => void createPageForRecord(record)} disabled={busy}>Create linked page</Button>
-                            )}
-                            {visibleProperties.filter((property) => property.type === "button").map((property) => (
-                              <ButtonCell
-                                key={property.id}
-                                compact
-                                label={property.name}
-                                onRun={() => runRecordButton(record, property)}
-                                onConfigure={readOnly ? undefined : () => setEditingButtonProperty(property)}
-                              />
-                            ))}
-                            {visibleProperties.filter((property) => property.type === "file").map((property) => (
-                              <div key={property.id} className="space-y-0.5">
-                                <p className="text-[11px] text-muted-foreground">{property.name}</p>
-                                <FileCell
-                                  compact
-                                  label={property.name}
-                                  value={record.values[property.id]}
-                                  disabled={busy}
-                                  readOnly={readOnly}
-                                  onChange={(next) =>
-                                    void updateRecord(record, {
-                                      values: { ...record.values, [property.id]: next },
-                                    })
-                                  }
-                                />
-                              </div>
-                            ))}
-                            {readOnly ? (
-                              <p className="text-xs text-muted-foreground">
-                                {String(record.values[boardProperty.id] ?? "") || "No value"}
-                              </p>
-                            ) : (
-                              <select
-                                aria-label={`Move ${record.title} to another ${boardProperty.name} group`}
-                                value={String(record.values[boardProperty.id] ?? "")}
-                                onChange={(event) => void updateRecord(record, { values: { ...record.values, [boardProperty.id]: event.target.value } })}
-                                className="w-full rounded border bg-background px-2 py-1.5 text-xs"
-                              >
-                                <option value="">No value</option>
-                                {(boardProperty.options?.choices ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
-                              </select>
-                            )}
-                          </article>
+                {boardSections.map((column) => (
+                  <section key={column.key} className="min-h-52 rounded-lg bg-muted/40 p-3" aria-label={`${column.label} column`}>
+                    <h2 className="mb-3 flex items-center justify-between text-sm font-medium">
+                      {column.label}<span className="text-xs text-muted-foreground">{column.records.length}</span>
+                    </h2>
+                    {column.groups ? (
+                      <div className="space-y-3">
+                        {column.groups.map((group) => (
+                          <div key={group.key} role="group" className="space-y-2" aria-label={`${group.label} group`}>
+                            <h3 className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {group.label}<span>{group.records.length}</span>
+                            </h3>
+                            {group.records.map((record) => renderBoardCard(record))}
+                          </div>
                         ))}
                       </div>
-                    </section>
-                  );
-                })}
+                    ) : (
+                      <div className="space-y-2">
+                        {column.records.map((record) => renderBoardCard(record))}
+                      </div>
+                    )}
+                  </section>
+                ))}
               </div>
             </section>
           ) : (
-            <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">This board needs a Select property. Add one, then create a new board view.</p>
+            <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">This board needs a Select or Relation property. Add one, then create a new board view.</p>
           )
         ) : (
         <div className="overflow-x-auto rounded-xl border">
@@ -2009,7 +2511,25 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             <thead>
               <tr className="border-b bg-muted/40 text-left">
                 <th className="sticky left-0 z-10 min-w-56 border-r bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">Name</th>
-                {visibleProperties.map((property) => <th key={property.id} className="min-w-44 px-3 py-2 text-xs font-medium text-muted-foreground">{property.name}</th>)}
+                {visibleProperties.map((property) => (
+                  <th key={property.id} className="min-w-44 px-3 py-2 text-xs font-medium text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <PropertyTypeIcon type={property.type} size={12} />
+                      <span className="min-w-0 truncate">{property.name}</span>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingProperty(property)}
+                          aria-label={`Edit ${property.name} property`}
+                          title="Rename, reorder, or delete this property"
+                          className="ml-auto shrink-0 rounded p-1 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+                        >
+                          <Settings2 size={13} aria-hidden="true" />
+                        </button>
+                      )}
+                    </span>
+                  </th>
+                ))}
                 <th className="min-w-52 px-3 py-2 text-xs font-medium text-muted-foreground">Linked page</th>
                 <th className="w-16 px-2 py-2"><span className="sr-only">Actions</span></th>
               </tr>
@@ -2091,16 +2611,21 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                           }
                         />
                       ) : property.type === "multi_select" ? (
-                        <select
-                          multiple
-                          aria-label={`${property.name} for ${record.title}`}
-                          defaultValue={Array.isArray(record.values[property.id]) ? record.values[property.id] as string[] : []}
-                          key={`${record.id}:${property.id}:${JSON.stringify(record.values[property.id] ?? [])}`}
-                          onBlur={(event) => void updateRecord(record, { values: { ...record.values, [property.id]: Array.from(event.currentTarget.selectedOptions, (option) => option.value) } })}
-                          className="min-h-9 w-full rounded border-0 bg-transparent px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {(property.options?.choices ?? []).map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-                        </select>
+                        <MultiSelectCell
+                          label={property.name}
+                          recordTitle={record.title}
+                          value={Array.isArray(record.values[property.id])
+                            ? (record.values[property.id] as unknown[]).filter(
+                                (choice): choice is string => typeof choice === "string",
+                              )
+                            : []}
+                          choices={property.options?.choices ?? []}
+                          onChange={(next) =>
+                            void updateRecord(record, {
+                              values: { ...record.values, [property.id]: next },
+                            })
+                          }
+                        />
                       ) : property.type === "date" ? (
                         <DateCell
                           label={property.name}
@@ -2406,6 +2931,17 @@ export function DatabaseWorkspace({ id }: { id: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {editingProperty && database && (
+        <PropertySettingsDialog
+          databaseId={id}
+          property={editingProperty}
+          properties={database.properties}
+          onOpenChange={(open) => { if (!open) setEditingProperty(null); }}
+          onSaved={(changes) => { void saveProperty(editingProperty, changes); }}
+          onDeleted={removeProperty}
+          onReordered={reorderProperty}
+        />
+      )}
       {editingButtonProperty && (
         <ButtonSettingsDialog
           onOpenChange={(open) => { if (!open) setEditingButtonProperty(null); }}

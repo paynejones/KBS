@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type DragEvent as ReactDragEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Eye, EyeOff, GripVertical, LayoutDashboard } from "lucide-react";
+import { ArrowDown, ArrowUp, EyeOff, GripVertical, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   dashboardWidget,
@@ -74,7 +74,7 @@ export function DashboardGrid({
           <LayoutDashboard className="mx-auto text-muted-foreground" size={20} aria-hidden="true" />
           <p className="mt-2 text-sm font-medium">Every home widget is hidden</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Restore one below, or reset the layout to its default arrangement.
+            Restore one in Settings, or reset the layout to its default arrangement there.
           </p>
           {!editing && !locked && (
             <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRequestEdit}>
@@ -83,7 +83,7 @@ export function DashboardGrid({
           )}
           {!editing && locked && (
             <p className="mt-3 text-[11px] text-muted-foreground">
-              Unlock the homepage layout to restore widgets.
+              Unlock the homepage layout in Settings to restore widgets.
             </p>
           )}
         </div>
@@ -228,36 +228,6 @@ export function DashboardGrid({
             </div>
           )}
         </div>
-      )}
-
-      {editing && layout.hidden.length > 0 && (
-        <section
-          aria-labelledby="hidden-widgets-heading"
-          className="rounded-xl border border-dashed bg-card p-3"
-        >
-          <h2 id="hidden-widgets-heading" className="text-xs font-semibold">
-            Hidden widgets
-          </h2>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Restoring a widget returns it to its saved position.
-          </p>
-          <ul className="mt-2 flex flex-wrap gap-1.5">
-            {layout.hidden.map((id) => (
-              <li key={id}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => onLayoutChange(setDashboardWidgetHidden(layout, id, false))}
-                >
-                  <Eye size={12} aria-hidden="true" />
-                  Show {dashboardWidget(id).label}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </section>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useSyncExternalStore } from "react";
+import { lazy, Suspense, useSyncExternalStore, type ReactNode } from "react";
 
 // `next/dynamic` with `ssr: false` leaves its Suspense boundary pending during
 // server rendering in this Next.js version, so the editor never reaches the
@@ -25,11 +25,15 @@ export function PageEditorLoader({
   hideTitle = false,
   readOnly = false,
   hidePageConnections = false,
+  pageProperties,
+  pagePropertiesHidden = false,
 }: {
   id: string;
   hideTitle?: boolean;
   readOnly?: boolean;
   hidePageConnections?: boolean;
+  pageProperties?: ReactNode;
+  pagePropertiesHidden?: boolean;
 }) {
   const mounted = useSyncExternalStore(
     subscribeToMount,
@@ -46,6 +50,8 @@ export function PageEditorLoader({
         hideTitle={hideTitle}
         readOnly={readOnly}
         hidePageConnections={hidePageConnections}
+        pageProperties={pageProperties}
+        pagePropertiesHidden={pagePropertiesHidden}
       />
     </Suspense>
   );

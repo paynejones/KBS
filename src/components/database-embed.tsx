@@ -36,6 +36,7 @@ import {
 import { listRows } from "@/lib/database-list";
 import {
   applyView,
+  parseGalleryCardSize,
   parseViewFilters,
   parseViewSorts,
   visiblePropertyList,
@@ -57,8 +58,16 @@ import {
   uploadAttachment,
 } from "@/lib/media";
 import { galleryCoverForRecord } from "@/lib/gallery-cover";
+import {
+  BooleanPill,
+  CalculatedValue,
+  DateLabel,
+  PropertyTypeIcon,
+  StatusChips,
+} from "@/components/property-display";
 import { todayKey } from "@/lib/calendar";
 import { parseTimelineRange } from "@/lib/timeline";
+import { boardSectionsFor } from "@/lib/database-board";
 import { recordHref } from "@/lib/record-link";
 
 type EmbedProperty = CalculationProperty;
@@ -103,7 +112,39 @@ function cellValue(
 ) {
   if (property.type === "rollup") return rollupValue(record, property, targets);
   if (property.type === "formula") return formatFormulaValue(formulaValue(record, property, properties, targets));
+  // Links live in their own map, so a relation filter reads them from there.
+  if (property.type === "relation") return record.relations?.[property.id] ?? [];
   return record.values[property.id];
+}
+
+/** A cell in the compact table, gallery, or board, coloured by its type. */
+function displayPropertyNode(
+  record: EmbedRecord,
+  property: EmbedProperty,
+  properties: EmbedProperty[],
+  targets: RelationTargetMap,
+): ReactNode {
+  const value = cellValue(record, property, properties, targets);
+  if (property.type === "checkbox") return <BooleanPill value={Boolean(value)} />;
+  if (property.type === "select") {
+    return <StatusChips values={typeof value === "string" && value ? [value] : []} />;
+  }
+  if (property.type === "multi_select") {
+    return (
+      <StatusChips
+        values={Array.isArray(value)
+          ? value.filter((entry): entry is string => typeof entry === "string")
+          : []}
+      />
+    );
+  }
+  if (property.type === "date") {
+    return <DateLabel value={typeof value === "string" ? value : ""} />;
+  }
+  if (property.type === "rollup" || property.type === "formula") {
+    return <CalculatedValue value={displayValue(value)} />;
+  }
+  return <>{displayNode(value)}</>;
 }
 
 export const DatabaseEmbedReadOnlyContext = createContext(false);
@@ -122,13 +163,23 @@ function buttonSettingsProperty(property: EmbedProperty): ButtonSettingsProperty
   };
 }
 
-function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
+function DatabaseEmbedView({ node, deleteNode, updateAttributes }: NodeViewProps) {
   const readOnly = useContext(DatabaseEmbedReadOnlyContext);
   const databaseId = String(node.attrs.databaseId ?? "");
   const viewId = String(node.attrs.viewId ?? "");
   const [data, setData] = useState<EmbedData | null>(null);
+  // A reader can flip through the database's views without leaving the page.
+  // In an editable page the chosen view is written back to the embed node, so
+  // the page autosave remembers it; view mode keeps the choice local. The saved
+  // view supplies the start, and a different saved view (undo, or the picker)
+  // starts the strip there again without an effect that would reset the choice
+  // on every render.
+  const [chosenView, setChosenView] = useState({ savedViewId: viewId, viewId });
+  const activeViewId = chosenView.savedViewId === viewId ? chosenView.viewId : viewId;
   const [chartToday] = useState(() => todayKey());
   const [relationTargets, setRelationTargets] = useState<RelationTargetMap>({});
+  // Target record names, so a board grouped by a relation can name its columns.
+  const [relationTitles, setRelationTitles] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState("");
   const [viewSaving, setViewSaving] = useState(false);
   const [viewError, setViewError] = useState("");
@@ -153,18 +204,29 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
             const related: EmbedData | null = relatedId === databaseId
               ? result
               : await fetch(`/api/databases/${relatedId}`).then((relatedResponse) => relatedResponse.ok ? relatedResponse.json() : null);
-            if (!related) return [property.id, { properties: [], records: [] }] as const;
+            if (!related) return [property.id, { properties: [], records: [], titles: {} }] as const;
             return [property.id, {
               properties: related.properties,
               records: related.records.map((relatedRecord) => ({ id: relatedRecord.id, values: relatedRecord.values })),
+              titles: Object.fromEntries(related.records.map((relatedRecord) => [relatedRecord.id, relatedRecord.title])),
             }] as const;
           } catch {
-            return [property.id, { properties: [], records: [] }] as const;
+            return [property.id, { properties: [], records: [], titles: {} }] as const;
           }
         }));
         if (!cancelled) {
+          const targetMap: RelationTargetMap = {};
+          const titleMap: Record<string, Record<string, string>> = {};
+          for (const [propertyId, target] of targets) {
+            targetMap[propertyId] = {
+              properties: [...target.properties],
+              records: target.records.map((record) => ({ id: record.id, values: record.values })),
+            };
+            titleMap[propertyId] = { ...target.titles };
+          }
           setData(result);
-          setRelationTargets(Object.fromEntries(targets));
+          setRelationTargets(targetMap);
+          setRelationTitles(titleMap);
           setError("");
         }
       } catch (loadError) {
@@ -175,9 +237,23 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
     return () => { cancelled = true; };
   }, [databaseId]);
 
-  const selectedView = data?.views.find((view) => view.id === viewId) ?? data?.views[0];
+  const selectedView = data?.views.find((view) => view.id === activeViewId)
+    ?? data?.views.find((view) => view.id === viewId)
+    ?? data?.views[0];
+
+  function selectView(view: EmbedData["views"][number]) {
+    setChosenView({ savedViewId: viewId, viewId: view.id });
+    // View mode must not rewrite the page it is presenting.
+    if (!readOnly) updateAttributes({ viewId: view.id });
+  }
   const boardProperty = selectedView?.type === "board"
-    ? data?.properties.find((property) => property.id === selectedView.config.groupBy && property.type === "select")
+    ? data?.properties.find((property) => property.id === selectedView.config.groupBy
+        && (property.type === "select" || property.type === "relation"))
+    : undefined;
+  const secondaryBoardProperty = selectedView?.type === "board" && boardProperty
+    ? data?.properties.find((property) => property.id === selectedView.config.secondaryGroupBy
+        && property.id !== boardProperty.id
+        && (property.type === "select" || property.type === "relation"))
     : undefined;
   // An embed renders the same saved view as the database page, so it shows the
   // same properties. Embeds stay compact and cap the columns they display.
@@ -192,6 +268,8 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
       ? selectedView.config.hiddenCoverRecordIds.filter((id): id is string => typeof id === "string")
       : [],
   );
+  // The embed draws the same saved card density as the database page.
+  const galleryCardSize = parseGalleryCardSize(selectedView?.config);
 
   // Mirrors the main gallery: a file property supplies the cover when it holds
   // an image, otherwise the record page's cover does.
@@ -200,6 +278,40 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
       chosenPropertyId: galleryCoverProperty?.id,
       filePropertyIds: galleryCoverProperties.map((property) => property.id),
     });
+  }
+
+  // A card shows in each column it belongs to, so it is built from the record.
+  function renderBoardCard(record: EmbedRecord) {
+    if (!data) return null;
+    return (
+      <div key={record.id} className="rounded border bg-background p-2 text-xs">
+        <p className="font-medium">
+          <Link href={recordHref(data.id, record.id, record.pageId)} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
+        </p>
+        {visibleProperties.length > 0 && (
+          <dl className="mt-1 space-y-0.5">
+            {visibleProperties.slice(0, 4).map((property) => (
+              <div key={property.id} className="flex gap-1">
+                <dt className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                  <PropertyTypeIcon type={property.type} size={10} />
+                  {property.name}
+                </dt>
+                <dd className="min-w-0 truncate">
+                  {property.type === "button" ? (
+                    <ButtonCell
+                      compact
+                      label={property.name}
+                      onRun={() => runButton(record, property)}
+                      onConfigure={readOnly ? undefined : () => setEditingButtonProperty(buttonSettingsProperty(property))}
+                    />
+                  ) : displayPropertyNode(record, property, data.properties, relationTargets)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    );
   }
 
   async function runButton(record: EmbedRecord, property: EmbedProperty) {
@@ -250,6 +362,11 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
   async function setCoverProperty(propertyId: string) {
     if (!selectedView) return;
     await saveViewConfig({ ...selectedView.config, coverPropertyId: propertyId });
+  }
+
+  async function setGalleryCardSize(cardSize: string) {
+    if (!selectedView) return;
+    await saveViewConfig({ ...selectedView.config, cardSize });
   }
 
   async function removeCover(recordId: string, propertyId: string) {
@@ -350,6 +467,26 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
           .map((property) => displayValue(cellValue(record, property, data?.properties ?? [], relationTargets))),
       ].some((text) => text.toLocaleLowerCase().includes(filterText)))
     : sorted;
+  // A saved board reads the same way inside a page as on the database page.
+  const boardSections = boardProperty
+    ? boardSectionsFor({
+        property: boardProperty,
+        records,
+        relationTargets: (relationTargets[boardProperty.id]?.records ?? []).map((target) => ({
+          id: target.id,
+          title: relationTitles[boardProperty.id]?.[target.id] ?? "Untitled",
+        })),
+        secondary: secondaryBoardProperty
+          ? {
+              property: secondaryBoardProperty,
+              relationTargets: (relationTargets[secondaryBoardProperty.id]?.records ?? []).map((target) => ({
+                id: target.id,
+                title: relationTitles[secondaryBoardProperty.id]?.[target.id] ?? "Untitled",
+              })),
+            }
+          : undefined,
+      })
+    : [];
   const timelineRange = parseTimelineRange(selectedView?.config.timelineRange);
   const dateViewPropertyId = typeof selectedView?.config.datePropertyId === "string"
     ? selectedView.config.datePropertyId
@@ -429,7 +566,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
           <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
             <Database size={15} className="shrink-0 text-muted-foreground" />
             <span className="truncate">{data?.name ?? (error ? "Unavailable database" : "Loading database…")}</span>
-            {selectedView && <span className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground">{selectedView.name}</span>}
+            {selectedView && (data?.views.length ?? 0) <= 1 && <span className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground">{selectedView.name}</span>}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Link href={`/databases/${databaseId}`} target="_blank" aria-label="Open full database" title="Open full database" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -442,14 +579,38 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
             )}
           </div>
         </div>
+        {data && data.views.length > 1 && (
+          <div
+            role="group"
+            aria-label="Database views in this embed"
+            className="flex flex-wrap items-center gap-1 border-b px-2"
+          >
+            {data.views.map((view) => (
+              <button
+                key={view.id}
+                type="button"
+                aria-pressed={view.id === selectedView?.id}
+                title={`Show the ${view.name} ${view.type} view`}
+                onClick={() => selectView(view)}
+                className={`-mb-px border-b-2 px-2 py-1.5 text-xs transition-colors ${
+                  view.id === selectedView?.id
+                    ? "border-brand font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {view.name}
+              </button>
+            ))}
+          </div>
+        )}
         {viewError && <p role="alert" className="border-b px-3 py-2 text-xs text-destructive">{viewError}</p>}
         {error ? (
           <p role="alert" className="p-4 text-sm text-destructive">{error}</p>
         ) : data ? (
           selectedView?.type === "gallery" ? (
             <div>
-              {galleryCoverProperties.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs">
+                {galleryCoverProperties.length > 0 && (
                   <label className="flex items-center gap-2 text-muted-foreground">
                     Cover image
                     <select
@@ -464,9 +625,29 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                       ))}
                     </select>
                   </label>
-                </div>
-              )}
-              <div className="grid max-h-96 gap-3 overflow-y-auto p-3 sm:grid-cols-2">
+                )}
+                <label className="flex items-center gap-2 text-muted-foreground">
+                  Card size
+                  <select
+                    aria-label="Gallery card size"
+                    value={galleryCardSize}
+                    onChange={(event) => void setGalleryCardSize(event.target.value)}
+                    disabled={viewSaving}
+                    className="rounded border bg-background px-2 py-1 text-foreground disabled:opacity-50"
+                  >
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </label>
+              </div>
+              <div className={`grid max-h-96 gap-3 overflow-y-auto p-3 ${
+                galleryCardSize === "small"
+                  ? "sm:grid-cols-3"
+                  : galleryCardSize === "large"
+                    ? "sm:grid-cols-1"
+                    : "sm:grid-cols-2"
+              }`}>
               {records.map((record) => {
                 const cover = coverForRecord(record);
                 const coverHidden = Boolean(cover) && hiddenCoverRecordIds.has(record.id);
@@ -483,7 +664,13 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                           <MediaImage
                             src={cover.url}
                             alt={cover.alt}
-                            className="h-28 w-full object-cover"
+                            className={`w-full object-cover ${
+                              galleryCardSize === "small"
+                                ? "h-20"
+                                : galleryCardSize === "large"
+                                  ? "h-44"
+                                  : "h-28"
+                            }`}
                           />
                         </Link>
                         <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
@@ -572,7 +759,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                                 onRun={() => runButton(record, property)}
                                 onConfigure={readOnly ? undefined : () => setEditingButtonProperty(buttonSettingsProperty(property))}
                               />
-                            ) : displayNode(cellValue(record, property, data.properties, relationTargets))}
+                            ) : displayPropertyNode(record, property, data.properties, relationTargets)}
                           </dd>
                         </div>
                       ))}
@@ -585,42 +772,30 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
             </div>
           ) : selectedView?.type === "board" && boardProperty ? (
             <div className="grid max-h-96 gap-3 overflow-auto p-3 md:grid-flow-col md:auto-cols-[minmax(180px,1fr)]">
-              {["", ...(Array.isArray(boardProperty.options.choices) ? boardProperty.options.choices : [])].map((choice) => {
-                const columnRecords = records.filter((record) => String(record.values[boardProperty.id] ?? "") === choice);
-                return (
-                  <section key={choice || "__empty"} className="min-h-36 rounded-md bg-muted/40 p-2">
-                    <h3 className="mb-2 text-xs font-medium">{choice || "No value"} <span className="text-muted-foreground">{columnRecords.length}</span></h3>
+              {boardSections.map((column) => (
+                <section key={column.key} className="min-h-36 rounded-md bg-muted/40 p-2">
+                  <h3 className="mb-2 flex items-center gap-1 text-xs font-medium">
+                    <PropertyTypeIcon type={boardProperty?.type ?? "select"} size={11} />
+                    {column.label} <span className="text-muted-foreground">{column.records.length}</span>
+                  </h3>
+                  {column.groups ? (
                     <div className="space-y-2">
-                      {columnRecords.map((record) => (
-                        <div key={record.id} className="rounded border bg-background p-2 text-xs">
-                          <p className="font-medium">
-                            <Link href={recordHref(data.id, record.id, record.pageId)} title={`Open ${record.title} — Ctrl/Cmd-click to open in a new tab`} className="hover:text-primary hover:underline">{record.title}</Link>
+                      {column.groups.map((group) => (
+                        <div key={group.key} className="space-y-1">
+                          <p className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {group.label}<span>{group.records.length}</span>
                           </p>
-                          {visibleProperties.length > 0 && (
-                            <dl className="mt-1 space-y-0.5">
-                              {visibleProperties.slice(0, 4).map((property) => (
-                                <div key={property.id} className="flex gap-1">
-                                  <dt className="shrink-0 text-muted-foreground">{property.name}</dt>
-                                  <dd className="min-w-0 truncate">
-                                    {property.type === "button" ? (
-                                      <ButtonCell
-                                        compact
-                                        label={property.name}
-                                        onRun={() => runButton(record, property)}
-                                        onConfigure={readOnly ? undefined : () => setEditingButtonProperty(buttonSettingsProperty(property))}
-                                      />
-                                    ) : displayNode(cellValue(record, property, data.properties, relationTargets))}
-                                  </dd>
-                                </div>
-                              ))}
-                            </dl>
-                          )}
+                          {group.records.map((record) => renderBoardCard(record))}
                         </div>
                       ))}
                     </div>
-                  </section>
-                );
-              })}
+                  ) : (
+                    <div className="space-y-2">
+                      {column.records.map((record) => renderBoardCard(record))}
+                    </div>
+                  )}
+                </section>
+              ))}
             </div>
           ) : selectedView?.type === "list" ? (
             <div className="max-h-96 overflow-y-auto p-3">
@@ -706,7 +881,14 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
               <thead className="sticky top-0 z-10 bg-background">
                 <tr className="border-b text-left">
                   <th className="bg-background px-3 py-2 font-medium">Name</th>
-                  {visibleProperties.slice(0, 4).map((property) => <th key={property.id} className="bg-background px-3 py-2 font-medium">{property.name}</th>)}
+                  {visibleProperties.slice(0, 4).map((property) => (
+                    <th key={property.id} className="bg-background px-3 py-2 font-medium">
+                      <span className="flex items-center gap-1">
+                        <PropertyTypeIcon type={property.type} size={11} />
+                        {property.name}
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -724,7 +906,7 @@ function DatabaseEmbedView({ node, deleteNode }: NodeViewProps) {
                             onRun={() => runButton(record, property)}
                             onConfigure={readOnly ? undefined : () => setEditingButtonProperty(buttonSettingsProperty(property))}
                           />
-                        ) : displayNode(cellValue(record, property, data.properties, relationTargets))}
+                        ) : displayPropertyNode(record, property, data.properties, relationTargets)}
                       </td>
                     ))}
                   </tr>

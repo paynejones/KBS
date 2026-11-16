@@ -1,16 +1,14 @@
 "use client";
 
-import { Suspense, useState, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { BookOpenText, Lock, Search, Settings, SlidersHorizontal } from "lucide-react";
+import { BookOpenText, Search, Settings } from "lucide-react";
 import { CommandPalette } from "@/components/command-palette";
 import { MobileSearchButton } from "@/components/mobile-search-button";
 import {
   MobileQuickCaptureButton,
   QuickCapture,
 } from "@/components/quick-capture";
-import { ThemePicker } from "@/components/theme-picker";
-import { SignOutButton } from "@/components/sign-out-button";
 import { NavigationEditor } from "@/components/navigation-editor";
 import {
   WorkspaceNavigation,
@@ -19,10 +17,13 @@ import {
 import {
   getNavigationSnapshot,
   getServerNavigationSnapshot,
-  setNavigationLocked,
-  storeNavigationPreferences,
   subscribeToNavigation,
 } from "@/lib/navigation";
+import {
+  getServerSidebarCollapsedSnapshot,
+  getSidebarCollapsedSnapshot,
+  subscribeToSidebarCollapsed,
+} from "@/lib/sidebar-collapse";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [editingNavigation, setEditingNavigation] = useState(false);
@@ -33,49 +34,86 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
   const navigationLocked = navigation.locked;
 
+  // Settings can open the navigation editor without owning its dialog state.
+  useEffect(() => {
+    function openNavigationEditor() {
+      if (!navigationLocked) setEditingNavigation(true);
+    }
+
+    window.addEventListener("open-navigation-editor", openNavigationEditor);
+    return () =>
+      window.removeEventListener("open-navigation-editor", openNavigationEditor);
+  }, [navigationLocked]);
+  const sidebarCollapsed = useSyncExternalStore(
+    subscribeToSidebarCollapsed,
+    getSidebarCollapsedSnapshot,
+    getServerSidebarCollapsedSnapshot,
+  );
+
   return (
     <div className="flex min-h-screen w-full min-w-0 bg-background text-foreground">
-      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col overflow-y-auto border-r bg-muted/25 px-3 py-4 md:flex">
-        <Link
-          href="/"
-          aria-label="Knowledge Base home"
-          className="mb-4 flex items-center gap-2.5 rounded-md px-1.5 text-sm font-semibold tracking-tight"
-        >
-          <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-brand/60 text-white shadow-sm">
-            <BookOpenText size={16} aria-hidden="true" />
-          </span>
-          <span className="min-w-0">
-            <span className="block leading-tight">KBS</span>
-            <span className="block text-[11px] font-normal text-muted-foreground">
-              Personal workspace
+      <aside
+        className={`sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r bg-muted/25 py-4 md:flex ${
+          sidebarCollapsed ? "w-16 px-2" : "w-56 px-3"
+        }`}
+      >
+        <div className={`mb-4 flex gap-1 ${sidebarCollapsed ? "flex-col items-center" : "items-center justify-between"}`}>
+          <Link
+            href="/"
+            aria-label="Knowledge Base home"
+            title={sidebarCollapsed ? "KBS home" : undefined}
+            className={`flex min-w-0 items-center gap-2.5 rounded-md px-1.5 text-sm font-semibold tracking-tight ${
+              sidebarCollapsed ? "justify-center" : ""
+            }`}
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-brand/60 text-white shadow-sm">
+              <BookOpenText size={16} aria-hidden="true" />
             </span>
-          </span>
-        </Link>
+            {!sidebarCollapsed && (
+              <span className="min-w-0">
+                <span className="block leading-tight">KBS</span>
+                <span className="block text-[11px] font-normal text-muted-foreground">
+                  Personal workspace
+                </span>
+              </span>
+            )}
+          </Link>
+        </div>
 
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event("open-global-search"))}
           aria-keyshortcuts="Control+K Meta+K"
-          className="mb-4 flex h-8 w-full items-center gap-2 rounded-lg border bg-background px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={sidebarCollapsed ? "Search" : undefined}
+          title={sidebarCollapsed ? "Search (Ctrl K)" : undefined}
+          className={`mb-4 flex h-8 w-full items-center rounded-lg border bg-background text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            sidebarCollapsed ? "justify-center px-0" : "gap-2 px-2.5"
+          }`}
         >
           <Search size={14} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-left text-[13px]">
-            Search…
-          </span>
-          <kbd className="rounded border px-1 py-0.5 text-[10px]">Ctrl K</kbd>
+          {!sidebarCollapsed && (
+            <>
+              <span className="min-w-0 flex-1 truncate text-left text-[13px]">
+                Search…
+              </span>
+              <kbd className="rounded border px-1 py-0.5 text-[10px]">Ctrl K</kbd>
+            </>
+          )}
         </button>
 
-        <Suspense fallback={<WorkspaceNavigationFallback />}>
-          <WorkspaceNavigation
-            onEditNavigation={() => setEditingNavigation(true)}
-          />
+        <Suspense fallback={<WorkspaceNavigationFallback collapsed={sidebarCollapsed} />}>
+          <WorkspaceNavigation collapsed={sidebarCollapsed} />
         </Suspense>
 
-        <div className="mt-auto flex items-center gap-2 border-t px-1.5 pt-4 text-[11px] text-muted-foreground">
-          <span className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand/60 text-[10px] font-semibold text-white">
+        <div
+          className={`mt-auto flex border-t pt-4 text-[11px] text-muted-foreground ${
+            sidebarCollapsed ? "flex-col items-center gap-1.5 px-0" : "items-center gap-2 px-1.5"
+          }`}
+        >
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand/60 text-[10px] font-semibold text-white">
             K
           </span>
-          <span className="min-w-0 flex-1 truncate">My workspace</span>
+          {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">My workspace</span>}
           <Link
             href="/settings"
             aria-label="Settings"
@@ -84,7 +122,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Settings size={14} aria-hidden="true" />
           </Link>
-          <SignOutButton />
         </div>
       </aside>
 
@@ -104,29 +141,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="hidden sm:block">
               <QuickCapture />
             </div>
-            {navigationLocked ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingNavigation(false);
-                  storeNavigationPreferences(setNavigationLocked(navigation, false));
-                }}
-                aria-label="Unlock navigation editing"
-                title="Navigation is locked"
-                className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
-              >
-                <Lock size={17} aria-hidden="true" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setEditingNavigation(true)}
-                aria-label="Edit navigation"
-                className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
-              >
-                <SlidersHorizontal size={18} aria-hidden="true" />
-              </button>
-            )}
             <Link
               href="/settings"
               aria-label="Settings"
@@ -136,11 +150,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Settings size={18} aria-hidden="true" />
             </Link>
             <CommandPalette showTrigger={false} />
-            <ThemePicker />
           </div>
         </header>
 
-        <div className="mx-auto w-full max-w-7xl px-4 pb-28 pt-4 sm:px-6 md:p-8">
+        <div className="w-full px-4 pb-28 pt-4 sm:px-6 md:p-8">
           <div className="mb-4 md:hidden">
             <MobileSearchButton />
           </div>

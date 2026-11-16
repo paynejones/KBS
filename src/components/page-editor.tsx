@@ -9,6 +9,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Download, GripVertical, Pencil, Plus, SlidersHorizontal, Star, Trash2 } from "lucide-react";
@@ -207,11 +208,19 @@ export function PageEditor({
   hideTitle = false,
   readOnly = false,
   hidePageConnections = false,
+  pageProperties,
+  pagePropertiesHidden = false,
 }: {
   id: string;
   hideTitle?: boolean;
   readOnly?: boolean;
   hidePageConnections?: boolean;
+  // A record's properties belong to the page, so the record page hands them to
+  // the editor to render above the body instead of in a block of its own.
+  pageProperties?: ReactNode;
+  // Hiding the wrapper keeps the property editors mounted, so an edit in
+  // progress is not dropped when the panel is hidden.
+  pagePropertiesHidden?: boolean;
 }) {
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<SaveStatus>("loading");
@@ -274,6 +283,7 @@ export function PageEditor({
   const [restoringRevision, setRestoringRevision] = useState("");
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateMessage, setTemplateMessage] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashMenuRef = useRef<SlashMenuState>(null);
@@ -1175,7 +1185,7 @@ while (foundDescendant) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="w-full">
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_11rem] xl:grid-cols-[minmax(0,1fr)_12rem]">
         <div className="min-w-0 space-y-6">
           <div ref={coverRef} data-testid="page-cover" className={hasCover ? "relative -mx-4 overflow-hidden border-y bg-card sm:-mx-6 md:mx-0 md:rounded-2xl md:border" : ""}>
@@ -1244,6 +1254,26 @@ while (foundDescendant) {
               <span className="hidden sm:inline">Cover</span>
               <span className="tabular-nums">{coverPosition}%</span>
             </div>
+          )}
+          {!readOnly && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Page settings"
+              aria-expanded={showSettings}
+              aria-controls="page-settings"
+              onClick={() => setShowSettings((current) => !current)}
+              title="Page settings"
+            >
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              <span className="hidden sm:inline">Page settings</span>
+              <ChevronDown
+                size={14}
+                aria-hidden="true"
+                className={`transition-transform ${showSettings ? "rotate-180" : ""}`}
+              />
+            </Button>
           )}
           <Button
             type="button"
@@ -1320,6 +1350,159 @@ while (foundDescendant) {
         </div>
       )}
 
+      {!readOnly && showSettings && (
+        <section
+          id="page-settings"
+          aria-label="Page settings"
+          className="space-y-4 rounded-xl border bg-card p-4 sm:p-6"
+        >
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <span>Appearance</span>
+              <ChevronDown
+                size={14}
+                aria-hidden="true"
+                className="ml-auto transition-transform group-open:rotate-180"
+              />
+            </summary>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <PageIconPicker
+                value={icon}
+                onSelect={(next) => {
+                  setIcon(next);
+                  void savePage({ icon: next });
+                }}
+                onRemove={() => {
+                  setIcon("");
+                  void savePage({ icon: null });
+                }}
+              />
+              <Button type="button" variant="outline" size="sm" disabled={coverUploading} onClick={() => void uploadCoverImage()}>
+                {coverUploading ? "Uploading…" : "Upload cover"}
+              </Button>
+              {coverImageUrl && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setCoverImageUrl(""); void savePage({ coverImageUrl: null }); }}>
+                  Remove cover
+                </Button>
+              )}
+              <label className="flex w-full min-w-0 flex-1 basis-full items-center gap-2 rounded-md border px-3 py-2 text-sm sm:basis-auto sm:min-w-64">
+                <span className="shrink-0 text-muted-foreground">Cover URL</span>
+                <input
+                  aria-label="Cover image URL"
+                  value={coverImageUrl}
+                  placeholder="https://… or uploaded file"
+                  onChange={(event) => { setCoverImageUrl(event.target.value); setCoverImageError(null); }}
+                  onBlur={saveCoverFromInput}
+                  className="min-w-0 flex-1 bg-transparent outline-none"
+                />
+              </label>
+            </div>
+          </details>
+
+          <details className="group border-t pt-4">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <span id="page-details-heading">Details</span>
+              <ChevronDown
+                size={14}
+                aria-hidden="true"
+                className="ml-auto transition-transform group-open:rotate-180"
+              />
+            </summary>
+            <div className="mt-3 space-y-3">
+            <div className="flex flex-col gap-1.5 min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-3">
+              <label htmlFor="move-page" className="text-sm font-medium shrink-0 whitespace-nowrap">
+                Move to
+              </label>
+              <select
+                id="move-page"
+                value={parentId ?? ""}
+                onChange={(event) => void movePage(event.target.value)}
+                disabled={moving}
+                className="w-full min-w-0 rounded-md border bg-background px-3 py-2 text-sm min-[360px]:w-auto min-[360px]:max-w-full sm:max-w-xs"
+              >
+                <option value="">Top level</option>
+                {allPages
+                  .filter((page) => !unavailableParentIds.has(page.id))
+                  .map((page) => (
+                    <option key={page.id} value={page.id}>
+                      {page.title || "Untitled"}
+                    </option>
+                  ))}
+              </select>
+              {moving && (
+                <span className="text-xs text-muted-foreground">Moving…</span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={templateSaving}
+                onClick={() => void saveAsTemplate()}
+              >
+                {templateSaving ? "Saving template…" : "Save as template"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Reuse this page’s title, icon, and content as a starting point for new pages.
+              </span>
+              {templateMessage && (
+                <span role="status" className="text-xs text-muted-foreground">
+                  {templateMessage}
+                </span>
+              )}
+            </div>
+            <PageTags pageId={id} />
+            {!hidePageConnections && <PageLinks pageId={id} pages={allPages} />}
+            <RelatedPages pageId={id} />
+            </div>
+          </details>
+
+          <details
+            className="group border-t pt-4"
+            onToggle={(event) => {
+              if (event.currentTarget.open) void loadRevisions();
+            }}
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <span id="page-history-heading">History</span>
+              <ChevronDown
+                size={14}
+                aria-hidden="true"
+                className="ml-auto transition-transform group-open:rotate-180"
+              />
+            </summary>
+            <div className="mt-3 space-y-3">
+            {loadingRevisions && <p role="status" className="text-sm text-muted-foreground">Loading history…</p>}
+            {revisionError && <p role="alert" className="text-sm text-destructive">{revisionError}</p>}
+            {!loadingRevisions && revisions.length === 0 && !revisionError && (
+              <p className="text-sm text-muted-foreground">No saved revisions yet. A snapshot is created when page content changes.</p>
+            )}
+            {revisions.map((revision) => (
+              <article key={revision.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{revision.title || "Untitled"}</p>
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">{revision.preview || "Empty page"}</p>
+                  <time className="mt-1 block text-xs text-muted-foreground" dateTime={revision.createdAt}>
+                    {new Date(revision.createdAt).toLocaleString()}
+                  </time>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(restoringRevision)}
+                  onClick={() => setRevisionPendingRestore(revision)}
+                >
+                  {restoringRevision === revision.id ? "Restoring…" : "Restore"}
+                </Button>
+              </article>
+            ))}
+            </div>
+          </details>
+        </section>
+      )}
+
       <div className={`rounded-xl border px-4 py-4 sm:px-8 sm:py-7 ${hasCover ? "bg-card/90" : "bg-card"}`}>
         {!readOnly && (
           <div className="sticky top-0 z-30 -mx-4 bg-card px-4 pb-1 pt-3 sm:static sm:mx-0 sm:p-0">
@@ -1375,6 +1558,9 @@ while (foundDescendant) {
           <div className="border-b py-3">
             <DatabaseEmbedPicker editor={editor} />
           </div>
+        )}
+        {pageProperties && (
+          <div className="mt-4 border-b pb-5" hidden={pagePropertiesHidden}>{pageProperties}</div>
         )}
         {selectedText && !quoteEditing && (
           <figure className="my-3 rounded-r-md border-l-2 border-primary/40 pl-3">
@@ -1508,146 +1694,6 @@ while (foundDescendant) {
             </div>
           </div>
 
-      {!readOnly && (
-      <details
-        className="group rounded-xl border bg-card"
-        onToggle={(event) => {
-          if (event.currentTarget.open) void loadRevisions();
-        }}
-      >
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
-          <SlidersHorizontal size={14} aria-hidden="true" />
-          <span className="font-medium">Page settings</span>
-          <ChevronDown
-            size={13}
-            aria-hidden="true"
-            className="ml-auto transition-transform group-open:rotate-180"
-          />
-        </summary>
-        <div className="space-y-6 border-t p-4">
-          <section aria-label="Page appearance" className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Appearance
-            </h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <PageIconPicker
-                value={icon}
-                onSelect={(next) => {
-                  setIcon(next);
-                  void savePage({ icon: next });
-                }}
-                onRemove={() => {
-                  setIcon("");
-                  void savePage({ icon: null });
-                }}
-              />
-              <Button type="button" variant="outline" size="sm" disabled={coverUploading} onClick={() => void uploadCoverImage()}>
-                {coverUploading ? "Uploading…" : "Upload cover"}
-              </Button>
-              {coverImageUrl && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => { setCoverImageUrl(""); void savePage({ coverImageUrl: null }); }}>
-                  Remove cover
-                </Button>
-              )}
-              <label className="flex w-full min-w-0 flex-1 basis-full items-center gap-2 rounded-md border px-3 py-2 text-sm sm:basis-auto sm:min-w-64">
-                <span className="shrink-0 text-muted-foreground">Cover URL</span>
-                <input
-                  aria-label="Cover image URL"
-                  value={coverImageUrl}
-                  placeholder="https://… or uploaded file"
-                  onChange={(event) => { setCoverImageUrl(event.target.value); setCoverImageError(null); }}
-                  onBlur={saveCoverFromInput}
-                  className="min-w-0 flex-1 bg-transparent outline-none"
-                />
-              </label>
-            </div>
-          </section>
-
-          <section aria-labelledby="page-details-heading" className="space-y-3 border-t pt-6">
-            <h2 id="page-details-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Details
-            </h2>
-            <div className="flex flex-col gap-1.5 min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-3">
-              <label htmlFor="move-page" className="text-sm font-medium shrink-0 whitespace-nowrap">
-                Move to
-              </label>
-              <select
-                id="move-page"
-                value={parentId ?? ""}
-                onChange={(event) => void movePage(event.target.value)}
-                disabled={moving}
-                className="w-full min-w-0 rounded-md border bg-background px-3 py-2 text-sm min-[360px]:w-auto min-[360px]:max-w-full sm:max-w-xs"
-              >
-                <option value="">Top level</option>
-                {allPages
-                  .filter((page) => !unavailableParentIds.has(page.id))
-                  .map((page) => (
-                    <option key={page.id} value={page.id}>
-                      {page.title || "Untitled"}
-                    </option>
-                  ))}
-              </select>
-              {moving && (
-                <span className="text-xs text-muted-foreground">Moving…</span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={templateSaving}
-                onClick={() => void saveAsTemplate()}
-              >
-                {templateSaving ? "Saving template…" : "Save as template"}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                Reuse this page’s title, icon, and content as a starting point for new pages.
-              </span>
-              {templateMessage && (
-                <span role="status" className="text-xs text-muted-foreground">
-                  {templateMessage}
-                </span>
-              )}
-            </div>
-            <PageTags pageId={id} />
-            {!hidePageConnections && <PageLinks pageId={id} pages={allPages} />}
-            <RelatedPages pageId={id} />
-          </section>
-
-          <section aria-labelledby="page-history-heading" className="space-y-3 border-t pt-6">
-            <h2 id="page-history-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              History
-            </h2>
-            {loadingRevisions && <p role="status" className="text-sm text-muted-foreground">Loading history…</p>}
-            {revisionError && <p role="alert" className="text-sm text-destructive">{revisionError}</p>}
-            {!loadingRevisions && revisions.length === 0 && !revisionError && (
-              <p className="text-sm text-muted-foreground">No saved revisions yet. A snapshot is created when page content changes.</p>
-            )}
-            {revisions.map((revision) => (
-              <article key={revision.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{revision.title || "Untitled"}</p>
-                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">{revision.preview || "Empty page"}</p>
-                  <time className="mt-1 block text-xs text-muted-foreground" dateTime={revision.createdAt}>
-                    {new Date(revision.createdAt).toLocaleString()}
-                  </time>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={Boolean(restoringRevision)}
-                  onClick={() => setRevisionPendingRestore(revision)}
-                >
-                  {restoringRevision === revision.id ? "Restoring…" : "Restore"}
-                </Button>
-              </article>
-            ))}
-          </section>
-        </div>
-      </details>
-      )}
         </div>
 
         <PageRail

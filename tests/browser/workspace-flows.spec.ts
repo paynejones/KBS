@@ -112,7 +112,8 @@ test("picks a page icon in settings and saves it", async ({ page, request }) => 
     await page.goto(`/pages/${fixture.id}`);
     const titleRow = page.getByLabel("Page title").locator("xpath=..");
 
-    await page.locator("summary").filter({ hasText: "Page settings" }).click();
+    await page.getByRole("button", { name: "Page settings" }).click();
+    await page.locator("summary").filter({ hasText: "Appearance" }).click();
     await page.getByRole("button", { name: "Add page icon" }).click();
 
     const saved = page.waitForResponse((response) =>
@@ -266,25 +267,25 @@ test("adds a database record and edits its title and number value", async ({ pag
       response.url().endsWith(`/api/databases/${database.id}/records`)
       && response.request().method() === "POST",
     );
-    // The table's inline add row uses this label too; the toolbar button is
-    // first in the document.
     await page.getByRole("button", { name: "New record" }).first().click();
     const created = await createdResponse;
     assert.equal(created.status(), 201);
     const record = await created.json() as RecordRow;
 
-    const recordName = page.getByLabel("Record name");
-    await expect(recordName).toHaveValue("Untitled");
+    // A new record opens its page, where its title and properties live.
+    await expect(page).toHaveURL(new RegExp(`/pages/${record.pageId}$`));
+    const recordTitle = page.getByLabel("Record title");
+    await expect(recordTitle).toHaveValue("Untitled");
     const nextTitle = `${token} record`;
     const titleSaved = page.waitForResponse((response) =>
       response.url().endsWith(`/api/databases/${database.id}/records/${record.id}`)
       && response.request().method() === "PATCH",
     );
-    await recordName.fill(nextTitle);
-    await recordName.press("Tab");
+    await recordTitle.fill(nextTitle);
+    await recordTitle.press("Tab");
     assert.equal((await titleSaved).status(), 200);
 
-    const scoreInput = page.getByLabel(`Score for ${nextTitle}`);
+    const scoreInput = page.getByRole("spinbutton", { name: "Score", exact: true });
     await expect(scoreInput).toBeVisible();
     const valueSaved = page.waitForResponse((response) =>
       response.url().endsWith(`/api/databases/${database.id}/records/${record.id}`)

@@ -84,6 +84,20 @@ test("long formulas are refused", () => {
   assert.equal(parsed.ok, false);
 });
 
+test("today() is parsed only when a caller asks for it", () => {
+  assert.equal(parseFormula("today()").ok, false);
+
+  const parsed = parseFormula("today()", { allowToday: true });
+  assert.ok(parsed.ok);
+  assert.deepEqual(parsed.references, []);
+  // A formula has no number to compute from today's date.
+  assert.equal(evaluateFormula(parsed.ast, resolve), null);
+
+  const withArgument = parseFormula("today(1)", { allowToday: true });
+  assert.equal(withArgument.ok, false);
+  if (!withArgument.ok) assert.match(withArgument.error, /takes no arguments/);
+});
+
 test("formula values render as compact numbers", () => {
   assert.equal(formatFormulaValue(50), "50");
   assert.equal(formatFormulaValue(33.333333333), "33.333333");

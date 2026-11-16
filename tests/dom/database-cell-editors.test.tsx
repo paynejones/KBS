@@ -1,8 +1,13 @@
 import "../setup-dom";
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { DateCell, SelectCell } from "../../src/components/database-cell-editors";
+import {
+  DateCell,
+  MultiSelectCell,
+  SelectCell,
+} from "../../src/components/database-cell-editors";
 
 afterEach(cleanup);
 
@@ -134,6 +139,51 @@ test("select cell closes on Escape, outside click and a second click, and follow
 
   open();
   assert.equal(screen.queryByRole("listbox"), null, "the trigger toggles");
+});
+
+function MultiSelectHarness({ initial }: { initial: string[] }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <MultiSelectCell
+      label="Tags"
+      recordTitle="Harvest plan"
+      value={value}
+      choices={["garden", "autumn", "planning"]}
+      onChange={setValue}
+    />
+  );
+}
+
+test("multi-select cell toggles choices and keeps the menu open", () => {
+  render(<MultiSelectHarness initial={["garden"]} />);
+
+  const trigger = screen.getByRole("button", { name: "Tags for Harvest plan" });
+  assert.match(trigger.textContent ?? "", /garden/);
+
+  fireEvent.click(trigger);
+  assert.equal(
+    screen.getByRole("listbox").getAttribute("aria-multiselectable"),
+    "true",
+  );
+  const optionFor = (name: string) => screen.getByRole("option", { name });
+  assert.equal(optionFor("garden").getAttribute("aria-selected"), "true");
+  assert.equal(optionFor("autumn").getAttribute("aria-selected"), "false");
+
+  fireEvent.click(optionFor("autumn"));
+  assert.match(trigger.textContent ?? "", /garden/);
+  assert.match(trigger.textContent ?? "", /autumn/);
+  assert.ok(screen.getByRole("listbox"), "the menu stays open for another pick");
+
+  fireEvent.click(optionFor("garden"));
+  assert.doesNotMatch(trigger.textContent ?? "", /garden/, "a selected choice can be removed");
+  assert.equal(optionFor("autumn").getAttribute("aria-selected"), "true");
+
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  assert.equal(trigger.textContent, "Choose…");
+  assert.equal(screen.queryByRole("button", { name: "Clear" }), null);
+
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  assert.equal(screen.queryByRole("listbox"), null);
 });
 
 test("date cell shows a short date instead of an editable field", () => {

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseViews } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api-log";
+import { createRootPage } from "@/lib/database-page";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
@@ -27,9 +28,13 @@ export async function POST(request: Request) {
 
   try {
     const database = await db.transaction(async (tx) => {
+      const name = parsed.data.name ?? "Untitled database";
+      // Every database owns a page that its record pages nest under, so the
+      // page tree groups them instead of listing them at the root.
+      const pageId = await createRootPage(tx, name);
       const [created] = await tx
         .insert(databases)
-        .values({ name: parsed.data.name ?? "Untitled database" })
+        .values({ name, pageId })
         .returning();
       await tx.insert(databaseViews).values({ databaseId: created.id, name: "All records", type: "table" });
       return created;

@@ -1,9 +1,10 @@
-import { and, eq, isNull, max } from "drizzle-orm";
+import { and, eq, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { databases, databaseRecords, databaseTemplates, pages } from "@/db/schema";
+import { databases, databaseRecords, databaseTemplates } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api-log";
+import { createChildPage, ensureDatabasePage } from "@/lib/database-page";
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({
@@ -17,7 +18,8 @@ export async function POST(request: Request, context: Context) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid record" }, { status: 400 });
   try {
-    const [database] = await db.select({ id: databases.id }).from(databases).where(eq(databases.id, id)).limit(1);
+    const [database] = await db.select({ id: databases.id, name: databases.name, pageId: databases.pageId })
+      .from(databases).where(eq(databases.id, id)).limit(1);
     if (!database) return NextResponse.json({ error: "Database not found" }, { status: 404 });
     let template: typeof databaseTemplates.$inferSelect | undefined;
     if (parsed.data.templateId) {
@@ -34,15 +36,13 @@ export async function POST(request: Request, context: Context) {
     const record = await db.transaction(async (tx) => {
       const [maxOrder] = await tx.select({ value: max(databaseRecords.sortOrder) })
         .from(databaseRecords).where(eq(databaseRecords.databaseId, id));
-      const [pageOrder] = await tx.select({ value: max(pages.sortOrder) })
-        .from(pages).where(isNull(pages.parentId));
-      const [page] = await tx.insert(pages).values({
-        title,
-        sortOrder: (pageOrder?.value ?? -1) + 1,
-      }).returning({ id: pages.id });
+      // Record pages live under the database's grouping page, which older
+      // databases get here before their first record needs it.
+      const databasePageId = await ensureDatabasePage(tx, database);
+      const pageId = await createChildPage(tx, databasePageId, title);
       const [created] = await tx.insert(databaseRecords).values({
         databaseId: id,
-        pageId: page.id,
+        pageId,
         title,
         values: template?.values ?? {},
         sortOrder: (maxOrder?.value ?? -1) + 1,

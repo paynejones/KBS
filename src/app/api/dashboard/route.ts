@@ -322,6 +322,8 @@ export async function GET(request: Request) {
             relationTargets,
           );
         }
+        // A relation filter on a pinned widget reads the record's links.
+        if (property.type === "relation") return record.relations[property.id] ?? [];
         return record.values[property.id];
       };
       const visible = applyView(

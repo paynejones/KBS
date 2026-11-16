@@ -4,6 +4,8 @@ export type ListValue = {
   id: string;
   name: string;
   display: string;
+  /** The property type, so a list can mark each value the way the table does. */
+  propertyType?: string;
   /** Set only for a button, which renders as an action instead of text. */
   type?: "button";
 };
@@ -52,12 +54,18 @@ export function listRows<T extends ListRecord>(
       // A button has no stored value, but it still belongs in the list so it
       // can be run from there.
       if (property.type === "button") {
-        values.push({ id: property.id, name: property.name, display: "", type: "button" });
+        values.push({
+          id: property.id,
+          name: property.name,
+          display: "",
+          propertyType: property.type,
+          type: "button",
+        });
         continue;
       }
       const display = formatListValue(valueFor(record, property));
       if (hideEmpty && display === "") continue;
-      values.push({ id: property.id, name: property.name, display });
+      values.push({ id: property.id, name: property.name, display, propertyType: property.type });
     }
 
     return {

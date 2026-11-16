@@ -60,8 +60,19 @@ export async function PATCH(request: Request, context: Context) {
   const parsed = updateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid database update" }, { status: 400 });
   try {
+    const [existing] = await db.select({ name: databases.name, pageId: databases.pageId })
+      .from(databases).where(eq(databases.id, id)).limit(1);
+    if (!existing) return NextResponse.json({ error: "Database not found" }, { status: 404 });
     const [database] = await db.update(databases).set({ ...parsed.data, updatedAt: new Date() }).where(eq(databases.id, id)).returning();
-    if (!database) return NextResponse.json({ error: "Database not found" }, { status: 404 });
+    // The grouping page is named for its database, so a rename follows it —
+    // unless the page itself was renamed, in which case that name wins.
+    if (parsed.data.name && parsed.data.name !== existing.name && existing.pageId) {
+      await db.update(pages).set({ title: parsed.data.name, updatedAt: new Date() }).where(and(
+        eq(pages.id, existing.pageId),
+        eq(pages.title, existing.name),
+        isNull(pages.deletedAt),
+      ));
+    }
     return NextResponse.json(database);
   } catch (error) {
     return apiErrorResponse(request, "Failed to update database", error, { status: 500, logMessage: "Failed to update database:" });

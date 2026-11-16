@@ -18,10 +18,7 @@ export type RecordBacklink = {
  */
 export function RecordBacklinks({ backlinks }: { backlinks: RecordBacklink[] }) {
   return (
-    <section
-      aria-labelledby="record-backlinks-heading"
-      className="rounded-xl border bg-card p-4 sm:p-6"
-    >
+    <section aria-labelledby="record-backlinks-heading">
       <div className="flex items-center gap-2">
         <CornerDownRight size={16} className="text-muted-foreground" aria-hidden="true" />
         <h2

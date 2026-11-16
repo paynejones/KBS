@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, eq, inArray, max, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
@@ -7,6 +7,7 @@ import { apiErrorResponse } from "@/lib/api-log";
 import {
   buttonExpressionError,
   buttonOptionsSchema,
+  evaluateButtonDateExpression,
   evaluateButtonExpression,
   isButtonActionExpression,
   isButtonExpressionWritableProperty,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/database-calculations";
 import { parseFormula } from "@/lib/database-formula";
 import { validateDatabaseRecordValues } from "@/lib/database-values";
+import { createChildPage, ensureDatabasePage } from "@/lib/database-page";
 
 type Context = { params: Promise<{ id: string; recordId: string }> };
 type PropertyRow = typeof databaseProperties.$inferSelect;
@@ -99,7 +101,7 @@ function plannedValueError(
   if (!isButtonExpressionWritableProperty(target)) {
     return `${target.name} cannot use an expression value`;
   }
-  return buttonExpressionError(raw.expression, sourceProperties);
+  return buttonExpressionError(raw.expression, sourceProperties, target.type);
 }
 
 /**
@@ -128,16 +130,17 @@ function computeActionValue(
   if (!isButtonExpressionWritableProperty(target)) {
     return { error: `${target.name} cannot use an expression value` };
   }
-  const computed = evaluateButtonExpression(
-    raw.expression,
-    source.properties,
-    source.record,
-    source.targets,
-  );
+  // A date target reads dates and moves them by whole days; every other target
+  // keeps the numeric expression a formula uses.
+  const computed = target.type === "date"
+    ? evaluateButtonDateExpression(raw.expression, source.properties, source.record, source.targets)
+    : evaluateButtonExpression(raw.expression, source.properties, source.record, source.targets);
   if (!computed.ok) return { error: `${target.name}: ${computed.error}` };
   if (computed.value === null) {
     return {
-      error: `${target.name} could not be computed from the current values. Check that every {property} reference holds a number.`,
+      error: target.type === "date"
+        ? `${target.name} could not be computed from the current values. Check that every {date property} reference holds a date and every day count is a number.`
+        : `${target.name} could not be computed from the current values. Check that every {property} reference holds a number.`,
     };
   }
   const value = target.type === "number" ? computed.value : String(computed.value);
@@ -361,7 +364,7 @@ export async function POST(request: Request, context: Context) {
       }
       const referencedNames = new Set<string>();
       const expandReferences = (expression: string) => {
-        const parsed = parseFormula(expression);
+        const parsed = parseFormula(expression, { allowToday: true });
         if (!parsed.ok) return;
         for (const name of parsed.references) {
           if (referencedNames.has(name)) continue;
@@ -524,15 +527,18 @@ export async function POST(request: Request, context: Context) {
         if (entry.kind !== "create") continue;
         const [maxOrder] = await tx.select({ value: max(databaseRecords.sortOrder) })
           .from(databaseRecords).where(eq(databaseRecords.databaseId, entry.targetDatabaseId));
-        const [pageOrder] = await tx.select({ value: max(pages.sortOrder) })
-          .from(pages).where(isNull(pages.parentId));
-        const [page] = await tx.insert(pages).values({
-          title: entry.action.title,
-          sortOrder: (pageOrder?.value ?? -1) + 1,
-        }).returning({ id: pages.id });
+        const [targetDatabase] = await tx.select({ id: databases.id, name: databases.name, pageId: databases.pageId })
+          .from(databases).where(eq(databases.id, entry.targetDatabaseId)).limit(1);
+        if (!targetDatabase) {
+          return { ok: false as const, error: "A button action targets a database that does not exist", status: 400 };
+        }
+        // A record made by a button is a record page like any other, so it
+        // joins its database's grouping page.
+        const databasePageId = await ensureDatabasePage(tx, targetDatabase);
+        const pageId = await createChildPage(tx, databasePageId, entry.action.title);
         const [created] = await tx.insert(databaseRecords).values({
           databaseId: entry.targetDatabaseId,
-          pageId: page.id,
+          pageId,
           title: entry.action.title,
           values: { ...entry.values },
           sortOrder: (maxOrder?.value ?? -1) + 1,

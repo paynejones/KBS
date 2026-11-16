@@ -6,6 +6,7 @@ import {
   type APIResponse,
   type Page,
 } from "@playwright/test";
+import { openNavigationEditor } from "./navigation-helpers";
 
 type PageRow = { id: string; title: string };
 type Database = { id: string; name: string };
@@ -178,9 +179,7 @@ async function dragSidebarItem(
 }
 
 test("reorders sections and entries by dragging", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Edit navigation" }).first().click();
-  const dialog = page.getByRole("dialog", { name: "Edit navigation" });
+  const dialog = await openNavigationEditor(page);
   await dialog.getByRole("button", { name: "Add section" }).click();
   await dialog.getByLabel("Section name 2").fill("Project links");
 
@@ -219,9 +218,7 @@ test("reorders sections and entries by dragging", async ({ page }) => {
 });
 
 test("reorders sections and entries with touch pointers", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Edit navigation" }).first().click();
-  const dialog = page.getByRole("dialog", { name: "Edit navigation" });
+  const dialog = await openNavigationEditor(page);
   await dialog.getByRole("button", { name: "Add section" }).click();
   await dialog.getByLabel("Section name 2").fill("Project links");
 
@@ -271,11 +268,8 @@ test("builds named sidebar sections with pages and databases", async ({
   );
 
   try {
-    await page.goto("/");
+    const dialog = await openNavigationEditor(page);
     const sidebar = page.locator("aside");
-
-    await page.getByRole("button", { name: "Edit navigation" }).first().click();
-    const dialog = page.getByRole("dialog", { name: "Edit navigation" });
     await dialog.getByRole("button", { name: "Add section" }).click();
 
     const sectionName = dialog.getByLabel("Section name 2");
@@ -301,7 +295,7 @@ test("builds named sidebar sections with pages and databases", async ({
     await expect(
       section.getByRole("link", { name: pinnedPage.title, exact: true }).first(),
     ).toBeVisible();
-    await expect(section.getByRole("link", { name: database.name, exact: true })).toBeVisible();
+    await expect(section.locator(`a[href="/databases/${database.id}"]`)).toBeVisible();
     await expect(section.getByRole("link", { name: "View all" })).toBeVisible();
 
     await page.reload();

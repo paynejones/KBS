@@ -1,14 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { openNavigationEditor } from "./navigation-helpers";
 
 test("hides a sidebar destination without changing the mobile bar", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/settings");
 
   const workspace = page.getByRole("navigation", { name: "Workspace" });
   await expect(workspace.getByRole("link", { name: "Pages", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit navigation" }).first().click();
-  const dialog = page.getByRole("dialog", { name: "Edit navigation" });
-  await expect(dialog).toBeVisible();
+  const dialog = await openNavigationEditor(page);
 
   await dialog.getByRole("button", { name: "Hide Pages from sidebar" }).click();
   await dialog.getByRole("button", { name: "Done" }).click();

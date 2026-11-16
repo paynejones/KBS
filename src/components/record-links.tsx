@@ -127,7 +127,7 @@ export function RecordPageLinks({
   }
 
   return (
-    <section aria-labelledby="record-links-heading" className="rounded-xl border bg-card p-4 sm:p-6">
+    <section aria-labelledby="record-links-heading">
       <div className="flex items-center gap-2">
         <Link2 size={16} className="text-muted-foreground" />
         <h2 id="record-links-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

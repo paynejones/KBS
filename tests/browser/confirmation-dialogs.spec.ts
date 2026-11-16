@@ -187,7 +187,8 @@ test("page, template, and revision dialogs keep keyboard focus inside and dismis
     });
 
     await page.goto(`/pages/${pageRecord.id}`);
-    await page.locator("summary").filter({ hasText: "Page settings" }).click();
+    await page.getByRole("button", { name: "Page settings" }).click();
+    await page.locator("summary").filter({ hasText: "History" }).click();
     const restore = page.getByRole("button", { name: "Restore", exact: true }).first();
     await expect(restore).toBeVisible();
 
@@ -240,6 +241,8 @@ test("trash and unused-file dialogs keep keyboard focus inside and dismiss clean
       trigger: purge,
     });
 
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Scan for unused files", exact: true }).click();
     const clean = page.getByRole("button", { name: "Remove unused files", exact: true });
     await expect(clean).toBeEnabled();
     await exerciseConfirmation(page, {

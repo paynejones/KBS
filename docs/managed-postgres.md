@@ -122,7 +122,13 @@ commands from the repository.
   version against an old schema, and a failed migration keeps the app from starting at
   all — which is the intended failure mode.
 - Manual release without compose: take a snapshot → `npm run db:migrate` →
+  `npm run db:group-record-pages` (once for migration 0028; idempotent) →
   `npm run db:check` → start the new version → sign in and search.
+- Migration `0028_database_grouping_page` adds the database-to-page link but does
+  not move existing record pages. Run the one-pass backfill after it, or through
+  the migration image with
+  `docker compose run --rm migrate npm run db:group-record-pages`. The automated
+  release script applies migrations but does not run this backfill.
 - Never run `db:generate` in production. It writes new migration files and belongs in
   development, where the files are reviewed and committed.
 - Run migrations from exactly one place. Two concurrent `db:migrate` runs against the

@@ -15,9 +15,7 @@ import {
   Eye,
   EyeOff,
   GripVertical,
-  Lock,
   Plus,
-  RotateCcw,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +35,6 @@ import {
   removeSidebarEntry,
   removeSidebarSection,
   renameSidebarSection,
-  setNavigationLocked,
   sidebarEntryKey,
   storeNavigationPreferences,
   subscribeToNavigation,
@@ -955,76 +952,17 @@ export function NavigationEditor({
             </p>
           </section>
 
-          <section aria-labelledby="navigation-page-visibility-heading">
-            <h3
-              id="navigation-page-visibility-heading"
-              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-            >
-              Page visibility
-            </h3>
-            <label className="mt-3 flex cursor-pointer items-start justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">
-                  Database pages
-                </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Show pages created for database records in the sidebar,
-                  Pages, home, recents, and graph.
-                </span>
-              </span>
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="Show database pages"
-                checked={preferences.showDatabasePages}
-                onChange={(event) =>
-                  storeNavigationPreferences({
-                    ...preferences,
-                    showDatabasePages: event.target.checked,
-                  })
-                }
-                className="mt-0.5 size-4 shrink-0 accent-primary"
-              />
-            </label>
-          </section>
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t bg-muted/40 px-4 py-3">
+        <div className="flex items-center justify-end gap-2 border-t bg-muted/40 px-4 py-3">
           <Button
             type="button"
-            variant="outline"
             size="sm"
             className="min-h-11 sm:min-h-0"
-            onClick={() =>
-              storeNavigationPreferences(defaultNavigationPreferences())
-            }
+            onClick={onClose}
           >
-            <RotateCcw size={14} />
-            Reset
+            Done
           </Button>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-11 sm:min-h-0"
-              onClick={() => {
-                storeNavigationPreferences(setNavigationLocked(preferences, true));
-                onClose();
-              }}
-            >
-              <Lock size={14} />
-              Lock navigation
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="min-h-11 sm:min-h-0"
-              onClick={onClose}
-            >
-              Done
-            </Button>
-          </div>
         </div>
       </section>
     </div>

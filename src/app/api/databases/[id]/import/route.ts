@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { asc, eq, isNull, max } from "drizzle-orm";
+import { asc, eq, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { databases, databaseProperties, databaseRecords, pages } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api-log";
+import { ensureDatabasePage } from "@/lib/database-page";
 import { MAX_CSV_ROWS, buildCsvRecords, parseCsv, planCsvColumns } from "@/lib/csv-import";
 
 type Context = { params: Promise<{ id: string }> };
@@ -18,7 +19,8 @@ export async function POST(request: Request, context: Context) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid CSV import" }, { status: 400 });
 
   try {
-    const [database] = await db.select({ id: databases.id }).from(databases).where(eq(databases.id, id)).limit(1);
+    const [database] = await db.select({ id: databases.id, name: databases.name, pageId: databases.pageId })
+      .from(databases).where(eq(databases.id, id)).limit(1);
     if (!database) return NextResponse.json({ error: "Database not found" }, { status: 404 });
 
     const csv = parseCsv(parsed.data.csv);
@@ -33,6 +35,9 @@ export async function POST(request: Request, context: Context) {
     const plan = planCsvColumns(csv.headers, properties);
 
     const summary = await db.transaction(async (tx) => {
+      // Imported records are record pages too, so they join the database's
+      // grouping page instead of the root of the page tree.
+      const databasePageId = await ensureDatabasePage(tx, database);
       const propertyIds = new Map<string, string>();
       for (const column of plan.columns) {
         if (!column.key.startsWith("new:")) propertyIds.set(column.key, column.key);
@@ -57,12 +62,13 @@ export async function POST(request: Request, context: Context) {
           .where(eq(databaseRecords.databaseId, id));
         const [lastPage] = await tx.select({ value: max(pages.sortOrder) })
           .from(pages)
-          .where(isNull(pages.parentId));
+          .where(eq(pages.parentId, databasePageId));
         const pageIds = records.map(() => randomUUID());
         // Every record owns a page, so pages are inserted first with known ids.
         await tx.insert(pages).values(records.map((record, index) => ({
           id: pageIds[index],
           title: record.title,
+          parentId: databasePageId,
           sortOrder: (lastPage?.value ?? -1) + 1 + index,
         })));
         await tx.insert(databaseRecords).values(records.map((record, index) => ({

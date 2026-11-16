@@ -104,23 +104,22 @@ test("view mode locks editors but keeps navigation and actions usable", async ({
     ).toHaveCount(0);
     await expect(page.locator('input[aria-label="Score"]')).toHaveCount(0);
     await expect(page.getByText("42", { exact: true })).toBeVisible();
-    await expect(page.getByText("View only", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("status").filter({ hasText: "View only" }).first(),
+    ).toBeVisible();
     await expect(page.getByText("Page settings")).toHaveCount(0);
     await expect(page.locator('[aria-label="Page content"]')).toHaveAttribute(
       "contenteditable",
       "false",
     );
     await expect(page.getByText("Locked body copy")).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: /Open standalone page/ }),
-    ).toBeVisible();
 
     await expect(
       page.getByRole("button", { name: "Back to previous page" }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: database.name, exact: true }),
-    ).toBeVisible();
+    const databaseLink = page.locator(`a[href="/databases/${database.id}"]`);
+    await expect(databaseLink).toBeVisible();
+    await expect(databaseLink).toHaveText(database.name);
 
     await page.goto(
       `/databases/${database.id}/records/${record.id}?mode=view`,

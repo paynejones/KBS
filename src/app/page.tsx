@@ -11,7 +11,6 @@ import {
   LayoutGrid,
   Lock,
   Plus,
-  RotateCcw,
   Search,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
@@ -28,10 +27,8 @@ import { DashboardWidgets } from "@/components/dashboard-widgets";
 import { RecentPages } from "@/components/recent-pages";
 import { Button } from "@/components/ui/button";
 import {
-  defaultDashboardLayout,
   getDashboardLayoutSnapshot,
   getServerDashboardLayoutSnapshot,
-  setDashboardLocked,
   storeDashboardLayout,
   subscribeToDashboardLayout,
 } from "@/lib/dashboard-layout";
@@ -246,21 +243,14 @@ export default function Home() {
             </Button>
             {!loading && !loadError && pages.length > 0 && (
               layout.locked ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Unlock homepage editing"
+                <Link
+                  href="/settings#home"
                   title="Homepage layout is locked"
-                  onClick={() => {
-                    setEditing(false);
-                    storeDashboardLayout(setDashboardLocked(layout, false));
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <Lock size={14} aria-hidden="true" />
-                  Locked
-                </Button>
+                  Layout locked
+                </Link>
               ) : (
                 <Button
                   type="button"
@@ -287,37 +277,10 @@ export default function Home() {
         </header>
 
         {layoutEditing && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card px-3 py-2 text-xs">
-            <p className="text-muted-foreground">
-              Drag a widget by its handle, or use the arrows. Hidden widgets can be
-              restored at the bottom.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => {
-                  setEditing(false);
-                  storeDashboardLayout(setDashboardLocked(layout, true));
-                }}
-              >
-                <Lock size={12} aria-hidden="true" />
-                Lock layout
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => storeDashboardLayout(defaultDashboardLayout())}
-              >
-                <RotateCcw size={12} aria-hidden="true" />
-                Reset layout
-              </Button>
-            </div>
-          </div>
+          <p className="rounded-xl border bg-card px-3 py-2 text-xs text-muted-foreground">
+            Drag a widget by its handle, or use the arrows. Hidden widgets can be restored in
+            Settings.
+          </p>
         )}
 
         {createError && (

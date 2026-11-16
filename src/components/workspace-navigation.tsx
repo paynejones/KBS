@@ -12,8 +12,6 @@ import {
   GitFork,
   House,
   Inbox,
-  Lock,
-  SlidersHorizontal,
   Star,
   Target,
   Trash2,
@@ -28,8 +26,6 @@ import {
   getServerNavigationSnapshot,
   mobileNavigationWithActive,
   NAVIGATION_ITEMS,
-  setNavigationLocked,
-  storeNavigationPreferences,
   subscribeToNavigation,
   type NavigationItem,
   type NavigationKey,
@@ -76,10 +72,11 @@ function pinnedIds(sections: SidebarSection[], kind: "page" | "database") {
 
 export function WorkspaceNavigation({
   mobile = false,
-  onEditNavigation,
+  collapsed = false,
 }: {
   mobile?: boolean;
-  onEditNavigation?: () => void;
+  /** The desktop rail shows icons only; labels stay available as tooltips. */
+  collapsed?: boolean;
 }) {
   const pathname = usePathname();
   const preferences = useSyncExternalStore(
@@ -140,8 +137,6 @@ export function WorkspaceNavigation({
   }, [databaseIds, databaseIdsKey, mobile, pageIds, pageIdsKey]);
 
   const activeKey = activeNavigationKey(pathname);
-  const unlockNavigation = () =>
-    storeNavigationPreferences(setNavigationLocked(preferences, false));
 
   if (mobile) {
     const keys = mobileNavigationWithActive(preferences.mobile, activeKey);
@@ -166,15 +161,10 @@ export function WorkspaceNavigation({
   }
 
   return (
-    <nav className="space-y-4" aria-label="Workspace">
-      {preferences.sections.length === 0 && (
+    <nav className={collapsed ? "space-y-1" : "space-y-4"} aria-label="Workspace">
+      {preferences.sections.length === 0 && !collapsed && (
         <div className="flex items-center justify-between gap-2 px-2 text-xs text-muted-foreground">
           <span>No sidebar sections</span>
-          {preferences.locked ? (
-            <UnlockNavigationButton onClick={unlockNavigation} />
-          ) : (
-            onEditNavigation && <EditNavigationButton onClick={onEditNavigation} />
-          )}
         </div>
       )}
 
@@ -191,20 +181,16 @@ export function WorkspaceNavigation({
             aria-labelledby={`sidebar-section-${sectionIndex}`}
             className="space-y-1"
           >
-            <div className="flex items-center justify-between gap-1 pl-2 pr-1">
-              <h2
-                id={`sidebar-section-${sectionIndex}`}
-                className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
-              >
-                {section.name}
-              </h2>
-              {sectionIndex === 0 &&
-                (preferences.locked ? (
-                  <UnlockNavigationButton onClick={unlockNavigation} />
-                ) : (
-                  onEditNavigation && <EditNavigationButton onClick={onEditNavigation} />
-                ))}
-            </div>
+            {!collapsed && (
+              <div className="flex items-center justify-between gap-1 pl-2 pr-1">
+                <h2
+                  id={`sidebar-section-${sectionIndex}`}
+                  className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                >
+                  {section.name}
+                </h2>
+              </div>
+            )}
 
             <div className="space-y-0.5">
               {entries.map((entry) => (
@@ -218,6 +204,7 @@ export function WorkspaceNavigation({
                   }
                   entry={entry}
                   activeKey={activeKey}
+                  collapsed={collapsed}
                   pageTitles={pageTitles}
                   databaseNames={databaseNames}
                 />
@@ -233,21 +220,28 @@ export function WorkspaceNavigation({
 function SidebarEntryRow({
   entry,
   activeKey,
+  collapsed,
   pageTitles,
   databaseNames,
 }: {
   entry: SidebarEntry;
   activeKey: NavigationKey | null;
+  collapsed: boolean;
   pageTitles: Map<string, string>;
   databaseNames: Map<string, string>;
 }) {
   if (entry.kind === "navigation") {
     const item = itemByKey.get(entry.key);
     if (!item) return null;
-    return <NavigationLink item={item} active={entry.key === activeKey} />;
+    return <NavigationLink item={item} active={entry.key === activeKey} collapsed={collapsed} />;
   }
 
   if (entry.kind === "page-tree") {
+    // A whole tree cannot fit in the rail, so the icon stands in for its
+    // "View all" link and the tree returns when the sidebar expands.
+    if (collapsed) {
+      return <ShortcutLink href="/pages" label="Pages" icon={Files} collapsed />;
+    }
     return (
       <div>
         <div className="mb-1 flex items-center justify-between gap-1 px-2 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
@@ -267,6 +261,7 @@ function SidebarEntryRow({
         href={`/pages/${entry.id}`}
         label={pageTitles.get(entry.id) || "Page"}
         icon={FileText}
+        collapsed={collapsed}
       />
     );
   }
@@ -276,6 +271,7 @@ function SidebarEntryRow({
       href={`/databases/${entry.id}`}
       label={databaseNames.get(entry.id) || "Database"}
       icon={Database}
+      collapsed={collapsed}
     />
   );
 }
@@ -284,54 +280,34 @@ function ShortcutLink({
   href,
   label,
   icon: Icon,
+  collapsed = false,
 }: {
   href: string;
   label: string;
   icon: LucideIcon;
+  collapsed?: boolean;
 }) {
   return (
     <Link
       href={href}
-      className="flex min-w-0 items-center gap-2.5 rounded-md py-1.5 pl-2.5 pr-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      aria-label={collapsed ? label : undefined}
+      title={collapsed ? label : undefined}
+      className={`flex min-w-0 items-center rounded-md py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${
+        collapsed ? "justify-center px-0" : "gap-2.5 pl-2.5 pr-2"
+      }`}
     >
       <Icon size={15} aria-hidden="true" className="shrink-0" />
-      <span className="truncate">{label}</span>
+      {!collapsed && <span className="truncate">{label}</span>}
     </Link>
-  );
-}
-
-function EditNavigationButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Edit navigation"
-      title="Edit navigation"
-      className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <SlidersHorizontal size={12} aria-hidden="true" />
-    </button>
-  );
-}
-
-function UnlockNavigationButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Unlock navigation editing"
-      title="Navigation is locked"
-      className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Lock size={12} aria-hidden="true" />
-    </button>
   );
 }
 
 export function WorkspaceNavigationFallback({
   mobile = false,
+  collapsed = false,
 }: {
   mobile?: boolean;
+  collapsed?: boolean;
 }) {
   const keys = mobile ? DEFAULT_MOBILE_ITEMS : DEFAULT_SIDEBAR_ORDER;
 
@@ -349,31 +325,37 @@ export function WorkspaceNavigationFallback({
   }
 
   return (
-    <nav className="space-y-4" aria-label="Workspace">
+    <nav className={collapsed ? "space-y-1" : "space-y-4"} aria-label="Workspace">
       <section className="space-y-1">
-        <div className="pl-2 pr-1">
-          <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Workspace
-          </h2>
-        </div>
+        {!collapsed && (
+          <div className="pl-2 pr-1">
+            <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Workspace
+            </h2>
+          </div>
+        )}
         <div className="space-y-0.5">
           {keys.map((key) => {
             const item = itemByKey.get(key);
             if (!item) return null;
 
-            return <NavigationLink key={key} item={item} active={false} />;
+            return (
+              <NavigationLink key={key} item={item} active={false} collapsed={collapsed} />
+            );
           })}
         </div>
       </section>
-      <section className="space-y-1">
-        <div className="mb-1 flex items-center justify-between gap-1 px-2 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          <span>Pages</span>
-          <Link href="/pages" className="hover:text-foreground">
-            View all
-          </Link>
-        </div>
-        <PageTree />
-      </section>
+      {!collapsed && (
+        <section className="space-y-1">
+          <div className="mb-1 flex items-center justify-between gap-1 px-2 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+            <span>Pages</span>
+            <Link href="/pages" className="hover:text-foreground">
+              View all
+            </Link>
+          </div>
+          <PageTree />
+        </section>
+      )}
     </nav>
   );
 }
@@ -382,10 +364,12 @@ function NavigationLink({
   item,
   active,
   mobile = false,
+  collapsed = false,
 }: {
   item: NavigationItem;
   active: boolean;
   mobile?: boolean;
+  collapsed?: boolean;
 }) {
   const Icon = iconByKey[item.key];
 
@@ -393,6 +377,8 @@ function NavigationLink({
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
+      aria-label={collapsed && !mobile ? item.label : undefined}
+      title={collapsed && !mobile ? item.label : undefined}
       className={
         mobile
           ? `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1 text-[11px] font-medium transition-colors ${
@@ -400,11 +386,17 @@ function NavigationLink({
                 ? "text-brand"
                 : "text-muted-foreground hover:text-foreground"
             }`
-          : `flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-1.5 pl-2.5 pr-2 text-[13px] transition-colors ${
-              active
-                ? "bg-brand-soft font-medium text-brand-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`
+          : collapsed
+            ? `flex min-w-0 flex-1 items-center justify-center rounded-md py-1.5 text-[13px] transition-colors ${
+                active
+                  ? "bg-brand-soft font-medium text-brand-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`
+            : `flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-1.5 pl-2.5 pr-2 text-[13px] transition-colors ${
+                active
+                  ? "bg-brand-soft font-medium text-brand-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`
       }
     >
       <Icon
@@ -412,9 +404,13 @@ function NavigationLink({
         aria-hidden="true"
         className={`shrink-0 ${active ? "text-brand" : ""}`}
       />
-      <span className="truncate">
-        {mobile ? (mobileLabelByKey[item.key] ?? item.label) : item.label}
-      </span>
+      {mobile ? (
+        <span className="truncate">
+          {mobileLabelByKey[item.key] ?? item.label}
+        </span>
+      ) : (
+        !collapsed && <span className="truncate">{item.label}</span>
+      )}
     </Link>
   );
 }

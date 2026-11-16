@@ -5,17 +5,12 @@ import {
   type Page,
 } from "@playwright/test";
 import { BROWSER_AUTH_STATE, BROWSER_TEST_BASE_URL } from "./auth";
+import { openNavigationEditor } from "./navigation-helpers";
 
 test.use({ ...devices["Pixel 5"] });
 
 async function expectMobileEditorToFit(page: Page) {
-  await page.goto("/");
-  await page
-    .getByRole("button", { name: "Edit navigation" })
-    .first()
-    .click();
-  const dialog = page.getByRole("dialog", { name: "Edit navigation" });
-  await expect(dialog).toBeVisible();
+  const dialog = await openNavigationEditor(page);
 
   const metrics = await dialog.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -41,11 +36,6 @@ async function expectMobileEditorToFit(page: Page) {
       const box = handle.getBoundingClientRect();
       return { width: Math.round(box.width), height: Math.round(box.height) };
     });
-    const switchLabel = element
-      .querySelector('[role="switch"]')
-      ?.closest("label")
-      ?.getBoundingClientRect();
-
     return {
       viewportWidth: window.innerWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
@@ -58,7 +48,6 @@ async function expectMobileEditorToFit(page: Page) {
       smallHandles: handles.filter(
         (handle) => handle.width < 44 || handle.height < 44,
       ),
-      switchLabelHeight: Math.round(switchLabel?.height ?? 0),
     };
   });
 
@@ -69,7 +58,6 @@ async function expectMobileEditorToFit(page: Page) {
   expect(metrics.dialogWithinViewport).toBe(true);
   expect(metrics.smallControls).toEqual([]);
   expect(metrics.smallHandles).toEqual([]);
-  expect(metrics.switchLabelHeight).toBeGreaterThanOrEqual(44);
 }
 
 test("Pixel 5: navigation editor fits with usable touch targets", async ({

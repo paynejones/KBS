@@ -29,9 +29,9 @@ test("list rows keep filled values readable and drop the rest", () => {
       title: "Alpha",
       pageId: "page-a",
       values: [
-        { id: "status", name: "Status", display: "Draft, Review" },
-        { id: "score", name: "Score", display: "0" },
-        { id: "done", name: "Done", display: "Yes" },
+        { id: "status", name: "Status", display: "Draft, Review", propertyType: "select" },
+        { id: "score", name: "Score", display: "0", propertyType: "number" },
+        { id: "done", name: "Done", display: "Yes", propertyType: "checkbox" },
       ],
     },
     { id: "b", title: "Untitled", pageId: null, values: [] },
@@ -54,8 +54,8 @@ test("list rows can keep blank values, cap properties, and read calculated value
   });
 
   assert.deepEqual(rows[0].values, [
-    { id: "status", name: "Status", display: "Draft" },
-    { id: "score", name: "Score", display: "30" },
+    { id: "status", name: "Status", display: "Draft", propertyType: "select" },
+    { id: "score", name: "Score", display: "30", propertyType: "number" },
   ]);
 });
 

@@ -42,6 +42,7 @@ test("customizes, reorders, hides, and resets the home dashboard", async ({ page
   test.slow();
   const token = `dashboard-layout-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const seeded = await createPage(request, `${token} page`);
+  const settingsHome = page.getByRole("region", { name: "Home layout" });
 
   try {
     await page.goto("/");
@@ -59,14 +60,18 @@ test("customizes, reorders, hides, and resets the home dashboard", async ({ page
     await expect(page.locator("[data-dashboard-widget]").first()).toBeVisible();
     await expect(page.locator('[data-dashboard-widget="timeline"]')).toHaveCount(0);
 
-    // Restoring puts it back in its saved position.
-    await page.getByRole("button", { name: "Customize" }).click();
-    await expect(page.getByRole("heading", { name: "Hidden widgets" })).toBeVisible();
-    await page.getByRole("button", { name: "Show Timeline" }).click();
+    // Restoring from Settings puts it back in its saved position.
+    await page.goto("/settings");
+    await expect(
+      settingsHome.getByRole("button", { name: "Show Timeline" }),
+    ).toBeVisible();
+    await settingsHome.getByRole("button", { name: "Show Timeline" }).click();
+    await page.goto("/");
     await expect(page.locator('[data-dashboard-widget="timeline"]')).toBeVisible();
     assert.deepEqual(await widgetOrder(page), DEFAULT_ORDER);
 
     // A width override is independent of order and survives a reload.
+    await page.getByRole("button", { name: "Customize" }).click();
     await page.getByLabel("Width for Jump back in").selectOption("full");
     await expect(page.locator('[data-dashboard-widget="recent"]')).toHaveAttribute(
       "data-widget-span",
@@ -114,12 +119,14 @@ test("customizes, reorders, hides, and resets the home dashboard", async ({ page
       .poll(async () => (await widgetOrder(page))[0])
       .toBe("views");
 
-    // The saved arrangement survives a reload and Reset restores the default.
+    // The saved arrangement survives a reload; Reset in Settings restores the default.
     await page.reload();
     await expect(page.locator("[data-dashboard-widget]").first()).toBeVisible();
     assert.equal((await widgetOrder(page))[0], "views");
-    await page.getByRole("button", { name: "Customize" }).click();
-    await page.getByRole("button", { name: "Reset layout" }).click();
+    await page.goto("/settings");
+    await settingsHome.getByRole("button", { name: "Reset layout" }).click();
+    await page.goto("/");
+    await expect(page.locator("[data-dashboard-widget]").first()).toBeVisible();
     assert.deepEqual(await widgetOrder(page), DEFAULT_ORDER);
     await expect(page.locator('[data-dashboard-widget="recent"]')).toHaveAttribute(
       "data-widget-span",
@@ -130,22 +137,27 @@ test("customizes, reorders, hides, and resets the home dashboard", async ({ page
     await expect(page.locator("[data-dashboard-widget]").first()).toBeVisible();
     assert.deepEqual(await widgetOrder(page), DEFAULT_ORDER);
 
-    // Locking stops editing, hides every control, and persists.
-    await page.getByRole("button", { name: "Customize" }).click();
-    await page.getByRole("button", { name: "Lock layout" }).click();
+    // Locking in Settings stops editing, hides every control, and persists.
+    await page.goto("/settings");
+    await settingsHome.getByRole("button", { name: "Lock layout" }).click();
+    await expect(
+      settingsHome.getByRole("button", { name: "Unlock layout" }),
+    ).toBeVisible();
+    await page.goto("/");
     await expect(page.getByRole("button", { name: "Customize" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Unlock homepage editing" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Layout locked" })).toBeVisible();
     await expect(page.locator("[data-widget-drag]")).toHaveCount(0);
     await expect(page.getByLabel("Width for Jump back in")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Lock layout" })).toHaveCount(0);
 
     await page.reload();
     await expect(page.locator("[data-dashboard-widget]").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Customize" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Unlock homepage editing" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Layout locked" })).toBeVisible();
     assert.deepEqual(await widgetOrder(page), DEFAULT_ORDER);
 
-    await page.getByRole("button", { name: "Unlock homepage editing" }).click();
+    await page.goto("/settings");
+    await settingsHome.getByRole("button", { name: "Unlock layout" }).click();
+    await page.goto("/");
     await expect(page.getByRole("button", { name: "Customize" })).toBeVisible();
   } finally {
     await purgePage(request, seeded.id);

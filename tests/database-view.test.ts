@@ -6,6 +6,7 @@ import {
   filterRecords,
   isFilterableProperty,
   operatorsForProperty,
+  parseGalleryCardSize,
   parseViewFilters,
   parseViewSorts,
   sortRecords,
@@ -65,6 +66,15 @@ const records: ViewRecord[] = [
 function filter(overrides: Partial<ViewFilter> & Pick<ViewFilter, "propertyId" | "operator">): ViewFilter {
   return { id: overrides.propertyId, value: "", ...overrides };
 }
+
+test("gallery card size defaults to medium and rejects unknown values", () => {
+  assert.equal(parseGalleryCardSize(undefined), "medium");
+  assert.equal(parseGalleryCardSize({}), "medium");
+  assert.equal(parseGalleryCardSize({ cardSize: "small" }), "small");
+  assert.equal(parseGalleryCardSize({ cardSize: "large" }), "large");
+  assert.equal(parseGalleryCardSize({ cardSize: "huge" }), "medium");
+  assert.equal(parseGalleryCardSize({ cardSize: 3 }), "medium");
+});
 
 test("saved view filters survive malformed JSON and unknown operators", () => {
   assert.deepEqual(parseViewFilters(undefined), []);
@@ -247,11 +257,43 @@ test("operator helpers match property types and value requirements", () => {
   assert.equal(filterNeedsValue("is_empty"), false);
   assert.equal(filterNeedsValue("is_not_checked"), false);
   assert.equal(filterNeedsValue("contains"), true);
-  assert.equal(isFilterableProperty("relation"), false);
-  assert.equal(isFilterableProperty("rollup"), false);
+  assert.equal(isFilterableProperty("relation"), true);
+  assert.equal(isFilterableProperty("rollup"), true);
   assert.equal(isFilterableProperty("formula"), true);
   assert.equal(isFilterableProperty("file"), false);
   assert.equal(isFilterableProperty("text"), true);
+  assert.ok(operatorsForProperty("rollup").includes("greater_than"));
+  assert.deepEqual(operatorsForProperty("relation"), ["is", "is_not", "is_empty", "is_not_empty"]);
+});
+
+test("relation and rollup filters read the values their records carry", () => {
+  const PROJECT = "77777777-7777-4777-8777-777777777777";
+  const TOTAL = "88888888-8888-4888-8888-888888888888";
+  const linked: ViewProperty[] = [
+    ...properties,
+    { id: PROJECT, name: "Project", type: "relation" },
+    { id: TOTAL, name: "Total", type: "rollup" },
+  ];
+  const links: Record<string, string[]> = { a: ["p1"], b: ["p2"], c: [] };
+  const totals: Record<string, number | string> = { a: 5, b: 0, c: "—" };
+  const options = {
+    valueFor: (record: ViewRecord, property: ViewProperty) => {
+      if (property.id === PROJECT) return links[record.id] ?? [];
+      if (property.id === TOTAL) return totals[record.id];
+      return record.values[property.id];
+    },
+  };
+  const ids = (filters: ViewFilter[]) =>
+    filterRecords(records, linked, filters, options).map((record) => record.id);
+
+  assert.deepEqual(ids([filter({ propertyId: PROJECT, operator: "is", value: "p2" })]), ["b"], "is means linked to");
+  assert.deepEqual(ids([filter({ propertyId: PROJECT, operator: "is_not", value: "p2" })]), ["a", "c"]);
+  assert.deepEqual(ids([filter({ propertyId: PROJECT, operator: "is_empty" })]), ["c"], "a record with no links is empty");
+  assert.deepEqual(ids([filter({ propertyId: PROJECT, operator: "is_not_empty" })]), ["a", "b"]);
+
+  assert.deepEqual(ids([filter({ propertyId: TOTAL, operator: "greater_than", value: "1" })]), ["a"]);
+  assert.deepEqual(ids([filter({ propertyId: TOTAL, operator: "is_empty" })]), ["c"], "a dash is no number at all");
+  assert.deepEqual(ids([filter({ propertyId: TOTAL, operator: "is", value: "0" })]), ["b"], "a zero is a value, not an empty one");
 });
 
 test("filters and sorts are capped and tolerate non-object entries", () => {

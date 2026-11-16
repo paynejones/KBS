@@ -63,16 +63,29 @@ test("applies the database-pages preference across the workspace", async ({
     await expect(workspaceLink).toHaveCount(0);
     await expect(main.locator(pageHref)).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Edit navigation" }).first().click();
-    const dialog = page.getByRole("dialog", { name: "Edit navigation" });
-    const toggle = dialog.getByRole("switch", {
+    await page.goto("/settings");
+    const navigationSection = page.getByRole("region", {
+      name: "Navigation & sidebar",
+    });
+    const toggle = navigationSection.getByRole("switch", {
       name: "Show database pages",
     });
 
     await expect(toggle).not.toBeChecked();
     await toggle.check();
-    await dialog.getByRole("button", { name: "Done" }).click();
-    await expect(dialog).toHaveCount(0);
+    await page.goto("/");
+
+    // Record pages live under their database's page in the tree, so open that
+    // group before checking the sidebar.
+    const databasePageLink = sidebar.getByRole("link", {
+      name: database.name,
+      exact: true,
+    });
+    await expect(databasePageLink).toBeVisible();
+    await databasePageLink
+      .locator("xpath=..")
+      .getByRole("button", { name: "Expand page" })
+      .click();
 
     // The sidebar and home refresh from the same saved preference.
     await expect(workspaceLink).toBeVisible();
@@ -125,10 +138,10 @@ test("applies the database-pages preference across the workspace", async ({
     await expect(recents.locator(pageHref)).toBeVisible();
 
     // Turning the preference off hides it again everywhere.
-    await page.getByRole("button", { name: "Edit navigation" }).first().click();
+    await page.goto("/settings");
     await expect(toggle).toBeChecked();
     await toggle.uncheck();
-    await dialog.getByRole("button", { name: "Done" }).click();
+    await page.goto("/");
 
     await expect(workspaceLink).toHaveCount(0);
     await expect(main.locator(pageHref)).toHaveCount(0);

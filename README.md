@@ -26,6 +26,12 @@ KBS is a self-hosted workspace for notes, projects, and the reference material a
 
 The home screen is built from real records: what is due soon, which projects are still in flight, a merged timeline of dated records, and any saved database view pinned as a widget. Pinned projects show a task progress bar and let you check work off in place.
 
+### Make the workspace yours
+
+![Settings, with appearance, navigation, and home layout](docs/screenshots/settings.png)
+
+Settings brings appearance — light, dark, and five reading palettes — navigation and sidebar behavior, home layout, database display, drafts, backup history, and password changes into one place. The sidebar can collapse to an icon rail, and navigation and the home layout can be locked once they fit the way you work.
+
 ### Writing that stays out of the way
 
 ![A page open in the editor](docs/screenshots/page-editor.png)
@@ -36,7 +42,13 @@ The editor handles headings, lists, task lists, quotes, code, tables, callouts, 
 
 ![A database table view](docs/screenshots/database.png)
 
-Every database has typed properties — text, number, checkbox, date, URL, select, multi-select, file, relation, rollup, and formula — and views that remember their own filters, sorts, visible properties, and layout. Table, board, gallery, calendar, list, timeline, and chart views all read the same records, and every record owns a full page where properties and notes live together.
+Every database has typed properties — text, number, checkbox, date, URL, select, multi-select, file, relation, rollup, formula, and button — and views that remember their own filters, sorts, visible properties, and layout. Table, board, gallery, calendar, list, timeline, and chart views all read the same records. Button properties can change their own record, update a linked record, or create a new one, while a read-only **View mode** keeps a view's filters and ordering but removes the editing controls for presenting or sharing the URL.
+
+### Every record is a page
+
+![A database record open as a page](docs/screenshots/record.png)
+
+A record opens as a full page: a collapsible record header, its properties above the body, page settings, and connections and backlinks in the rail. Record pages nest under their database's page, and Settings can hide them from navigation when you would rather work from the database.
 
 ### Connections you can see
 
@@ -66,15 +78,15 @@ Pages are searchable by title and body through PostgreSQL trigram indexes, with 
 
 ## Feature highlights
 
-**Pages and editing** — nested pages, icons and covers, page templates, revision history with restore, recoverable drafts, and Markdown import/export.
+**Pages and editing** — nested pages, database grouping pages, icons and covers, page templates, revision history with restore, recoverable drafts, and Markdown import/export.
 
 **Linking** — `[[page]]` autocomplete, backlinks with the sentence around each mention, related-page suggestions that name the shared records or tags behind them, and bidirectional page-to-record connections.
 
-**Data** — per-view filters and multi-sort, property visibility, view duplication and reordering, record templates, relations with a reverse "linked from" list, rollups, formulas, CSV import and export, and embedded database views inside pages.
+**Data** — per-view filters and multi-sort, property visibility, view duplication and reordering, a read-only View mode, button properties, record templates, relations with a reverse "linked from" list, rollups, formulas, CSV import and export, and embedded database views inside pages.
 
-**Workspace** — trash with restore and permanent delete, unused-file cleanup, a merged timeline, saved searches, recents, favorites, and a workspace graph.
+**Workspace** — trash with restore and permanent delete, unused-file cleanup, a merged timeline, saved searches, recents, favorites, a collapsible sidebar rail, editable and lockable navigation and home layouts, seven themes, and a workspace graph.
 
-**Operations** — a full workspace JSON export, verified backups with checksums, a one-password sign-in gate, structured JSON error logs with request IDs, and a Docker image with migration and backup stages.
+**Operations** — a full workspace JSON export, verified backups with checksums and per-backup checks, a one-password sign-in gate, structured JSON error logs with request IDs, and a Docker image with migration and backup stages.
 
 ## Getting started
 
@@ -179,6 +191,7 @@ KBS is single-user by design: one shared password and no per-workspace isolation
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:check` | Verify the configured database connection |
 | `npm run db:generate` | Generate migrations from the schema (development only) |
+| `npm run db:group-record-pages` | Move existing record pages under their database's page (one-pass backfill) |
 | `npm run backup` | Write a verified backup to `BACKUPS_DIR`; `--keep <n>` prunes old copies |
 | `npm run restore:export` | Restore a workspace JSON export |
 | `npm run lint` | ESLint |
@@ -200,7 +213,7 @@ A push to `main` builds the three images, publishes them to GHCR tagged with the
 - **Framework:** Next.js 16 App Router, React 19, TypeScript
 - **Database:** PostgreSQL 17 with Drizzle ORM and committed SQL migrations
 - **Editor:** TipTap 3 with custom extensions for links, drag handles, and block moves
-- **UI:** Tailwind CSS 4, Base UI, lucide icons, light and dark themes
+- **UI:** Tailwind CSS 4, Base UI, lucide icons, and seven themes — light, dark, and five reading palettes
 - **Tests:** Node's test runner, Testing Library in jsdom, and Playwright
 
 ## Project layout

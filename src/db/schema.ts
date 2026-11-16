@@ -352,6 +352,10 @@ export const databases = pgTable(
   "databases",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    // The page that groups this database's record pages. Records created for
+    // an older database get one on their first create, so their pages do not
+    // pile up at the root of the page tree.
+    pageId: uuid("page_id").references(() => pages.id, { onDelete: "set null" }),
     name: text("name").notNull().default("Untitled database"),
     description: text("description").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })

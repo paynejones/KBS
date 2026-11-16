@@ -298,11 +298,15 @@ function ExpressionValueEditor(
   label: string,
   properties: ActionProperty[],
 ) {
-  const valueNames = properties
-    .filter((candidate) =>
-      candidate.type === "number" || candidate.type === "rollup" || candidate.type === "formula")
-    .map((candidate) => `{${candidate.name}}`);
-  const error = buttonExpressionError(value.expression, properties);
+  const dateTarget = property.type === "date";
+  // A date target also reads this record's date properties; a number target
+  // keeps reading only numbers, rollups, and formulas.
+  const readable = properties.filter((candidate) =>
+    dateTarget
+      ? candidate.type === "date" || candidate.type === "number" || candidate.type === "rollup" || candidate.type === "formula"
+      : candidate.type === "number" || candidate.type === "rollup" || candidate.type === "formula");
+  const valueNames = readable.map((candidate) => `{${candidate.name}}`);
+  const error = buttonExpressionError(value.expression, properties, property.type);
 
   return (
     <div className="grid gap-1">
@@ -310,14 +314,18 @@ function ExpressionValueEditor(
         aria-label={label}
         value={value.expression}
         onChange={(event) => onChange({ expression: event.currentTarget.value })}
-        placeholder="{Count} + 1"
+        placeholder={dateTarget ? "today() + 7" : "{Count} + 1"}
         spellCheck={false}
         className="min-h-9 min-w-32 rounded-md border bg-background px-2 py-1.5 font-mono text-sm"
       />
       <p className="text-[11px] text-muted-foreground">
-        {valueNames.length > 0
-          ? <>Reads this record’s current values: {valueNames.join(", ")}. Try {"{"}Count{"}"} + 1.</>
-          : "Add a number, rollup, or formula property to this database to read a current value here."}
+        {dateTarget
+          ? valueNames.length > 0
+            ? <>Reads this record’s values: {valueNames.join(", ")}. Write today() for today’s date, or try today() + 7.</>
+            : "Write today() for today’s date, or add a date property to read one here."
+          : valueNames.length > 0
+            ? <>Reads this record’s current values: {valueNames.join(", ")}. Try {"{"}Count{"}"} + 1.</>
+            : "Add a number, rollup, or formula property to this database to read a current value here."}
       </p>
       {error && <p className="text-[11px] text-destructive">{error}</p>}
       <button
@@ -352,13 +360,24 @@ function valueEditor(
   return (
     <div className="grid gap-1">
       {literal}
-      <button
-        type="button"
-        onClick={() => onChange(defaultExpression(property))}
-        className="justify-self-start text-[11px] text-muted-foreground underline hover:text-foreground"
-      >
-        Use current values
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        {property.type === "date" && (
+          <button
+            type="button"
+            onClick={() => onChange({ expression: "today()" })}
+            className="justify-self-start text-[11px] text-muted-foreground underline hover:text-foreground"
+          >
+            Use today
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onChange(defaultExpression(property))}
+          className="justify-self-start text-[11px] text-muted-foreground underline hover:text-foreground"
+        >
+          Use current values
+        </button>
+      </div>
     </div>
   );
 }

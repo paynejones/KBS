@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Archive, Download, HardDrive, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { RotateCcw, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import {
   AlertDialog,
@@ -23,66 +24,24 @@ type TrashItem = {
   descendantCount: number;
 };
 
-type OrphanSummary = { count: number; bytes: number };
-
-type BackupSummary = {
-  id: string;
-  createdAt: string;
-  attachments: number;
-  bytes: number;
-  missingAttachments: number;
-  verified: boolean;
-};
-
-function formatBytes(bytes: number) {
-  if (bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / 1024 ** exponent;
-  return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${units[exponent]}`;
-}
-
 export default function TrashPage() {
   const [items, setItems] = useState<TrashItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [orphans, setOrphans] = useState<OrphanSummary | null>(null);
-  const [cleaning, setCleaning] = useState(false);
-  const [backups, setBackups] = useState<BackupSummary[]>([]);
-  const [backingUp, setBackingUp] = useState(false);
-  const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [pendingPurge, setPendingPurge] = useState<TrashItem | null>(null);
-  const [confirmCleanUnused, setConfirmCleanUnused] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        const [trashResponse, orphansResponse, backupsResponse] = await Promise.all([
-          fetch("/api/trash"),
-          fetch("/api/attachments/orphans"),
-          fetch("/api/backup"),
-        ]);
+        const trashResponse = await fetch("/api/trash");
         if (!trashResponse.ok) throw new Error("Could not load the trash.");
 
         const trashData: { items: TrashItem[] } = await trashResponse.json();
-        if (cancelled) return;
-        setItems(trashData.items);
-
-        if (orphansResponse.ok) {
-          const orphanData: OrphanSummary = await orphansResponse.json();
-          if (!cancelled) {
-            setOrphans({ count: orphanData.count, bytes: orphanData.bytes });
-          }
-        }
-
-        if (backupsResponse.ok) {
-          const backupData: { backups?: BackupSummary[] } = await backupsResponse.json();
-          if (!cancelled) setBackups(backupData.backups ?? []);
-        }
+        if (!cancelled) setItems(trashData.items);
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Could not load the trash.");
@@ -140,84 +99,6 @@ export default function TrashPage() {
       setError(purgeError instanceof Error ? purgeError.message : "Could not delete the page.");
     } finally {
       setBusyId(null);
-    }
-  }
-
-  async function cleanUnusedFiles() {
-    if (!orphans || orphans.count === 0) return;
-    setCleaning(true);
-    setError("");
-    setStatus("");
-    try {
-      const response = await fetch("/api/attachments/orphans", { method: "DELETE" });
-      if (!response.ok) throw new Error("Could not remove the unused files.");
-      const result: { removed: number; bytes: number } = await response.json();
-      setOrphans({ count: 0, bytes: 0 });
-      setStatus(
-        result.removed > 0
-          ? `Removed ${result.removed} unused file(s) and freed ${formatBytes(result.bytes)}.`
-          : "No unused files were removed.",
-      );
-    } catch (cleanError) {
-      setError(cleanError instanceof Error ? cleanError.message : "Could not remove the unused files.");
-    } finally {
-      setCleaning(false);
-    }
-  }
-
-  async function createBackup() {
-    setBackingUp(true);
-    setError("");
-    setStatus("");
-    try {
-      const response = await fetch("/api/backup", { method: "POST" });
-      const data: {
-        backup?: BackupSummary;
-        verification?: { ok: boolean; errors: string[] };
-        error?: string;
-      } = await response.json().catch(() => ({}));
-      const backup = data.backup;
-      if (!response.ok || !backup) {
-        throw new Error(data.error ?? "Could not create the backup.");
-      }
-      setBackups((current) => [backup, ...current.filter((entry) => entry.id !== backup.id)]);
-      setStatus(
-        data.verification?.ok
-          ? `Backup ${backup.id} created and checked: ${backup.attachments} file(s), ${formatBytes(backup.bytes)}.`
-          : `Backup ${backup.id} was created but the check failed: ${data.verification?.errors[0] ?? "unknown problem"}.`,
-      );
-    } catch (backupError) {
-      setError(backupError instanceof Error ? backupError.message : "Could not create the backup.");
-    } finally {
-      setBackingUp(false);
-    }
-  }
-
-  async function verifyBackup(id: string) {
-    setVerifyingId(id);
-    setError("");
-    setStatus("");
-    try {
-      const response = await fetch(`/api/backup/${id}/verify`, { method: "POST" });
-      const data: {
-        backup?: BackupSummary;
-        verification?: { ok: boolean; errors: string[] };
-        error?: string;
-      } = await response.json().catch(() => ({}));
-      const backup = data.backup;
-      if (!response.ok || !backup) {
-        throw new Error(data.error ?? "Could not check the backup.");
-      }
-      setBackups((current) => current.map((entry) => (entry.id === id ? backup : entry)));
-      setStatus(
-        data.verification?.ok
-          ? `Backup ${id} passed the restore check.`
-          : `Backup ${id} failed the restore check: ${data.verification?.errors[0] ?? "unknown problem"}.`,
-      );
-    } catch (verifyError) {
-      setError(verifyError instanceof Error ? verifyError.message : "Could not check the backup.");
-    } finally {
-      setVerifyingId(null);
     }
   }
 
@@ -309,124 +190,29 @@ export default function TrashPage() {
           )}
         </section>
 
-        <section className="space-y-3" aria-labelledby="unused-files-heading">
-          <h2 id="unused-files-heading" className="text-xl font-semibold tracking-tight">
-            Unused files
-          </h2>
-          <div className="rounded-xl border bg-card p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="flex items-center gap-2 font-medium">
-                  <HardDrive size={17} className="text-muted-foreground" aria-hidden="true" />
-                  {orphans === null
-                    ? "Checking stored files…"
-                    : orphans.count === 0
-                      ? "No unused files"
-                      : `${orphans.count} unused file${orphans.count === 1 ? "" : "s"} · ${formatBytes(orphans.bytes)}`}
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Uploads that no page, page revision, database record, or template references
-                  anymore. Removing them frees disk space and cannot be undone.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setConfirmCleanUnused(true)}
-                disabled={cleaning || !orphans || orphans.count === 0}
-              >
-                {cleaning ? "Removing…" : "Remove unused files"}
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-3" aria-labelledby="backup-heading">
-          <h2 id="backup-heading" className="text-xl font-semibold tracking-tight">
-            Backup
-          </h2>
-          <div className="rounded-xl border bg-card p-5">
-            <p className="font-medium">Download a workspace export</p>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              One JSON file with every page (including trashed pages), revision, tag, link,
-              database, view, record, and template, plus a manifest of stored files. Attachment
-              bytes are not included; use a full backup below for those. Restore with{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">npm run restore:export</code>.
-            </p>
-            <a
-              href="/api/export"
-              download
-              className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <Download size={15} /> Download JSON export
-            </a>
-          </div>
-
-          <div className="rounded-xl border bg-card p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="flex items-center gap-2 font-medium">
-                  <Archive size={17} className="text-muted-foreground" aria-hidden="true" />
-                  Back up everything
-                </p>
-                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                  Copies the workspace export and every attachment file into a dated folder, then
-                  checks that the copy can be restored. Backups are written to{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">data/backups</code> unless{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">BACKUPS_DIR</code> is set.
-                </p>
-              </div>
-              <Button type="button" onClick={() => void createBackup()} disabled={backingUp}>
-                <Archive size={15} />
-                {backingUp ? "Backing up…" : "Back up now"}
-              </Button>
-            </div>
-
-            {backups.length > 0 && (
-              <ul className="mt-4 divide-y rounded-lg border">
-                {backups.map((backup) => (
-                  <li key={backup.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-mono text-xs">{backup.id}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {new Date(backup.createdAt).toLocaleString()} · {backup.attachments} file
-                        {backup.attachments === 1 ? "" : "s"} · {formatBytes(backup.bytes)}
-                        {backup.missingAttachments > 0
-                          ? ` · ${backup.missingAttachments} missing at capture`
-                          : ""}
-                      </p>
-                    </div>
-                    <span
-                      className={
-                        backup.verified
-                          ? "rounded-full border border-emerald-600/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300"
-                          : "rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive"
-                      }
-                    >
-                      {backup.verified ? "Checked" : "Check failed"}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void verifyBackup(backup.id)}
-                      disabled={verifyingId !== null}
-                    >
-                      <ShieldCheck size={15} />
-                      {verifyingId === backup.id ? "Checking…" : "Check"}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
+        <p className="text-sm text-muted-foreground">
+          Backups, workspace exports, and unused-file cleanup now live in{" "}
+          <Link
+            href="/settings#data"
+            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+          >
+            Settings → Data & backups
+          </Link>
+          .
+        </p>
       </div>
 
-      <AlertDialog open={Boolean(pendingPurge)} onOpenChange={(open) => { if (!open) setPendingPurge(null); }}>
+      <AlertDialog
+        open={Boolean(pendingPurge)}
+        onOpenChange={(open) => {
+          if (!open) setPendingPurge(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{pendingPurge?.title || "Untitled"}” permanently?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete “{pendingPurge?.title || "Untitled"}” permanently?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingPurge && pendingPurge.descendantCount > 0
                 ? `This also deletes ${pendingPurge.descendantCount} nested page${pendingPurge.descendantCount === 1 ? "" : "s"}. `
@@ -446,32 +232,6 @@ export default function TrashPage() {
               }}
             >
               <Trash2 size={14} aria-hidden="true" /> Delete forever
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={confirmCleanUnused} onOpenChange={(open) => setConfirmCleanUnused(open)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove unused files?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {orphans
-                ? `Permanently delete ${orphans.count} unused file${orphans.count === 1 ? "" : "s"} (${formatBytes(orphans.bytes)})? No page, revision, or record references them.`
-                : "Permanently delete the unused stored files?"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={cleaning}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={cleaning}
-              onClick={() => {
-                setConfirmCleanUnused(false);
-                void cleanUnusedFiles();
-              }}
-            >
-              <Trash2 size={14} aria-hidden="true" /> Remove files
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

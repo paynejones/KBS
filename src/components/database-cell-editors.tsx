@@ -432,6 +432,235 @@ export function SelectCell({
   );
 }
 
+export function MultiSelectCell({
+  label,
+  recordTitle,
+  value,
+  choices,
+  onChange,
+}: {
+  label: string;
+  recordTitle: string;
+  value: string[];
+  choices: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const {
+    buttonRef,
+    popoverRef,
+    anchor,
+    open,
+    close,
+    closeAndRestoreFocus,
+    handleBlur,
+    isOpen,
+  } = useCellPopover();
+
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const openModeRef = useRef<OpenMode>("selected");
+  const choicesRef = useRef(choices);
+  const valueRef = useRef(value);
+  const listId = useId();
+
+  useEffect(() => {
+    choicesRef.current = choices;
+    valueRef.current = value;
+  }, [choices, value]);
+
+  // Open on the first chosen choice, so a long list starts inside the
+  // selection rather than at its top.
+  useEffect(() => {
+    if (!anchor) return;
+
+    const options = focusableOptions(optionRefs);
+    if (options.length === 0) return;
+
+    if (openModeRef.current === "last") {
+      options[options.length - 1].focus();
+      return;
+    }
+
+    const selectedIndex = choicesRef.current.findIndex((choice) =>
+      valueRef.current.includes(choice),
+    );
+    (options[selectedIndex] ?? options[0]).focus({ preventScroll: true });
+  }, [anchor]);
+
+  function handlePopoverKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const options = focusableOptions(optionRefs);
+    if (options.length === 0) return;
+
+    const index = options.indexOf(document.activeElement as HTMLButtonElement);
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const next =
+        index === -1
+          ? step === 1
+            ? 0
+            : options.length - 1
+          : (index + step + options.length) % options.length;
+      options[next].focus();
+      return;
+    }
+
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      (event.key === "Home" ? options[0] : options[options.length - 1]).focus();
+      return;
+    }
+
+    if (
+      event.key.length === 1 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      /\S/.test(event.key)
+    ) {
+      const character = event.key.toLowerCase();
+      const start = index === -1 ? 0 : index + 1;
+      for (let offset = 0; offset < options.length; offset += 1) {
+        const positionInList = (start + offset) % options.length;
+        if (
+          choicesRef.current[positionInList]
+            ?.toLowerCase()
+            .startsWith(character)
+        ) {
+          event.preventDefault();
+          options[positionInList].focus();
+          return;
+        }
+      }
+    }
+  }
+
+  function toggle(choice: string) {
+    onChange(
+      value.includes(choice)
+        ? value.filter((current) => current !== choice)
+        : [...value, choice],
+    );
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={`${label} for ${recordTitle}`}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listId : undefined}
+        onClick={() => {
+          openModeRef.current = "selected";
+          if (isOpen) close();
+          else open();
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          openModeRef.current = event.key === "ArrowUp" ? "last" : "selected";
+
+          if (isOpen) {
+            const options = focusableOptions(optionRefs);
+            (event.key === "ArrowUp" ? options[options.length - 1] : options[0])?.focus({
+              preventScroll: true,
+            });
+          } else {
+            open();
+          }
+        }}
+        onBlur={handleBlur}
+        className="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {value.length > 0 ? (
+          value.map((choice) => (
+            <span
+              key={choice}
+              className={`inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-medium ${statusToneClass(choice)}`}
+            >
+              <span className="size-1 shrink-0 rounded-full bg-current" />
+              {choice}
+            </span>
+          ))
+        ) : (
+          <span className="text-xs text-muted-foreground">Choose…</span>
+        )}
+      </button>
+
+      {anchor && (
+        <div
+          ref={popoverRef}
+          onKeyDown={handlePopoverKeyDown}
+          onBlur={handleBlur}
+          className="fixed z-50 w-[184px] overflow-hidden rounded-lg border bg-popover p-1 shadow-lg"
+          style={popoverStyle(anchor)}
+        >
+          <div
+            id={listId}
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label={`${label} choices`}
+          >
+            {choices.map((choice, index) => {
+              const selected = value.includes(choice);
+              return (
+                <button
+                  key={choice}
+                  ref={(node) => {
+                    optionRefs.current[index] = node;
+                  }}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  tabIndex={-1}
+                  onClick={() => toggle(choice)}
+                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${statusToneClass(choice)}`}
+                  >
+                    <span className="size-1 rounded-full bg-current" />
+                    {choice}
+                  </span>
+                  {selected && (
+                    <Check
+                      size={12}
+                      aria-hidden="true"
+                      className="ml-auto shrink-0 text-brand"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-1 flex items-center justify-between border-t px-2 py-1.5">
+            {value.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => onChange([])}
+                className="text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={closeAndRestoreFocus}
+              className="text-[11px] font-medium text-brand hover:underline"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function DateCell({
   label,
   recordTitle,

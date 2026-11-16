@@ -7,7 +7,11 @@ import {
   type CalculationProperty,
   type RelationTargetMap,
 } from "../src/lib/database-calculations";
-import { buttonExpressionError, evaluateButtonExpression } from "../src/lib/database-button";
+import {
+  buttonExpressionError,
+  evaluateButtonDateExpression,
+  evaluateButtonExpression,
+} from "../src/lib/database-button";
 
 const score: CalculationProperty = { id: "score", name: "Score", type: "number", options: {} };
 const linked: CalculationProperty = {
@@ -114,6 +118,54 @@ test("buttons and formulas read the same references", () => {
     buttonExpressionError("{Note} + 1", [...properties, note]) ?? "",
     /number, rollup, or formula/,
   );
+});
+
+test("button date expressions copy dates and move them by whole days", () => {
+  const due: CalculationProperty = { id: "due", name: "Due", type: "date", options: {} };
+  const snooze: CalculationProperty = { id: "snooze", name: "Snooze", type: "number", options: {} };
+  const properties = [due, snooze];
+  const dated = { values: { due: "2026-11-15", snooze: 7 }, relations: {} };
+
+  assert.equal(buttonExpressionError("{Due} + 7", properties, "date"), null);
+  assert.match(buttonExpressionError("{Due} + 7", properties) ?? "", /number, rollup, or formula/);
+
+  const moved = evaluateButtonDateExpression("{Due} + {Snooze}", properties, dated, {});
+  assert.equal(moved.ok ? moved.value : "error", "2026-11-22");
+
+  const copied = evaluateButtonDateExpression("{Due}", properties, dated, {});
+  assert.equal(copied.ok ? copied.value : "error", "2026-11-15");
+
+  const earlier = evaluateButtonDateExpression("{Due} - 20", properties, dated, {});
+  assert.equal(earlier.ok ? earlier.value : "error", "2026-10-26");
+
+  const nextYear = evaluateButtonDateExpression("{Due} + 50", properties, dated, {});
+  assert.equal(nextYear.ok ? nextYear.value : "error", "2027-01-04");
+
+  const fractional = evaluateButtonDateExpression("{Due} + 0.5", properties, dated, {});
+  assert.equal(fractional.ok, false);
+
+  const numberOnly = evaluateButtonDateExpression("{Snooze} + 1", properties, dated, {});
+  assert.equal(numberOnly.ok, false);
+  assert.match(numberOnly.ok ? "" : numberOnly.error, /not a date/);
+
+  const blank = evaluateButtonDateExpression("{Due} + 1", properties, { values: {} }, {});
+  assert.equal(blank.ok ? blank.value : "error", null);
+
+  const today = "2026-11-15";
+  assert.equal(buttonExpressionError("today()", properties, "date"), null);
+  assert.match(buttonExpressionError("today()", properties) ?? "", /today/);
+
+  const setToday = evaluateButtonDateExpression("today()", properties, dated, {}, today);
+  assert.equal(setToday.ok ? setToday.value : "error", "2026-11-15");
+
+  const nextWeek = evaluateButtonDateExpression("today() + 7", properties, dated, {}, today);
+  assert.equal(nextWeek.ok ? nextWeek.value : "error", "2026-11-22");
+
+  const yesterday = evaluateButtonDateExpression("today() - 1", properties, dated, {}, today);
+  assert.equal(yesterday.ok ? yesterday.value : "error", "2026-11-14");
+
+  const todayAndNumber = evaluateButtonDateExpression("today() + {Snooze}", properties, dated, {}, today);
+  assert.equal(todayAndNumber.ok ? todayAndNumber.value : "error", "2026-11-22");
 });
 
 test("button expressions read formula properties, including nested ones", () => {
