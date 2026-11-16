@@ -138,7 +138,13 @@ test("opens a graph node on click but not after a drag", async ({ page, request 
     await page.waitForTimeout(100);
     await page.mouse.move(startX + 50, startY + 35, { steps: 8 });
     await page.mouse.up();
-    await page.waitForTimeout(200);
+
+    await expect.poll(async () => {
+      const box = await circle.boundingBox();
+      return box
+        ? Math.abs(box.x - before.x) > 1 || Math.abs(box.y - before.y) > 1
+        : false;
+    }, { message: "dragging should move the node" }).toBe(true);
 
     const after = await circle.boundingBox();
     assert.ok(after, "the dragged node should still be measurable");
@@ -193,6 +199,13 @@ test("releases a graph drag that ends outside the graph", async ({ page, request
     await page.mouse.down();
     await page.waitForTimeout(100);
     await page.mouse.move(outsideX, outsideY, { steps: 10 });
+
+    await expect.poll(async () => {
+      const box = await circle.boundingBox();
+      return box
+        ? Math.abs(box.x - before.x) > 1 || Math.abs(box.y - before.y) > 1
+        : false;
+    }, { message: "the node should follow the pointer outside the graph" }).toBe(true);
 
     const during = await circle.boundingBox();
     assert.ok(during, "the dragged node should be measurable");

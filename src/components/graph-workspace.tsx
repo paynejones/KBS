@@ -220,7 +220,9 @@ export function GraphWorkspace() {
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [graphCenter, setGraphCenter] = useState<Point>({ x: 500, y: 350 });
   const [fitScale, setFitScale] = useState(1);
-  const [draggingNode, setDraggingNode] = useState("");
+  // The first pointer move can arrive before React commits the pointer-down
+  // state, so the drag target lives in a ref instead of state.
+  const draggingNode = useRef("");
   const [labelNodeId, setLabelNodeId] = useState("");
   const [hoveredEdgeKey, setHoveredEdgeKey] = useState("");
   const [loading, setLoading] = useState(true);
@@ -469,14 +471,15 @@ export function GraphWorkspace() {
   const movePointer = (event: React.PointerEvent<SVGSVGElement>) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
-    if (draggingNode) {
+    const nodeId = draggingNode.current;
+    if (nodeId) {
       draggedRef.current = true;
       const x = ((event.clientX - rect.left) / rect.width) * 1000;
       const y = ((event.clientY - rect.top) / rect.height) * 700;
       const scale = zoom * fitScale;
       setPositions((current) => ({
         ...current,
-        [draggingNode]: {
+        [nodeId]: {
           x: graphCenter.x + (x - pan.x - 500) / scale,
           y: graphCenter.y + (y - pan.y - 350) / scale,
         },
@@ -488,7 +491,7 @@ export function GraphWorkspace() {
 
   const stopPointer = () => {
     pointerStart.current = null;
-    setDraggingNode("");
+    draggingNode.current = "";
   };
 
   const nodeRadius = (id: string) => nodeRadiusFor(nodeDegrees.get(id) ?? 0);
@@ -793,7 +796,7 @@ export function GraphWorkspace() {
                     onPointerLeave={() => setLabelNodeId((current) => (current === node.id ? "" : current))}
                     onFocus={() => setLabelNodeId(node.id)}
                     onBlur={() => setLabelNodeId((current) => (current === node.id ? "" : current))}
-                    onPointerDown={(event) => { event.stopPropagation(); draggedRef.current = false; setDraggingNode(node.id); event.currentTarget.setPointerCapture(event.pointerId); }}
+                    onPointerDown={(event) => { event.stopPropagation(); draggedRef.current = false; draggingNode.current = node.id; event.currentTarget.setPointerCapture(event.pointerId); }}
                     onClick={() => { if (!draggedRef.current) router.push(`/pages/${node.id}`); }}
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/pages/${node.id}`); } }}
                   >
