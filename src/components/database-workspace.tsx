@@ -231,7 +231,6 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [hiddenViewIds, setHiddenViewIds] = useState<string[]>([]);
   const [showHiddenViews, setShowHiddenViews] = useState(false);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
-  const [viewNameDraft, setViewNameDraft] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [viewPendingDelete, setViewPendingDelete] = useState<DatabaseView | null>(null);
   const [coverPendingRemoval, setCoverPendingRemoval] = useState<{ recordId: string; propertyId: string; title: string } | null>(null);
@@ -789,19 +788,16 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   function startRenamingView(view: DatabaseView) {
     cancelViewRenameRef.current = false;
     setRenamingViewId(view.id);
-    setViewNameDraft(view.name);
   }
 
   function cancelRenamingView() {
     setRenamingViewId(null);
-    setViewNameDraft("");
   }
 
-  async function saveViewName(view: DatabaseView) {
+  async function saveViewName(view: DatabaseView, rawName: string) {
     if (renamingViewId !== view.id) return;
-    const name = viewNameDraft.trim();
+    const name = rawName.trim();
     setRenamingViewId(null);
-    setViewNameDraft("");
     if (!name || name === view.name) return;
 
     setDatabase((current) => current ? {
@@ -1844,8 +1840,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                     autoFocus
                     aria-label="View name"
                     maxLength={100}
-                    value={viewNameDraft}
-                    onChange={(event) => setViewNameDraft(event.target.value)}
+                    defaultValue={view.name}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
@@ -1856,14 +1851,14 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                         cancelRenamingView();
                       }
                     }}
-                    onBlur={() => {
+                    onBlur={(event) => {
                       // Escape unmounts the input, and the blur that follows
                       // must not save the draft the user just cancelled.
                       if (cancelViewRenameRef.current) {
                         cancelViewRenameRef.current = false;
                         return;
                       }
-                      void saveViewName(view);
+                      void saveViewName(view, event.currentTarget.value);
                     }}
                     className="-mb-px w-24 rounded-sm border-b-2 border-brand bg-transparent px-2.5 py-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-32"
                   />

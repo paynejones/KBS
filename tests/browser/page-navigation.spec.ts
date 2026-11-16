@@ -55,6 +55,15 @@ test("rapid page navigation still renders the destination editor", async ({ page
       }
     }, fixtures.map((fixture) => fixture.id));
 
+    // The URL changes optimistically, so it can point at one page while the
+    // last overlapping transition is still in flight. Wait until it stops
+    // moving before treating the current URL as the winning page.
+    await expect.poll(async () => {
+      const before = page.url();
+      await page.waitForTimeout(250);
+      return page.url() === before;
+    }, { timeout: 10_000 }).toBe(true);
+
     // Overlapping transitions may commit any of the clicked pages, so assert
     // that whichever one won still renders its own editor rather than a stale
     // fallback or the global error page.

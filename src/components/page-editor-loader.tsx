@@ -46,6 +46,7 @@ export function PageEditorLoader({
   return (
     <Suspense fallback={loadingState}>
       <PageEditor
+        key={id}
         id={id}
         hideTitle={hideTitle}
         readOnly={readOnly}
