@@ -127,6 +127,9 @@ test("opens a graph node on click but not after a drag", async ({ page, request 
     const node = page.getByRole("link", { name: `Open page ${source.title}` });
     const circle = node.locator("circle");
     await expect(node).toBeVisible();
+    // The canvas can extend below a short viewport. Raw mouse coordinates use
+    // viewport space, so put the node on screen before measuring it.
+    await circle.hover();
 
     const before = await circle.boundingBox();
     assert.ok(before, "the graph node should be measurable");
@@ -173,6 +176,9 @@ test("releases a graph drag that ends outside the graph", async ({ page, request
     const circle = node.locator("circle");
     const graph = page.locator('svg[role="application"]');
     await expect(node).toBeVisible();
+    // The canvas can extend below a short viewport. Raw mouse coordinates use
+    // viewport space, so put the node on screen before measuring it.
+    await circle.hover();
 
     const graphBox = await graph.boundingBox();
     const before = await circle.boundingBox();
