@@ -194,6 +194,7 @@ KBS is single-user by design: one shared password and no per-workspace isolation
 | `npm run db:group-record-pages` | Move existing record pages under their database's page (one-pass backfill) |
 | `npm run backup` | Write a verified backup to `BACKUPS_DIR`; `--keep <n>` prunes old copies |
 | `npm run restore:export` | Restore a workspace JSON export |
+| `npm run import:notion` | Import a Notion workspace (`scripts/import-notion.ts`); supports `--dry-run`, `--dump`, `--verify`, `--retry-files`, `--update`, `--merge`, and `--undo <manifest>`. Every run that writes records a manifest of the rows and files it created, so an import can be reverted exactly; `--verify` re-reads Notion and reports any page, database, property, record, relation or file a run would create that is missing from KBS; `--retry-files` re-downloads only the Notion-hosted files still missing and repoints the pages and records at them; `--update` refreshes the pages, record titles, property values and structure (parents, links, relations, schemas, views) Notion edited since the import without inserting pages, records or databases, and reports anything Notion trashed |
 | `npm run lint` | ESLint |
 
 The database-backed suites create and drop their own uniquely named temporary database from `DATABASE_URL`; they never mutate the configured application database. The browser suite starts its own server on `127.0.0.1:3100`. Install Chromium once with `npx playwright install chromium` before the first browser run.

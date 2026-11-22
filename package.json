@@ -11,6 +11,7 @@
     "test": "tsx --test \"tests/*.test.ts*\" \"tests/dom/**/*.test.ts*\"",
     "test:dom": "tsx --test \"tests/dom/**/*.test.ts*\"",
     "test:api": "tsx --test tests/api/routes.test.ts",
+    "test:notion": "tsx --test tests/api/notion-import.test.ts",
     "test:browser": "playwright test",
     "test:browser:server": "tsx scripts/browser-server.ts",
     "test:db": "tsx scripts/test-db-reliability.ts",
@@ -22,6 +23,7 @@
     "db:init-sort-order": "tsx src/db/initialize-sort-order.ts",
     "db:group-record-pages": "tsx src/db/group-record-pages.ts",
     "restore:export": "tsx scripts/restore-export.ts",
+    "import:notion": "tsx scripts/import-notion.ts",
     "backup": "tsx scripts/run-backup.ts"
   },
   "dependencies": {

@@ -451,6 +451,26 @@ export const databaseViews = pgTable(
   (table) => [index("database_views_database_id_idx").on(table.databaseId)],
 );
 
+/**
+ * Notion's id for every object the importer wrote. Notion omits a trashed page
+ * from search results and from its parent's children, so the importer keeps
+ * this map to ask Notion about objects a later `--update` no longer sees. The
+ * KBS row is not a foreign key because one table spans pages, records and
+ * databases; undo leaves the map in place, which costs only a lookup.
+ */
+export const notionObjects = pgTable(
+  "notion_objects",
+  {
+    notionId: text("notion_id").notNull(),
+    kind: text("kind").notNull(),
+    kbsId: uuid("kbs_id").notNull(),
+    label: text("label").notNull(),
+    parentNotionId: text("parent_notion_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.notionId, table.kbsId] })],
+);
+
 export const databaseTemplates = pgTable(
   "database_templates",
   {
