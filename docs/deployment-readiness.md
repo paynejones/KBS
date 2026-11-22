@@ -22,7 +22,7 @@ Set both variables in the host's secret manager:
 
 Server-side behaviour:
 
-- With both variables set, every page redirects to `/signin` and every `/api/*` route returns `401` without a valid cookie. `_next/static`, `_next/webpack-hmr`, and `favicon.ico` stay public so the sign-in page can render.
+- With both variables set, every page redirects to `/signin` and every `/api/*` route returns `401` without a valid cookie. `_next/static`, `_next/webpack-hmr`, `fonts/`, `favicon.ico`, and `icon.svg` stay public so the sign-in page can render with the self-hosted fonts.
 - With either variable missing, or the secret shorter than 32 characters, a production build returns `503` for every request rather than serving data. A development server stays open so local work and the existing test suites need no credentials.
 - Failed sign-ins are throttled per client address in memory (8 attempts per 10 minutes). The counter belongs to one server process, so it is a speed bump rather than a lockout; add request-level rate limiting at the proxy for a public host.
 
@@ -118,4 +118,8 @@ Before launch, configure host log retention and alerts on `level: "error"`, data
 - Multi-user rollout timing and workspace membership model (the initial deployment is single-user)
 - Backup retention and recovery-time target
 - Error monitoring and alert destination
-- Whether the Geist fonts should be self-hosted to remove the build's dependency on Google Fonts availability
+
+The font question is closed: Geist and Geist Mono are self-hosted from
+`public/fonts` as of 0.4.0, so the build no longer depends on Google Fonts being
+reachable. The remaining four are operational choices for launch rather than
+code, and v0.4.0 does not block on them — the release notes should say so.

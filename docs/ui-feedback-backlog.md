@@ -9,6 +9,16 @@ Effort scale: **XS** under an hour · **S** half a day · **M** 1–2 days ·
 
 ## Progress
 
+- 2026-11-22 — v0.4.0 closed the remaining scope. The pre-hydration theme
+  script now shares one theme list with the picker, so Slate, Rose, and Midnight
+  paint correctly and Midnight is dark from the first frame; editor prose keeps
+  a 72-character measure on wide screens; Geist and Geist Mono are self-hosted
+  in `public/fonts`; the graph got the polish the mockup gate settled (#16); and
+  saved searches gained per-collection URLs (`/searches/<id>`), so a home widget
+  row opens its live collection. Covered by `tests/dom/theme-picker.test.tsx`,
+  `tests/dom/dashboard-saved-searches.test.tsx`,
+  `tests/dom/saved-search-collection.test.tsx`, and
+  `tests/browser/graph-focus.spec.ts`.
 - 2026-11-15 — the scattered preference controls now live only in Settings.
   The header theme picker, sidebar collapse and sign-out shortcuts, sidebar and
   mobile navigation-editor buttons, the navigation editor's page-visibility,
@@ -671,7 +681,7 @@ new-record writes with literal values. Any future action that needs expressions,
 arbitrary record IDs, or extra state should still be specified and tested
 separately rather than widening this endpoint blindly.
 
-### 16. Graph visual polish (#14) — L, open scope
+### 16. Graph visual polish (#14) — L
 
 The graph is a hand-rolled SVG force layout with zoom/pan, node dragging, tag /
 group / favorites filters and a list fallback. Styling edges (curves, hierarchy
@@ -679,6 +689,14 @@ vs. link differentiation), node sizing by degree, labels on hover/zoom, and a
 colour legend are all achievable incrementally, but "more visually pleasing" has
 no finish line until a direction is chosen. Suggest a short mockup pass, then
 implement the agreed list.
+
+Implemented 2026-11-22. `docs/mockups/ui-redesign.html` gained a `07 Graph`
+screen to settle the palette and edge treatment first, and the app followed it:
+incident edges light on hover and focus, the legend groups relations and node
+sizing with counts plus a per-tag dotted sample, and the shared-tag key is a
+dashed SVG sample instead of a rainbow gradient. Node sizing by degree and
+hover labels already existed from the 2026-11-13 pass, so this stayed a set of
+deltas rather than a rewrite. Covered by `tests/browser/graph-focus.spec.ts`.
 
 ### 17. Fully editable home page with draggable widgets (#12) — XL
 
@@ -710,12 +728,16 @@ Answered:
 - #9: everywhere — Pages, home, graph, recents, every listing surface.
 - #7: Notion button parity, including editing values on the same record or
   another page.
+- #12: per-collection URLs. Saved searches live at `/searches/[id]`, and the
+  home widget's rows open them.
+- #14: the mockup pass chose node sizing, edge treatment, hover labels, and the
+  legend grouping; the implementation followed it.
 
 Still open:
 
 - #7: the exact action list, and whether cross-page writes go through a relation
   or an explicit page picker.
 - #12: whether more widget types (media queues, a tag cloud) and finer
-  sizing than Full/Half are worth adding, and whether saved searches should
-  gain per-collection URLs so a widget row can open one directly.
+  sizing than Full/Half are worth adding. Both are deliberately deferred past
+  0.4.0 rather than unanswered.
 

@@ -741,6 +741,12 @@ export function GraphWorkspace() {
                 const style = edgeStyle(edge);
                 const key = edgeKey(edge, index);
                 const hovered = hoveredEdgeKey === key;
+                // Hovering or focusing a page brightens the relations attached
+                // to it, so a hub's neighbourhood reads without a click.
+                const attached =
+                  labelNodeId !== "" &&
+                  (edge.source === labelNodeId || edge.target === labelNodeId);
+                const lit = hovered || attached;
                 const geometry = edgePath(
                   source,
                   target,
@@ -759,10 +765,10 @@ export function GraphWorkspace() {
                       d={geometry.d}
                       fill="none"
                       stroke={style.stroke}
-                      strokeWidth={style.width + (hovered ? 0.9 : 0)}
+                      strokeWidth={style.width + (hovered ? 0.9 : attached ? 0.45 : 0)}
                       strokeDasharray={style.dash}
                       strokeLinecap={style.dash ? "round" : undefined}
-                      opacity={hovered ? 1 : style.opacity}
+                      opacity={lit ? 1 : style.opacity}
                       markerEnd={edge.type === "hierarchy" ? "url(#graph-hierarchy-arrow)" : undefined}
                     />
                     {/* A wide invisible stroke makes a thin line easy to hover. */}
@@ -846,28 +852,42 @@ export function GraphWorkspace() {
               )}
             </g>
           </svg>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t px-4 py-3 text-xs text-muted-foreground">
-            <span>{filteredGraph.nodes.length} pages</span>
-            <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-5 border-t-2 border-brand" />Page link</span>
-            <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-5 border-t border-dashed border-muted-foreground" />Parent → child</span>
-            <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block h-0.5 w-5" style={{ backgroundImage: `linear-gradient(90deg, ${TAG_PALETTE.slice(0, 4).join(", ")})` }} />Shared tag</span>
-            <span className="flex items-center gap-1.5">
-              <span aria-hidden="true" className="inline-block size-2 rounded-full border-2 border-primary bg-card" />
-              <span aria-hidden="true" className="inline-block size-3.5 rounded-full border-2 border-primary bg-card" />
-              Size = connections
-            </span>
-            {visibleTagSwatches.length > 0 && (
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                Tags
-                {visibleTagSwatches.map((tag) => (
-                  <span key={tag.id} className="flex items-center gap-1">
-                    <span aria-hidden="true" className="inline-block size-2.5 rounded-full" style={{ backgroundColor: tag.color }} />
-                    <span className="max-w-24 truncate">{tag.name}</span>
-                  </span>
-                ))}
+          <div className="border-t px-4 py-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">Legend</span>
+              <span className="ml-auto text-[10px]">
+                {filteredGraph.nodes.length} pages · {filteredGraph.edges.length} relations
               </span>
-            )}
-            <span className="ml-auto">Hover a title · Zoom in to label every page · Drag to pan or move · Select to open</span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-5 border-t-2 border-brand" />Page link</span>
+              <span className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-5 border-t border-dashed border-muted-foreground" />Parent → child</span>
+              <span className="flex items-center gap-2">
+                {/* Matches the edge itself: dotted, tinted by the shared tag. */}
+                <svg aria-hidden="true" width="20" height="6" viewBox="0 0 20 6">
+                  <line x1="0" y1="3" x2="20" y2="3" stroke="var(--muted-foreground)" strokeWidth="1.3" strokeDasharray="2 4" strokeLinecap="round" />
+                </svg>
+                Shared tag
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden="true" className="inline-block size-2 rounded-full border-2 border-primary bg-card" />
+                <span aria-hidden="true" className="inline-block size-3.5 rounded-full border-2 border-primary bg-card" />
+                Size = connections
+              </span>
+              {visibleTagSwatches.length > 0 && (
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {visibleTagSwatches.map((tag) => (
+                    <span key={tag.id} className="flex items-center gap-1">
+                      <span aria-hidden="true" className="inline-block size-2.5 rounded-full" style={{ backgroundColor: tag.color }} />
+                      <span className="max-w-24 truncate">{tag.name}</span>
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground/80">
+              Hover a page to name it and light its lines · Zoom in to label every page · Drag to pan or move · Enter to open
+            </p>
           </div>
           </div>
         </div>

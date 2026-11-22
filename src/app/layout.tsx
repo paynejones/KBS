@@ -1,26 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { RootFailureProbe } from "@/components/root-failure-probe";
+import { themeInitializationScript } from "@/lib/theme";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-const themeInitialization = `try {
-  const theme = localStorage.getItem("kbs:theme");
-  if (["light", "dark", "warm", "forest"].includes(theme)) {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }
-} catch {}`;
+const themeInitialization = themeInitializationScript();
 
 export const metadata: Metadata = {
   title: "Knowledge Base",
@@ -31,10 +15,30 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
+        {/*
+         * `next/font` used to preload these. The local `@font-face` files are
+         * only requested once the stylesheet applies, which leaves the first
+         * paint on the fallback; fonts load in CORS mode, so the preload
+         * carries `crossorigin`.
+         */}
+        <link
+          rel="preload"
+          href="/fonts/geist-latin.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/geist-mono-latin.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
         <RootFailureProbe />
         {children}
         <Script id="kbs-theme-init" strategy="beforeInteractive">

@@ -4,6 +4,33 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Geist ships with the app (SIL OFL 1.1, see public/fonts/OFL.txt), so neither a
+ * build nor a page load depends on Google Fonts. These are the latin variable
+ * subsets, which cover every weight the app uses.
+ */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/geist-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/geist-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -52,6 +79,8 @@
 }
 
 :root {
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -342,6 +371,21 @@
 .tiptap {
   outline: none;
   min-height: 300px;
+  /*
+   * One text column for body copy, headings, lists, and callouts. A fixed
+   * length instead of `ch`: `ch` scales with each block's own font size, so
+   * large headings would end wider than paragraphs. 43rem is about 72
+   * characters of body text in Geist.
+   */
+  --prose-measure: 43rem;
+}
+
+/*
+ * The prose column keeps a readable measure on wide screens. Tables, images,
+ * embeds, and the surrounding page frame stay full width.
+ */
+.tiptap :is(p, h1, h2, h3, ul, ol, blockquote, .kbs-callout, .kbs-toggle) {
+  max-width: var(--prose-measure);
 }
 
 /* Links stay editable, but read as links: hovering lifts and highlights them. */

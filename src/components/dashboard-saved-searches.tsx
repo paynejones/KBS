@@ -22,7 +22,7 @@ function filterSummary(saved: SavedSearch): string {
   return parts.join(" · ") || "All pages";
 }
 
-/** Saved collections stay live on the searches screen, so rows link there. */
+/** Each row opens that collection's own address, where its filters run again. */
 export function DashboardSavedSearches() {
   const [items, setItems] = useState<SavedSearch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,7 +104,7 @@ export function DashboardSavedSearches() {
           {items.map((item) => (
             <li key={item.id} className="border-b py-1.5 last:border-b-0">
               <Link
-                href="/searches"
+                href={`/searches/${item.id}`}
                 className="flex min-w-0 items-baseline gap-2 text-xs transition-colors hover:text-brand"
               >
                 <span className="min-w-0 flex-1 truncate font-medium hover:underline">

@@ -2,32 +2,16 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { Palette } from "lucide-react";
+import {
+  THEMES,
+  THEME_CHANGE_EVENT,
+  THEME_STORAGE_KEY,
+  applyTheme,
+  isTheme,
+  type Theme,
+} from "@/lib/theme";
 
-const themes = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "warm", label: "Warm paper" },
-  { value: "forest", label: "Forest" },
-  { value: "slate", label: "Slate" },
-  { value: "rose", label: "Rose" },
-  { value: "midnight", label: "Midnight" },
-] as const;
-
-type Theme = (typeof themes)[number]["value"];
-/** Dark palettes also get the `.dark` class so dark-only utilities follow them. */
-const DARK_THEMES: ReadonlySet<Theme> = new Set(["dark", "midnight"]);
-const THEME_CHANGE_EVENT = "kbs:theme-change";
 let volatileTheme: Theme = "light";
-
-function isTheme(value: string | null): value is Theme {
-  return themes.some((candidate) => candidate.value === value);
-}
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  root.dataset.theme = theme;
-  root.classList.toggle("dark", DARK_THEMES.has(theme));
-}
 
 function subscribeToTheme(onChange: () => void) {
   window.addEventListener("storage", onChange);
@@ -40,7 +24,7 @@ function subscribeToTheme(onChange: () => void) {
 
 function getThemeSnapshot(): Theme {
   try {
-    const saved = window.localStorage.getItem("kbs:theme");
+    const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
     return isTheme(saved) ? saved : "light";
   } catch {
     return volatileTheme;
@@ -67,7 +51,7 @@ export function ThemePicker() {
     volatileTheme = value;
     applyTheme(value);
     try {
-      window.localStorage.setItem("kbs:theme", value);
+      window.localStorage.setItem(THEME_STORAGE_KEY, value);
     } catch {
       // The selected theme still applies for this session.
     }
@@ -85,7 +69,7 @@ export function ThemePicker() {
         onChange={(event) => changeTheme(event.target.value)}
         className="max-w-28 bg-transparent text-foreground outline-none sm:max-w-none"
       >
-        {themes.map((option) => (
+        {THEMES.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>

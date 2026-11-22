@@ -24,7 +24,7 @@ KBS is a self-hosted workspace for notes, projects, and the reference material a
 
 ### A daily landing page
 
-The home screen is built from real records: what is due soon, which projects are still in flight, a merged timeline of dated records, and any saved database view pinned as a widget. Pinned projects show a task progress bar and let you check work off in place.
+The home screen is built from real records: what is due soon, which projects are still in flight, a merged timeline of dated records, and a canvas of widgets you order, size, and hide yourself — favorites, the inbox, the reading list, saved searches, recently updated databases, and any pinned database view. Pinned projects show a task progress bar and let you check work off in place, and each saved search in its widget opens its own live collection.
 
 ### Make the workspace yours
 
@@ -74,7 +74,7 @@ Articles and books move through to-read, reading, and finished. Each item owns a
 
 ### Finding things again
 
-Pages are searchable by title and body through PostgreSQL trigram indexes, with a `Ctrl/Cmd+K` command palette over search, pages, records, recent pages, and destinations. Saved searches keep a set of filters as a live collection that re-runs every time it opens.
+Pages are searchable by title and body through PostgreSQL trigram indexes, with a `Ctrl/Cmd+K` command palette over search, pages, records, recent pages, and destinations. Saved searches keep a set of filters as a live collection that re-runs every time it opens, and every collection has its own address — `/searches/<id>` — so a home widget can open one directly.
 
 ## Feature highlights
 
@@ -84,7 +84,7 @@ Pages are searchable by title and body through PostgreSQL trigram indexes, with 
 
 **Data** — per-view filters and multi-sort, property visibility, view duplication and reordering, a read-only View mode, button properties, record templates, relations with a reverse "linked from" list, rollups, formulas, CSV import and export, and embedded database views inside pages.
 
-**Workspace** — trash with restore and permanent delete, unused-file cleanup, a merged timeline, saved searches, recents, favorites, a collapsible sidebar rail, editable and lockable navigation and home layouts, seven themes, and a workspace graph.
+**Workspace** — trash with restore and permanent delete, unused-file cleanup, a merged timeline, saved searches with their own live addresses, recents, favorites, a collapsible sidebar rail, editable and lockable navigation and home layouts, seven themes, and a workspace graph with hover highlighting and a grouped legend.
 
 **Operations** — a full workspace JSON export, verified backups with checksums and per-backup checks, a one-password sign-in gate, structured JSON error logs with request IDs, and a Docker image with migration and backup stages.
 
@@ -214,6 +214,7 @@ A push to `main` builds the three images, publishes them to GHCR tagged with the
 - **Database:** PostgreSQL 17 with Drizzle ORM and committed SQL migrations
 - **Editor:** TipTap 3 with custom extensions for links, drag handles, and block moves
 - **UI:** Tailwind CSS 4, Base UI, lucide icons, and seven themes — light, dark, and five reading palettes
+- **Fonts:** Geist and Geist Mono served from `public/fonts` (SIL OFL 1.1), with no build-time request to Google Fonts
 - **Tests:** Node's test runner, Testing Library in jsdom, and Playwright
 
 ## Project layout
@@ -234,6 +235,7 @@ docs/             Runbooks, architecture notes, and the product roadmap
 - [Deployment readiness](docs/deployment-readiness.md) — access model, release checklist, container deployment, monitoring
 - [Managed PostgreSQL](docs/managed-postgres.md) — TLS, connection strings, migration ordering
 - [Backup and restore](docs/backup-and-restore.md) — exports, attachments, verified backups, restore paths
+- [Changelog](CHANGELOG.md) — what shipped in each release
 - [Product roadmap](docs/product-roadmap.md) — what is shipped, what is next, and what is deliberately not planned
 - [DOM testing](docs/dom-testing.md) — the strict route-table helper for component tests
 

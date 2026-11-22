@@ -1,6 +1,6 @@
 {
   "name": "kbs",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -36,7 +36,7 @@
     "dotenv": "^18.0.8",
     "drizzle-orm": "^0.45.4",
     "lucide-react": "^1.61.0",
-    "next": "16.4.2",
+    "next": "^16.4.6",
     "pg": "^8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",

@@ -405,6 +405,34 @@
   .ph-toolbar{height:34px;border-top:1px solid var(--border);display:flex;align-items:center;gap:2px;padding:0 10px;background:var(--surface);flex:none}
   .ph-toolbar span{font-size:9.5px;color:var(--faint);margin-left:auto}
 
+  /* ============ graph screen ============ */
+  .gx{border:1px solid var(--border);border-radius:16px;background:var(--bg);overflow:hidden;box-shadow:var(--shadow)}
+  .gx-tools{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .gx-field{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--bg);border-radius:8px;padding:5px 8px;font-size:11.5px;color:var(--fg-soft)}
+  .gx-field.ph{color:var(--faint);min-width:150px}
+  .gx-field .i{color:var(--faint)}
+  .gx-toggles{display:inline-flex;align-items:center;gap:7px;min-width:0}
+  .gx-toggle{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .gx-check{width:12px;height:12px;border-radius:3px;border:1px solid var(--border-strong);background:var(--bg);display:grid;place-items:center;font-size:8px;line-height:1;color:transparent}
+  .gx-check.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  .gx-zoom{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--muted)}
+  .gx-zoom .k{width:19px;height:19px;display:grid;place-items:center;border:1px solid var(--border);border-radius:5px;background:var(--bg);font-size:11px;color:var(--fg-soft)}
+  .gx-stage{position:relative;height:398px;background-color:var(--bg);
+    background-image:
+      radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 60%),
+      radial-gradient(color-mix(in srgb, var(--muted) 26%, transparent) 1px, transparent 1px);
+    background-size:100% 100%, 26px 26px}
+  .gx-stage svg{position:absolute;inset:0;width:100%;height:100%}
+  .gx-lbl{font-size:10.5px;font-weight:600;fill:var(--fg);paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+  .gx-legend{border-top:1px solid var(--border);background:var(--surface);padding:10px 13px 11px}
+  .gx-legend-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .gx-legend-head b{font-size:9px;font-weight:680;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .gx-legend-head .count{margin-left:auto;font-size:10px;color:var(--faint)}
+  .gx-legend-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;font-size:10.5px;color:var(--muted)}
+  .gx-legend-row .grp{display:inline-flex;align-items:center;gap:6px}
+  .gx-legend-row .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .gx-legend-hint{margin-top:7px;font-size:10px;color:var(--faint)}
+
   /* ============ footer ============ */
   .nav-stage{position:relative;min-height:452px;overflow:hidden;background:var(--surface)}
   .nav-ghost{display:flex;min-height:452px;opacity:.45;filter:saturate(.5)}
@@ -449,6 +477,9 @@
     .principles{grid-template-columns:repeat(2,minmax(0,1fr))}
   }
   @media (max-width:860px){
+    /* The wrapped deck header is ~168px tall, so an anchor jump needs to clear
+       it or the screen heading lands underneath. */
+    .screen{scroll-margin-top:180px}
     .sheet{padding:0 14px 64px}
     .deck-head-in{padding:12px 14px}
     .deck-nav{width:100%;margin-left:0;overflow-x:auto}
@@ -462,7 +493,14 @@
   }
   /* narrow panels: keep every mockup intact rather than cropped */
   @media (max-width:600px){
+    /* Two-row header plus the theme button. */
+    .screen{scroll-margin-top:200px}
     .sheet{padding:0 12px 56px}
+    /* Let the canvas take the drawing's own aspect instead of letterboxing a
+       640×398 viewBox into a fixed 398px band, and keep the few labels legible
+       at that scale. */
+    .gx-stage{height:auto;aspect-ratio:640/398}
+    .gx-lbl{font-size:16px}
     .deck-brand small{display:none}
     .hero{padding:0 0 32px}
     .hero h1{font-size:31px}
@@ -515,13 +553,13 @@
 <body>
 
 <svg class="sprite" aria-hidden="true" focusable="false">
-  <symbol id="home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
   <symbol id="inbox" viewBox="0 0 24 24"><path d="M5 5h14l2 7.5V19H3v-6.5z"/><path d="M3 12.5h4l1.5 3h7l1.5-3h4"/></symbol>
   <symbol id="pages" viewBox="0 0 24 24"><path d="M8.5 3.5H16l3.5 3.5v11a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2z"/><path d="M15.5 3.5V7H19"/></symbol>
   <symbol id="file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
   <symbol id="db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></symbol>
   <symbol id="star" viewBox="0 0 24 24"><path d="m12 3.6 2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.8l5.9-.8z"/></symbol>
-  <symbol id="graph" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="8" r="2.4"/><circle cx="11" cy="18" r="2.4"/><path d="m8.2 6.6 7.5 1.1M7 8.3l2.6 7.4M16.6 10.2l-4 5.7"/></symbol>
+  <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="8" r="2.4"/><circle cx="11" cy="18" r="2.4"/><path d="m8.2 6.6 7.5 1.1M7 8.3l2.6 7.4M16.6 10.2l-4 5.7"/></symbol>
   <symbol id="trash" viewBox="0 0 24 24"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
   <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
   <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
@@ -575,6 +613,7 @@
       <a href="#palette">04 Palette</a>
       <a href="#mobile">05 Mobile</a>
       <a href="#navigation">06 Navigation</a>
+      <a href="#graph">07 Graph</a>
     </nav>
     <button class="theme-btn" id="theme-toggle" type="button" aria-live="polite">
       <svg class="i sm moon-only"><use href="#moon"/></svg>
@@ -589,7 +628,7 @@
   <section class="hero">
     <span class="hero-kicker"><svg class="i sm"><use href="#sparkle"/></svg> Design exploration</span>
     <h1>Calmer surfaces, <em>clearer next steps</em></h1>
-    <p>Five mockups for KBS: the same features, retuned for faster scanning and fewer competing controls. Status becomes colour, actions collapse into menus, and every screen has exactly one obvious primary action.</p>
+    <p>Seven mockups for KBS: the same features, retuned for faster scanning and fewer competing controls. Status becomes colour, actions collapse into menus, and every screen has exactly one obvious primary action.</p>
     <div class="principles">
       <div class="principle"><div class="pn">01</div><h3>One primary action</h3><p>A single filled button per screen. Everything else is quiet until needed.</p></div>
       <div class="principle"><div class="pn">02</div><h3>Colour means status</h3><p>Indigo is reserved for interaction. Green, amber and blue only ever label state.</p></div>
@@ -627,12 +666,12 @@
               <svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span>
             </button>
             <nav class="side-nav">
-              <a class="nv on" href="#home"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+              <a class="nv on" href="#home"><svg class="i sm"><use href="#i-home"/></svg><span class="grow">Home</span></a>
               <a class="nv" href="#home"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
               <a class="nv" href="#page"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
               <a class="nv" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
               <a class="nv" href="#home"><svg class="i sm"><use href="#star"/></svg><span class="grow">Favorites</span></a>
-              <a class="nv" href="#home"><svg class="i sm"><use href="#graph"/></svg><span class="grow">Graph</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#i-graph"/></svg><span class="grow">Graph</span></a>
             </nav>
             <div class="side-label">Pinned <button type="button" aria-label="Pin a page"><svg class="i sm"><use href="#plus"/></svg></button></div>
             <a class="nv" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Q4 roadmap</span></a>
@@ -789,12 +828,12 @@
             </div>
             <button class="side-search" type="button"><svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span></button>
             <nav class="side-nav">
-              <a class="nv" href="#home"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#i-home"/></svg><span class="grow">Home</span></a>
               <a class="nv" href="#home"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
               <a class="nv" href="#page"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
               <a class="nv" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
               <a class="nv" href="#home"><svg class="i sm"><use href="#star"/></svg><span class="grow">Favorites</span></a>
-              <a class="nv" href="#home"><svg class="i sm"><use href="#graph"/></svg><span class="grow">Graph</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#i-graph"/></svg><span class="grow">Graph</span></a>
             </nav>
             <div class="side-label">Pinned</div>
             <a class="nv" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Q4 roadmap</span></a>
@@ -962,12 +1001,12 @@
             </div>
             <button class="side-search" type="button"><svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span></button>
             <nav class="side-nav">
-              <a class="nv" href="#home"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#i-home"/></svg><span class="grow">Home</span></a>
               <a class="nv" href="#home"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
               <a class="nv" href="#page"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
               <a class="nv on" href="#database"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
               <a class="nv" href="#home"><svg class="i sm"><use href="#star"/></svg><span class="grow">Favorites</span></a>
-              <a class="nv" href="#home"><svg class="i sm"><use href="#graph"/></svg><span class="grow">Graph</span></a>
+              <a class="nv" href="#home"><svg class="i sm"><use href="#i-graph"/></svg><span class="grow">Graph</span></a>
             </nav>
             <div class="side-label">Pinned</div>
             <a class="nv" href="#page"><svg class="i sm"><use href="#file"/></svg><span class="grow">Q4 roadmap</span></a>
@@ -1139,7 +1178,7 @@
                 <div class="ws"><span class="ws-logo">K</span><span class="ws-name"><b>KBS</b><small>Personal workspace</small></span></div>
                 <button class="side-search" type="button"><svg class="i sm"><use href="#search"/></svg><span>Search…</span><span class="kbd">⌘K</span></button>
                 <nav class="side-nav">
-                  <a class="nv on"><svg class="i sm"><use href="#home"/></svg><span class="grow">Home</span></a>
+                  <a class="nv on"><svg class="i sm"><use href="#i-home"/></svg><span class="grow">Home</span></a>
                   <a class="nv"><svg class="i sm"><use href="#inbox"/></svg><span class="grow">Inbox</span><span class="count">3</span></a>
                   <a class="nv"><svg class="i sm"><use href="#pages"/></svg><span class="grow">Pages</span></a>
                   <a class="nv"><svg class="i sm"><use href="#db"/></svg><span class="grow">Databases</span></a>
@@ -1190,7 +1229,7 @@
                 <span class="badge-dot">3</span>
               </div>
               <div class="pal-item">
-                <svg class="i"><use href="#graph"/></svg>
+                <svg class="i"><use href="#i-graph"/></svg>
                 <span class="grow">Graph</span>
               </div>
 
@@ -1271,7 +1310,7 @@
               </div>
               <button class="fab" type="button" aria-label="Quick capture"><svg class="i"><use href="#plus"/></svg></button>
               <nav class="ph-nav">
-                <a class="on"><svg class="i"><use href="#home"/></svg>Home</a>
+                <a class="on"><svg class="i"><use href="#i-home"/></svg>Home</a>
                 <a><svg class="i"><use href="#pages"/></svg>Pages</a>
                 <a><svg class="i"><use href="#db"/></svg>Data</a>
                 <a><svg class="i"><use href="#inbox"/></svg>Inbox</a>
@@ -1409,6 +1448,96 @@
         <div class="note"><span class="note-n">3</span><div><b>You can never lose your place</b><p>When the current route is not one of the four, it is appended to the bar, so the active destination is always visible.</p></div></div>
         <div class="note"><span class="note-n">4</span><div><b>One click back</b><p>Reset restores the default order. The preference is per device, alongside the theme and recent pages, not a new workspace setting.</p></div></div>
         <div class="note"><span class="note-n">5</span><div><b>Pages stay separate</b><p>Sidebar destinations and the page tree keep different drag rules, so reordering a page never silently reorders navigation.</p></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================== 07 GRAPH -->
+  <section class="screen" id="graph">
+    <div class="screen-head">
+      <div class="screen-num">07</div>
+      <div>
+        <h2>Graph — a map, not a diagram</h2>
+        <p>Node size, three edge styles, hover-only labels and a grouped legend keep a dense workspace readable without turning the map into a diagram. Everything here is drawn from the existing tokens.</p>
+      </div>
+      <div class="screen-badges"><span class="badge">Desktop</span><span class="badge">1440 × 900</span><span class="badge">SVG</span></div>
+    </div>
+
+    <div class="screen-grid">
+      <div class="gx">
+        <div class="gx-tools">
+          <span class="gx-field ph"><svg class="i sm"><use href="#search"/></svg>Find a page…</span>
+          <span class="gx-field">Workspace graph <svg class="i sm"><use href="#chevron-down"/></svg></span>
+          <span class="gx-toggles">
+            <span class="gx-toggle"><span class="gx-check on">✓</span>Page links</span>
+            <span class="gx-toggle"><span class="gx-check on">✓</span>Parent / child</span>
+            <span class="gx-toggle"><span class="gx-check on">✓</span>Shared tags</span>
+          </span>
+          <span class="gx-zoom"><span class="k">−</span>100%<span class="k">+</span><span class="k" style="width:auto;padding:0 6px">Reset</span></span>
+        </div>
+
+        <div class="gx-stage">
+          <svg viewBox="0 0 640 398" role="img" aria-label="Mockup of the knowledge graph">
+            <defs>
+              <marker id="gx-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)" opacity=".75"/>
+              </marker>
+            </defs>
+
+            <!-- parent → child: dashed, arrowed -->
+            <path d="M 306 186 Q 254 140 208 119" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" opacity=".6" marker-end="url(#gx-arrow)"/>
+            <path d="M 310 211 Q 258 258 218 281" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" opacity=".6" marker-end="url(#gx-arrow)"/>
+            <path d="M 339 206 Q 410 242 476 283" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" opacity=".6" marker-end="url(#gx-arrow)"/>
+
+            <!-- explicit page links: solid brand -->
+            <path d="M 341 194 Q 400 176 451 158" fill="none" stroke="var(--brand)" stroke-width="2" opacity=".85"/>
+            <path d="M 209 106 Q 270 79 333 76" fill="none" stroke="var(--brand)" stroke-width="2" opacity=".85"/>
+            <path d="M 354 77 Q 430 100 455 139" fill="none" stroke="var(--brand)" stroke-width="2" opacity=".85"/>
+
+            <!-- shared tags: dotted, tinted by the tag both pages carry -->
+            <path d="M 216 294 Q 350 352 475 289" fill="none" stroke="#0d9488" stroke-width="1.3" stroke-dasharray="2 4" opacity=".6"/>
+            <path d="M 352 80 Q 500 200 549 221" fill="none" stroke="#d97706" stroke-width="1.3" stroke-dasharray="2 4" opacity=".6"/>
+
+            <!-- nodes grow with their visible connections -->
+            <g>
+              <circle cx="322" cy="196" r="19" fill="#6366f1" fill-opacity=".2" stroke="#6366f1" stroke-width="2"/>
+              <circle cx="196" cy="112" r="14" fill="#6366f1" fill-opacity=".2" stroke="#6366f1" stroke-width="2"/>
+              <circle cx="206" cy="286" r="12" fill="#0d9488" fill-opacity=".2" stroke="#0d9488" stroke-width="2"/>
+              <circle cx="344" cy="74" r="10" fill="#d97706" fill-opacity=".2" stroke="#d97706" stroke-width="2"/>
+              <circle cx="462" cy="150" r="13" fill="#6366f1" fill-opacity=".2" stroke="#6366f1" stroke-width="2"/>
+              <circle cx="486" cy="286" r="11" fill="#0d9488" fill-opacity=".2" stroke="#0d9488" stroke-width="2"/>
+              <circle cx="352" cy="356" r="9" fill="#6366f1" fill-opacity=".2" stroke="#6366f1" stroke-width="2"/>
+              <circle cx="556" cy="224" r="8" fill="#d97706" fill-opacity=".2" stroke="#d97706" stroke-width="2"/>
+            </g>
+
+            <!-- names: hover, focus, or past 130% zoom -->
+            <text class="gx-lbl" x="322" y="164" text-anchor="middle">Q4 roadmap</text>
+            <text class="gx-lbl" x="196" y="86" text-anchor="middle">Launch plan</text>
+            <text class="gx-lbl" x="462" y="125" text-anchor="middle">Reading list</text>
+          </svg>
+        </div>
+
+        <div class="gx-legend">
+          <div class="gx-legend-head"><b>Legend</b><span class="count">8 pages</span></div>
+          <div class="gx-legend-row">
+            <span class="grp"><svg width="24" height="8"><path d="M0 4h24" stroke="var(--brand)" stroke-width="2"/></svg>Page link</span>
+            <span class="grp"><svg width="24" height="8"><path d="M0 4h22" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#gx-arrow)"/></svg>Parent → child</span>
+            <span class="grp"><svg width="24" height="8"><path d="M0 4h24" stroke="#0d9488" stroke-width="1.3" stroke-dasharray="2 4"/></svg>Shared tag</span>
+            <span class="grp"><svg width="40" height="16"><circle cx="6" cy="8" r="4" fill="none" stroke="var(--brand)" stroke-width="1.6"/><circle cx="20" cy="8" r="6" fill="none" stroke="var(--brand)" stroke-width="1.6"/><circle cx="36" cy="8" r="7.5" fill="none" stroke="var(--brand)" stroke-width="1.6"/></svg>Size = connections</span>
+            <span class="grp"><span class="dot" style="background:#0d9488"></span>process</span>
+            <span class="grp"><span class="dot" style="background:#d97706"></span>research</span>
+          </div>
+          <p class="gx-legend-hint">Hover a page to name it and light its lines · Zoom in to label every page · Drag to pan or move · Enter to open</p>
+        </div>
+      </div>
+
+      <aside class="notes">
+        <h4>Why it works</h4>
+        <div class="note"><span class="note-n">1</span><div><b>Size is the hierarchy</b><p>A page's radius grows with its visible connections (10 + √connections × 3.2, capped at 21). Hubs read first; leaves stay small enough that labels still fit.</p></div></div>
+        <div class="note"><span class="note-n">2</span><div><b>Three lines, no more</b><p>Solid brand for explicit page links, dashed with an arrow for parent → child, and a dotted line in the shared tag's colour for tag relations. Edges stop at the node edge and bend gently so parallel relations separate.</p></div></div>
+        <div class="note"><span class="note-n">3</span><div><b>Names on demand</b><p>Titles wait for hover or keyboard focus, and appear for every page past 130% zoom. Placement is collision-aware: the hovered or centered page wins, then the busier pages, and a label is dropped rather than stacked.</p></div></div>
+        <div class="note"><span class="note-n">4</span><div><b>Hover lights the lines</b><p>Hovering or focusing a page names it and brightens every relation attached to it, so a hub's neighbourhood is legible without clicking. Nothing else dims — the graph stays stable under the pointer.</p></div></div>
+        <div class="note"><span class="note-n">5</span><div><b>The legend is grouped</b><p>Relations, size and tags each get their own group, and the hint line is separate from the keys. Tag hues come from an alphabetical palette, so a tag keeps its colour while filters come and go.</p></div></div>
       </aside>
     </div>
   </section>

@@ -353,6 +353,23 @@ test("shows a gallery card cover from the record's linked page", async ({ page, 
 
 test("pins chart views to the home dashboard with their saved shape", async ({ page, request }) => {
   const token = `chart-widget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // The date axis keeps only the past week before its horizon, so the fixtures
+  // are placed relative to today: both dated records stay inside the default
+  // window and inside the current month, which keeps the window, preset, and
+  // outside-count assertions meaningful on any day.
+  const today = new Date();
+  const datedA = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const datedB = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() + (today.getDate() === 1 ? 1 : -1),
+  );
+  const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dateKeyOf = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const datedAKey = dateKeyOf(datedA);
+  const datedBKey = dateKeyOf(datedB);
+  const datedALabel = `${shortMonths[datedA.getMonth()]} ${datedA.getDate()}`;
   const database = await createDatabase(request, `${token} database`);
   const score = await createProperty(request, database.id, { name: "Score", type: "number" });
   const effort = await createProperty(request, database.id, { name: "Effort", type: "number" });
@@ -366,8 +383,8 @@ test("pins chart views to the home dashboard with their saved shape", async ({ p
 
   try {
     for (const [title, scoreValue, effortValue, statusValue, date] of [
-      [`${token} Alpha`, 7, 2, "Done", "2026-11-20"],
-      [`${token} Beta`, 3, 8, "Todo", "2026-11-10"],
+      [`${token} Alpha`, 7, 2, "Done", datedAKey],
+      [`${token} Beta`, 3, 8, "Todo", datedBKey],
     ] as const) {
       const record = await createRecord(request, database.id, title);
       assert.equal((await request.patch(`/api/databases/${database.id}/records/${record.id}`, {
@@ -500,9 +517,9 @@ test("pins chart views to the home dashboard with their saved shape", async ({ p
     assert.equal((await monthRange).status(), 200);
     await expect(pieWidget.getByLabel(`Chart range start for ${pie.name}`)).toHaveValue(thisMonthFrom);
     await expect(pieWidget.getByLabel(`Chart range end for ${pie.name}`)).toHaveValue(thisMonthTo);
-    const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
     const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const expectedRecords = now.getFullYear() === 2026 && now.getMonth() === 10 ? 2 : 0;
+    const expectedRecords = 2;
     await expect(
       pieWidget.getByText(
         `This month · ${shortMonths[now.getMonth()]} 1–${monthDays}, ${now.getFullYear()} · ${expectedRecords} records`,
@@ -565,13 +582,13 @@ test("pins chart views to the home dashboard with their saved shape", async ({ p
       response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
       && response.request().method() === "PATCH",
     );
-    await barsWidget.getByLabel(`Chart range start for ${pie.name}`).fill("2026-11-20");
+    await barsWidget.getByLabel(`Chart range start for ${pie.name}`).fill(datedAKey);
     assert.equal((await fixedStart).status(), 200);
     const fixedEnd = page.waitForResponse((response) =>
       response.url().endsWith(`/api/databases/${database.id}/views/${pie.id}`)
       && response.request().method() === "PATCH",
     );
-    await barsWidget.getByLabel(`Chart range end for ${pie.name}`).fill("2026-11-20");
+    await barsWidget.getByLabel(`Chart range end for ${pie.name}`).fill(datedAKey);
     assert.equal((await fixedEnd).status(), 200);
 
     // Pie and bars both surface the same date selection, window, and summary.
@@ -584,7 +601,7 @@ test("pins chart views to the home dashboard with their saved shape", async ({ p
     await expect(barsWidget.getByLabel(`Chart dates for ${pie.name}`)).toHaveValue(when.id);
     await expect(barsWidget.getByLabel(`Chart window for ${pie.name}`)).toBeVisible();
     await expect(
-      barsWidget.getByText(/Custom range.*Nov 20.*1 record · 1 outside/),
+      barsWidget.getByText(new RegExp(`Custom range.*${datedALabel}.*1 record · 1 outside`)),
     ).toBeVisible();
 
     const savedBars = page.waitForResponse((response) =>
@@ -596,7 +613,7 @@ test("pins chart views to the home dashboard with their saved shape", async ({ p
     await expect(barsWidget.getByLabel(`Chart dates for ${pie.name}`)).toHaveValue(when.id);
     await expect(barsWidget.getByLabel(`Chart window for ${pie.name}`)).toBeVisible();
     await expect(
-      barsWidget.getByText(/Custom range.*Nov 20.*1 record · 1 outside/),
+      barsWidget.getByText(new RegExp(`Custom range.*${datedALabel}.*1 record · 1 outside`)),
     ).toBeVisible();
     await expect(barsWidget.locator("ul").getByText("2", { exact: true })).toBeVisible();
     await expect(
@@ -607,7 +624,7 @@ test("pins chart views to the home dashboard with their saved shape", async ({ p
     });
     await expect(doneSlice).toHaveAttribute(
       "href",
-      new RegExp(`rangeProperty=${when.id}.*rangeStart=2026-11-20`),
+      new RegExp(`rangeProperty=${when.id}.*rangeStart=${datedAKey}`),
     );
     await doneSlice.click();
     await expect(page).toHaveURL(new RegExp(`filterProperty=${status.id}`));

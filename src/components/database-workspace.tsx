@@ -246,6 +246,33 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [importError, setImportError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
   const cancelViewRenameRef = useRef(false);
+  const addViewMenuRef = useRef<HTMLDivElement>(null);
+  const viewOptionsMenuRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * A details menu opens right-aligned to its button, which hangs the panel
+   * off the left edge of a phone. Every open re-clamps it inside the window,
+   * and narrows it only when the window cannot hold its preferred width.
+   */
+  function placeMenuInsideViewport(
+    details: HTMLDetailsElement,
+    panel: HTMLDivElement | null,
+    preferredWidth: number,
+  ) {
+    if (!details.open || !panel) return;
+
+    const trigger = details.getBoundingClientRect();
+    const margin = 8;
+    const width = Math.min(preferredWidth, window.innerWidth - margin * 2);
+    const left = Math.max(
+      margin,
+      Math.min(trigger.right - width, window.innerWidth - width - margin),
+    );
+
+    panel.style.width = `${width}px`;
+    panel.style.left = `${left - trigger.left}px`;
+    panel.style.right = "auto";
+  }
 
   const loadDatabase = useCallback(async () => {
     try {
@@ -1643,12 +1670,20 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               {readOnly ? <Pencil size={15} /> : <Eye size={15} />}
               {readOnly ? "Edit mode" : "View mode"}
             </Button>
-            <details className="relative">
+            <details
+              className="relative"
+              onToggle={(event) =>
+                placeMenuInsideViewport(event.currentTarget, viewOptionsMenuRef.current, 208)
+              }
+            >
               <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border bg-background px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
                 More
                 <ChevronDown size={14} aria-hidden="true" />
               </summary>
-              <div className="absolute right-0 z-20 mt-1 w-52 rounded-lg border bg-popover p-1 shadow-lg">
+              <div
+                ref={viewOptionsMenuRef}
+                className="absolute right-0 z-20 mt-1 w-52 max-w-[calc(100vw-1rem)] rounded-lg border bg-popover p-1 shadow-lg"
+              >
                 <button
                   type="button"
                   onClick={(event) => {
@@ -1880,7 +1915,12 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                 </button>
               );
             })}
-          <details className="relative">
+          <details
+            className="relative"
+            onToggle={(event) =>
+              placeMenuInsideViewport(event.currentTarget, addViewMenuRef.current, 256)
+            }
+          >
             <summary
               aria-label="Add view"
               title="Add view"
@@ -1888,7 +1928,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
             >
               <Plus size={14} aria-hidden="true" />
             </summary>
-            <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border bg-popover p-1 shadow-lg">
+            <div
+              ref={addViewMenuRef}
+              className="absolute right-0 z-20 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-lg border bg-popover p-1 shadow-lg"
+            >
               <button
                 type="button"
                 onClick={(event) => {

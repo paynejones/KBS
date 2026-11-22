@@ -100,8 +100,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Static build output and the app icons must stay public so the sign-in page
-  // can render. Everything else — including the image optimizer and attachments
-  // — requires a session.
-  matcher: ["/((?!_next/static|_next/webpack-hmr|favicon.ico|icon.svg).*)"],
+  // Static build output, the self-hosted fonts, and the app icons must stay
+  // public so the sign-in page can render. Everything else — including the
+  // image optimizer and attachments — requires a session.
+  matcher: ["/((?!_next/static|_next/webpack-hmr|fonts/|favicon.ico|icon.svg).*)"],
 };
