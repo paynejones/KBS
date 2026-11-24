@@ -7,7 +7,11 @@ import {
   referenceValue,
   type RelationTargetMap,
 } from "@/lib/database-calculations";
-import { MAX_FORMULA_LENGTH, parseFormula, type FormulaNode } from "@/lib/database-formula";
+import {
+  MAX_FORMULA_LENGTH,
+  parseFormula,
+  type FormulaNode,
+} from "@/lib/database-formula";
 import { shiftDateKey } from "@/lib/timeline";
 
 /**
@@ -20,10 +24,11 @@ import { shiftDateKey } from "@/lib/timeline";
  * expression is evaluated on the server against the record the button runs on,
  * so a click can raise a number by one without storing the current value.
  * Expressions use the database formula language and the formula resolver, so a
- * button reads exactly what a formula reads — the clicked record's number
- * properties, rollups, and formula properties — and cannot run arbitrary code.
- * A date target reads that record's date properties as well, so `{Due} + 7`
- * moves a date by whole days while the formula language itself stays numeric.
+ * button reads exactly what a formula reads — the clicked record's number,
+ * rollup, and formula properties, plus its date properties when the target is a
+ * date — and cannot run arbitrary code. A date target can copy or move a date
+ * (`{Due} + 7`), while a number or text target evaluates the same expression
+ * for a value it can store.
  */
 export const BUTTON_WRITABLE_PROPERTY_TYPES = [
   "text",
@@ -158,10 +163,64 @@ export function buttonExpressionError(
   return null;
 }
 
+/** A representative day for the editor's save-time check. */
+const SAMPLE_DAY = "2000-01-01";
+
 /**
- * Evaluates an expression against the record the button runs on. A reference
- * that is missing, not numeric, or a division by zero makes the result null so
- * the runner can refuse to write a wrong number.
+ * A save-time warning for the editor: an expression that would compute a date
+ * for a number, text, URL, or select target is refused only when the button
+ * runs, so the editor asks here instead.
+ *
+ * There is no type inference here. The expression is evaluated once by the
+ * same evaluator a click uses, against representative values: a number is 1, a
+ * date is one sample day, and a formula reference resolves through its own
+ * expression the same way. `{Due} + 7` therefore samples as a date while
+ * `{Due} - today()` samples as a number. A reference that is blank in the sample
+ * (for example a rollup with no linked records) only keeps the warning quiet,
+ * so this can miss a case but cannot invent one. Expressions that already fail
+ * validation are left to that error, and a date target never warns.
+ */
+export function buttonExpressionDateWarning(
+  expression: string,
+  properties: { id: string; name: string; type: string; options?: Record<string, unknown> }[],
+  targetType: string,
+): string | null {
+  if (targetType === "date") return null;
+  if (buttonExpressionError(expression, properties, targetType)) return null;
+  // Validation already accepted this expression with today() disabled, so the
+  // plain parse cannot fail; it only narrows the node type for evaluation.
+  const parsed = parseFormula(expression);
+  if (!parsed.ok) return null;
+
+  const calculationProperties: CalculationProperty[] = properties.map((property) => ({
+    id: property.id,
+    name: property.name,
+    type: property.type as CalculationProperty["type"],
+    options: property.options ?? {},
+  }));
+  const values: Record<string, unknown> = {};
+  for (const property of calculationProperties) {
+    if (property.type === "number") values[property.id] = 1;
+    else if (property.type === "date") values[property.id] = SAMPLE_DAY;
+  }
+
+  const value = evaluateRecordFormula(
+    parsed.ast,
+    { values, relations: {} },
+    calculationProperties,
+    {},
+    SAMPLE_DAY,
+  );
+  if (typeof value !== "string") return null;
+  return `This expression can compute a date, so a ${targetType} property will refuse it and write nothing when the button runs. Choose a date property as the target to write it; saving this button is still allowed.`;
+}
+
+/**
+ * Evaluates an expression against the record the button runs on for a target
+ * that is not a date. A reference that is missing or blank, or a division by
+ * zero, makes the result null so the runner can refuse to write a wrong value;
+ * a date result is refused instead of being stringified into a number or text
+ * property (a date target has its own evaluator).
  */
 export function evaluateButtonExpression(
   expression: string,
@@ -171,7 +230,15 @@ export function evaluateButtonExpression(
 ): { ok: true; value: number | null } | { ok: false; error: string } {
   const parsed = parseFormula(expression);
   if (!parsed.ok) return parsed;
-  return { ok: true, value: evaluateRecordFormula(parsed.ast, record, properties, targets) };
+
+  const value = evaluateRecordFormula(parsed.ast, record, properties, targets);
+  if (typeof value === "string") {
+    return {
+      ok: false,
+      error: "This expression computed a date. Choose a date property as the target to write a date.",
+    };
+  }
+  return { ok: true, value };
 }
 
 type DateExpressionValue =
@@ -228,7 +295,13 @@ export function evaluateButtonDateExpression(
         }
         if (property.type === "number" || property.type === "rollup" || property.type === "formula") {
           const value = referenceValue(node.name, record, properties, targets);
-          return { ok: true, value: value === null ? null : { kind: "number", value } };
+          if (value === null) return { ok: true, value: null };
+          return {
+            ok: true,
+            value: typeof value === "number"
+              ? { kind: "number", value }
+              : { kind: "date", key: value },
+          };
         }
         return {
           ok: false,
@@ -275,6 +348,27 @@ export function evaluateButtonDateExpression(
       case "call": {
         if (node.name === "today") {
           return { ok: true, value: today ? { kind: "date", key: today } : null };
+        }
+        if (node.name === "dateAdd" || node.name === "daysBetween") {
+          const [first, second] = node.args.map(evaluate);
+          if (!first.ok) return first;
+          if (!second.ok) return second;
+          if (first.value === null || second.value === null) return { ok: true, value: null };
+          if (node.name === "dateAdd") {
+            if (first.value.kind !== "date") {
+              return { ok: false, error: "dateAdd() needs a date first, e.g. dateAdd({Due}, 7)." };
+            }
+            if (second.value.kind !== "number") {
+              return { ok: false, error: "dateAdd() needs a whole number of days second." };
+            }
+            return shift(first.value.key, second.value.value);
+          }
+          if (first.value.kind !== "date" || second.value.kind !== "date") {
+            return { ok: false, error: "daysBetween() needs two dates, e.g. daysBetween(today(), {Due})." };
+          }
+          const days = (Date.parse(`${second.value.key}T00:00:00Z`)
+            - Date.parse(`${first.value.key}T00:00:00Z`)) / 86_400_000;
+          return numberValue(days);
         }
         const args: number[] = [];
         for (const argument of node.args) {

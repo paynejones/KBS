@@ -1,11 +1,15 @@
 /**
- * Database formulas are small arithmetic expressions over other properties, for
- * example `{Episodes watched} / {Episodes total} * 100`. They support the four
- * operators, parentheses, numeric literals, `{Property}` references, and
- * `round(value, digits)`. A caller may also opt into `today()`, which a button
- * uses to write today's date; a formula never asks for it. Everything else is
+ * Database formulas are small expressions over other properties, for example
+ * `{Episodes watched} / {Episodes total} * 100` or `{Due} - today()`. A value is
+ * a number, a date key (`YYYY-MM-DD`, the way a date property stores one), or
+ * blank. Formulas support the four operators, parentheses, numeric literals,
+ * `{Property}` references, `round(value, digits)`, `dateAdd(date, days)`,
+ * `daysBetween(start, end)`, and `today()`. A date moves by whole days with `+`
+ * and `-`, and subtracting two dates gives a day count. Everything else is
  * rejected rather than evaluated, so a stored formula cannot run arbitrary code.
  */
+
+import { todayKey } from "@/lib/calendar";
 
 export const MAX_FORMULA_LENGTH = 500;
 const MAX_FORMULA_DEPTH = 32;
@@ -24,6 +28,16 @@ export type FormulaParseResult =
 
 /** `today()` is only meaningful where dates are written, so it is opt-in. */
 export type FormulaOptions = { allowToday?: boolean };
+
+/**
+ * What a formula computes: a number, a date key, or blank. Dates stay as the
+ * `YYYY-MM-DD` keys date properties store, so filters, sorts, and other
+ * formulas read them as dates instead of as formatted text.
+ */
+export type FormulaValue = number | string | null;
+
+/** The day `today()` resolves to; tests pin it instead of reading the clock. */
+export type FormulaEvaluationOptions = { today?: string };
 
 type Token =
   | { type: "number"; value: number }
@@ -100,7 +114,13 @@ function tokenize(expression: string): TokenizeResult {
   return { ok: true, tokens };
 }
 
-const SUPPORTED_FUNCTIONS = new Set(["round"]);
+const FUNCTION_ARITY: Record<string, { min: number; max: number; error: string }> = {
+  round: { min: 1, max: 2, error: "round() takes a value and an optional number of digits." },
+  dateAdd: { min: 2, max: 2, error: "dateAdd() takes a date and a whole number of days." },
+  daysBetween: { min: 2, max: 2, error: "daysBetween() takes a start date and an end date." },
+};
+
+const SUPPORTED_FUNCTIONS = new Set(Object.keys(FUNCTION_ARITY));
 
 class FormulaParser {
   private position = 0;
@@ -258,7 +278,8 @@ class FormulaParser {
     if (closing?.type !== "paren" || closing.value !== ")") return "Unclosed parenthesis.";
     this.position += 1;
 
-    if (args.length < 1 || args.length > 2) return "round() takes a value and an optional number of digits.";
+    const arity = FUNCTION_ARITY[name];
+    if (args.length < arity.min || args.length > arity.max) return arity.error;
     return { kind: "call", name, args };
   }
 }
@@ -305,55 +326,138 @@ function roundTo(value: number, digits: number) {
   return Math.round(value * factor) / factor;
 }
 
+const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/;
+
+/** True for a stored date key, the only string a formula treats as a date. */
+export function isFormulaDateKey(value: unknown): value is string {
+  return typeof value === "string" && DATE_KEY_PATTERN.test(value.trim());
+}
+
+/** The `YYYY-MM-DD` part of a stored date, or null when it is not a date. */
+function dateKeyOf(value: unknown): string | null {
+  const match = typeof value === "string" ? DATE_KEY_PATTERN.exec(value.trim()) : null;
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
+/** Whole days only, so a fractional day count blanks instead of jumping a date. */
+function shiftDateKey(key: string, days: number): string | null {
+  if (!Number.isInteger(days)) return null;
+  const [year, month, day] = key.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  if (Number.isNaN(shifted.getTime())) return null;
+  return shifted.toISOString().slice(0, 10);
+}
+
+function daysBetweenKeys(start: string, end: string): number {
+  return Math.round(
+    (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000,
+  );
+}
+
 /**
- * Evaluates against a resolver that returns a number for each referenced
- * property. A missing, non-numeric, or divided-by-zero value makes the whole
- * formula blank instead of silently showing a wrong number.
+ * Evaluates against a resolver that returns a number or date for each
+ * referenced property. A missing value, an operation that a value's type does
+ * not allow, or a division by zero makes the whole formula blank instead of
+ * silently showing a wrong answer.
  */
 export function evaluateFormula(
   ast: FormulaNode,
-  resolve: (name: string) => number | null,
-): number | null {
-  switch (ast.kind) {
-    case "number":
-      return Number.isFinite(ast.value) ? ast.value : null;
-    case "reference": {
-      const value = resolve(ast.name);
-      return typeof value === "number" && Number.isFinite(value) ? value : null;
-    }
-    case "unary": {
-      const operand = evaluateFormula(ast.operand, resolve);
-      if (operand === null) return null;
-      return ast.operator === "-" ? -operand : operand;
-    }
-    case "binary": {
-      const left = evaluateFormula(ast.left, resolve);
-      const right = evaluateFormula(ast.right, resolve);
-      if (left === null || right === null) return null;
-      switch (ast.operator) {
-        case "+": return left + right;
-        case "-": return left - right;
-        case "*": return left * right;
-        case "/": return right === 0 ? null : left / right;
+  resolve: (name: string) => FormulaValue,
+  options: FormulaEvaluationOptions = {},
+): FormulaValue {
+  const today = options.today ?? todayKey();
+
+  const evaluate = (node: FormulaNode): FormulaValue => {
+    switch (node.kind) {
+      case "number":
+        return Number.isFinite(node.value) ? node.value : null;
+      case "reference": {
+        const value = resolve(node.name);
+        if (typeof value === "number") return Number.isFinite(value) ? value : null;
+        return dateKeyOf(value);
       }
-      return null;
+      case "unary": {
+        const operand = evaluate(node.operand);
+        if (typeof operand !== "number") return null;
+        return node.operator === "-" ? -operand : operand;
+      }
+      case "binary": {
+        const left = evaluate(node.left);
+        const right = evaluate(node.right);
+        if (left === null || right === null) return null;
+
+        if (typeof left === "number" && typeof right === "number") {
+          switch (node.operator) {
+            case "+": return left + right;
+            case "-": return left - right;
+            case "*": return left * right;
+            case "/": return right === 0 ? null : left / right;
+          }
+        }
+
+        // A date moves by whole days: `{Due} + 7`, `{Due} - {Snooze days}`.
+        const leftDate = dateKeyOf(left);
+        const rightDate = dateKeyOf(right);
+        if (node.operator === "+") {
+          if (leftDate && typeof right === "number") return shiftDateKey(leftDate, right);
+          if (typeof left === "number" && rightDate) return shiftDateKey(rightDate, left);
+          return null;
+        }
+        if (node.operator === "-") {
+          if (leftDate && typeof right === "number") return shiftDateKey(leftDate, -right);
+          // `{Due} - today()` counts days from today to the due date.
+          if (leftDate && rightDate) return daysBetweenKeys(rightDate, leftDate);
+        }
+        return null;
+      }
+      case "call": {
+        const args = node.args.map(evaluate);
+        if (args.some((value) => value === null)) return null;
+
+        switch (node.name) {
+          case "today":
+            return today;
+          case "round": {
+            const value = args[0];
+            const digits = args.length === 1 ? 0 : args[1];
+            if (typeof value !== "number" || typeof digits !== "number") return null;
+            return roundTo(value, digits);
+          }
+          case "dateAdd": {
+            const date = dateKeyOf(args[0]);
+            return date && typeof args[1] === "number" ? shiftDateKey(date, args[1]) : null;
+          }
+          case "daysBetween": {
+            const start = dateKeyOf(args[0]);
+            const end = dateKeyOf(args[1]);
+            return start && end ? daysBetweenKeys(start, end) : null;
+          }
+          default:
+            return null;
+        }
+      }
+      default:
+        return null;
     }
-    case "call": {
-      // `today()` carries no number for a formula to compute with.
-      if (ast.args.length === 0) return null;
-      const value = evaluateFormula(ast.args[0], resolve);
-      if (value === null) return null;
-      if (ast.args.length === 1) return roundTo(value, 0);
-      const digits = evaluateFormula(ast.args[1], resolve);
-      return digits === null ? null : roundTo(value, digits);
-    }
-    default:
-      return null;
-  }
+  };
+
+  return evaluate(ast);
 }
 
-/** Formula cells render as plain numbers, with a dash when they cannot be computed. */
-export function formatFormulaValue(value: number | null): string {
+/** Formula cells render numbers compactly and dates as a short calendar day. */
+export function formatFormulaValue(value: FormulaValue): string {
+  if (typeof value === "string") {
+    const key = dateKeyOf(value);
+    if (!key) return "—";
+    const date = new Date(`${key}T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) return key;
+    return date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  }
   if (value === null || !Number.isFinite(value)) return "—";
   const rounded = roundTo(value, MAX_ROUND_DIGITS);
   return String(rounded);

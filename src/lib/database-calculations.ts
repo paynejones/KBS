@@ -1,4 +1,10 @@
-import { evaluateFormula, parseFormula, type FormulaNode } from "@/lib/database-formula";
+import { dateKey } from "@/lib/calendar";
+import {
+  evaluateFormula,
+  parseFormula,
+  type FormulaNode,
+  type FormulaValue,
+} from "@/lib/database-formula";
 import type { DatabasePropertyType } from "./database-property";
 
 export type CalculationProperty = {
@@ -61,9 +67,9 @@ export function rollupValue(
 
 /**
  * One `{Property}` reference, resolved the way a formula resolves it: a number
- * property's current value, a rollup over the record's linked records, or
- * another formula on the same record. `seen` stops a formula that references
- * itself, directly or through a cycle, from recursing forever.
+ * property's current value, a date property's day, a rollup over the record's
+ * linked records, or another formula on the same record. `seen` stops a formula
+ * that references itself, directly or through a cycle, from recursing forever.
  */
 export function referenceValue(
   name: string,
@@ -71,7 +77,8 @@ export function referenceValue(
   properties: CalculationProperty[],
   targets: RelationTargetMap,
   seen: ReadonlySet<string> = new Set(),
-): number | null {
+  today?: string,
+): FormulaValue {
   const referenced = properties.find((candidate) => candidate.name === name);
   if (!referenced) return null;
   if (referenced.type === "number") {
@@ -81,17 +88,22 @@ export function referenceValue(
     const numeric = Number(text);
     return text !== "" && Number.isFinite(numeric) ? numeric : null;
   }
+  if (referenced.type === "date") {
+    return dateKey(record.values[referenced.id]);
+  }
   if (referenced.type === "rollup") {
     const value = rollupValue(record, referenced, targets);
     return typeof value === "number" ? value : null;
   }
   if (referenced.type === "formula") {
     if (seen.has(referenced.id)) return null;
-    const parsed = parseFormula(optionString(referenced, "expression"));
+    const parsed = parseFormula(optionString(referenced, "expression"), { allowToday: true });
     if (!parsed.ok) return null;
     const ancestors = new Set(seen).add(referenced.id);
-    return evaluateFormula(parsed.ast, (nested) =>
-      referenceValue(nested, record, properties, targets, ancestors),
+    return evaluateFormula(
+      parsed.ast,
+      (nested) => referenceValue(nested, record, properties, targets, ancestors, today),
+      { today },
     );
   }
   return null;
@@ -107,8 +119,13 @@ export function evaluateRecordFormula(
   record: CalculationRecord,
   properties: CalculationProperty[],
   targets: RelationTargetMap,
-): number | null {
-  return evaluateFormula(ast, (name) => referenceValue(name, record, properties, targets));
+  today?: string,
+): FormulaValue {
+  return evaluateFormula(
+    ast,
+    (name) => referenceValue(name, record, properties, targets, new Set(), today),
+    { today },
+  );
 }
 
 /**
@@ -131,7 +148,7 @@ export function formulaReferenceCycle(
       visited.add(name);
       const property = byName.get(name);
       if (!property || property.type !== "formula") continue;
-      const parsed = parseFormula(optionString(property, "expression"));
+      const parsed = parseFormula(optionString(property, "expression"), { allowToday: true });
       if (!parsed.ok) continue;
       const cycle = walk(parsed.references, [...path, name]);
       if (cycle) return cycle;
@@ -142,14 +159,19 @@ export function formulaReferenceCycle(
   return walk(references, []);
 }
 
-/** A formula reads number properties and rollups from the same record. */
+/**
+ * A formula reads number, date, rollup, and other formula properties from the
+ * same record. `today` pins the day `today()` resolves to when a caller already
+ * knows it, such as a dashboard request carrying the browser's date.
+ */
 export function formulaValue(
   record: CalculationRecord,
   property: CalculationProperty,
   properties: CalculationProperty[],
   targets: RelationTargetMap,
-): number | null {
-  const parsed = parseFormula(optionString(property, "expression"));
+  today?: string,
+): FormulaValue {
+  const parsed = parseFormula(optionString(property, "expression"), { allowToday: true });
   if (!parsed.ok) return null;
-  return evaluateRecordFormula(parsed.ast, record, properties, targets);
+  return evaluateRecordFormula(parsed.ast, record, properties, targets, today);
 }

@@ -1705,6 +1705,54 @@ describe("database metadata API", () => {
     assert.equal("targetPropertyId" in countOptions, false);
   });
 
+  it("refuses a button expression that computes a date for a number or text target", async () => {
+    const database = await createDatabase("Button date result");
+    const due = await createDatabaseProperty(database.id, { name: "Due", type: "date" });
+    await createDatabaseProperty(database.id, {
+      name: "Next",
+      type: "formula",
+      options: { expression: "{Due} + 7" },
+    });
+    const count = await createDatabaseProperty(database.id, { name: "Count", type: "number" });
+    const label = await createDatabaseProperty(database.id, { name: "Label", type: "text" });
+    const record = await createDatabaseRecord(database.id, { title: "Dated" });
+    assert.equal((await api.record.PATCH(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "PATCH", {
+        values: { [due.id]: "2026-11-15" },
+      }),
+      routeContext({ id: database.id, recordId: record.id }),
+    )).status, 200);
+
+    async function runCopyInto(columnId: string, name: string) {
+      const button = await createDatabaseProperty(database.id, {
+        name,
+        type: "button",
+        options: {
+          actions: [{ type: "set_property", propertyId: columnId, value: { expression: "{Next}" } }],
+        },
+      });
+      return await api.button.POST(
+        jsonRequest(`/api/databases/${database.id}/records/${record.id}/button`, "POST", {
+          propertyId: button.id,
+        }),
+        routeContext({ id: database.id, recordId: record.id }),
+      );
+    }
+
+    for (const [column, name] of [[count, "Copy into count"], [label, "Copy into label"]] as const) {
+      const response = await runCopyInto(column.id, name);
+      assert.equal(response.status, 400, `${name} refuses a date result`);
+      assert.match((await body<{ error: string }>(response)).error, /computed a date/);
+    }
+
+    const stored = await body<{ values: Record<string, unknown> }>(await api.record.GET(
+      jsonRequest(`/api/databases/${database.id}/records/${record.id}`, "GET"),
+      routeContext({ id: database.id, recordId: record.id }),
+    ));
+    assert.equal(stored.values[count.id], undefined, "the number column was not written");
+    assert.equal(stored.values[label.id], undefined, "the text column was not written");
+  });
+
   it("validates formula property definitions", async () => {
     const database = await body<{ id: string }>(await api.databases.POST(jsonRequest("/api/databases", "POST", {
       name: "Formula validation",
@@ -1755,6 +1803,20 @@ describe("database metadata API", () => {
       context,
     );
     assert.equal(nonNumericReference.status, 400, "formulas cannot read a text property");
+
+    assert.equal((await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", { name: "Due", type: "date" }),
+      context,
+    )).status, 201);
+    const dateFormula = await api.properties.POST(
+      jsonRequest(`/api/databases/${database.id}/properties`, "POST", {
+        name: "Days left",
+        type: "formula",
+        options: { expression: "dateAdd({Due}, 7) - today()" },
+      }),
+      context,
+    );
+    assert.equal(dateFormula.status, 201, "a formula reads date properties and today()");
 
     const created = await api.properties.POST(
       jsonRequest(`/api/databases/${database.id}/properties`, "POST", {

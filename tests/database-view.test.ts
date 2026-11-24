@@ -223,6 +223,76 @@ test("negative operators keep rows with missing values", () => {
   );
 });
 
+test("a date filter can compare against today instead of a fixed day", () => {
+  const today = "2026-11-02";
+
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DUE, operator: "is", value: "today" })], { today }).map((record) => record.id),
+    ["a"],
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DUE, operator: "before", value: " Today " })], { today }).map((record) => record.id),
+    ["b"],
+    "the token is trimmed and case-insensitive",
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DUE, operator: "after", value: "today" })], { today }).map((record) => record.id),
+    ["c"],
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DUE, operator: "is_not", value: "today" })], { today }).map((record) => record.id),
+    ["b", "c"],
+  );
+  assert.deepEqual(
+    filterRecords(records, properties, [filter({ propertyId: DUE, operator: "is", value: "today" })], { today: "2026-11-03" }).map((record) => record.id),
+    [],
+    "the same filter follows whatever day today is",
+  );
+});
+
+test("formula filters compare a date-valued formula as a date", () => {
+  const FORMULA = "99999999-9999-4999-8999-999999999999";
+  const formulaProperties: ViewProperty[] = [
+    ...properties,
+    { id: FORMULA, name: "Next due", type: "formula" },
+  ];
+  const formulaRows = records.map((record) => ({
+    ...record,
+    values: {
+      ...record.values,
+      [FORMULA]: record.id === "a" ? "2026-11-02" : record.id === "b" ? "2026-10-20" : "2026-12-01",
+    },
+  }));
+  const ids = (filters: ViewFilter[], today = "2026-11-02") =>
+    filterRecords(formulaRows, formulaProperties, filters, { today }).map((record) => record.id);
+
+  assert.deepEqual(ids([filter({ propertyId: FORMULA, operator: "is", value: "today" })]), ["a"]);
+  assert.deepEqual(ids([filter({ propertyId: FORMULA, operator: "is", value: "2026-10-20" })]), ["b"]);
+  assert.deepEqual(ids([filter({ propertyId: FORMULA, operator: "is_not", value: "today" })]), ["b", "c"]);
+  assert.deepEqual(ids([filter({ propertyId: FORMULA, operator: "before", value: "today" })]), ["b"]);
+  assert.deepEqual(ids([filter({ propertyId: FORMULA, operator: "after", value: "2026-11-30" })]), ["c"]);
+  assert.deepEqual(
+    ids([filter({ propertyId: FORMULA, operator: "is", value: "2026-11-02" })]),
+    ["a"],
+    "a day typed into the value compares as a day",
+  );
+
+  // The same column keeps its number behaviour when the formula computes numbers.
+  const numericRows = formulaRows.map((record) => ({
+    ...record,
+    values: { ...record.values, [FORMULA]: record.id === "b" ? 12 : 3 },
+  }));
+  const numericIds = (filters: ViewFilter[]) =>
+    filterRecords(numericRows, formulaProperties, filters).map((record) => record.id);
+  assert.deepEqual(numericIds([filter({ propertyId: FORMULA, operator: "is", value: "12" })]), ["b"]);
+  assert.deepEqual(numericIds([filter({ propertyId: FORMULA, operator: "greater_than", value: "3" })]), ["b"]);
+  assert.deepEqual(
+    numericIds([filter({ propertyId: FORMULA, operator: "is", value: "2026-11-02" })]),
+    [],
+    "a date filter does not match number values",
+  );
+});
+
 test("date and number comparisons are strict about equality and invalid input", () => {
   assert.deepEqual(
     filterRecords(records, properties, [filter({ propertyId: DUE, operator: "before", value: "2026-11-02" })]).map((record) => record.id),
@@ -254,6 +324,10 @@ test("operator helpers match property types and value requirements", () => {
   assert.deepEqual(operatorsForProperty("checkbox"), ["is_checked", "is_not_checked"]);
   assert.ok(operatorsForProperty("date").includes("before"));
   assert.ok(operatorsForProperty("number").includes("greater_than"));
+  assert.ok(operatorsForProperty("formula").includes("before"));
+  assert.ok(operatorsForProperty("formula").includes("after"));
+  assert.ok(operatorsForProperty("formula").includes("greater_than"));
+  assert.ok(!operatorsForProperty("rollup").includes("before"), "a rollup is always a number");
   assert.equal(filterNeedsValue("is_empty"), false);
   assert.equal(filterNeedsValue("is_not_checked"), false);
   assert.equal(filterNeedsValue("contains"), true);

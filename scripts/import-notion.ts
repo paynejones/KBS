@@ -32,11 +32,13 @@
  *                       property, record, relation and file the import would
  *                       create is actually in KBS. Writes nothing and exits
  *                       non-zero when something is missing or a file differs.
- *   --retry-files       Re-download the Notion-hosted files an earlier run left
- *                       as Notion links (a failed download, or a type KBS did
- *                       not store then). Only attachment ids that are missing
- *                       from KBS are fetched, and the pages and records that
- *                       still point at Notion are rewritten to the stored file.
+ *   --retry-files       Re-download the Notion-hosted images and documents an
+ *                       earlier run left as Notion links (a failed download, or
+ *                       a type KBS did not store then). Only attachment ids
+ *                       that are missing from KBS are fetched, and the pages
+ *                       and records that still point at Notion are rewritten to
+ *                       the stored file. Video and audio blocks are always
+ *                       links and are not retried.
  *   --update            Refresh an existing import in place: pages whose body,
  *                       title, icon or cover changed in Notion, record titles
  *                       and property values, database names, and the structure
@@ -45,6 +47,17 @@
  *                       views). Only rows Notion edited after their stored
  *                       timestamp are touched, and no page, record or database
  *                       is ever inserted.
+ *   --prune-trashed     Remove the pages, records and databases Notion has
+ *                       moved to its trash, using the ids stored in
+ *                       `notion_objects`. Pages go to the KBS trash; record and
+ *                       database rows are removed and recorded in a prune
+ *                       manifest. Add --dry-run to preview. Needs a typed
+ *                       confirmation unless --yes.
+ *   --restore <manifest>  Put back exactly what a --prune-trashed run removed:
+ *                       un-trashes its pages and re-inserts its databases,
+ *                       properties, views, templates, records, relations and
+ *                       Notion ids. Existing rows are kept. Add --dry-run to
+ *                       preview.
  *   --manifest <file>   Where to write this run's manifest. Defaults to
  *                       data/import-manifests/notion-<timestamp>.json.
  *   --undo <manifest>   Delete exactly the rows and files a recorded run
@@ -73,7 +86,13 @@
  * formulas become KBS formulas when their expression translates; the rest keep
  * their computed Notion values in a number or text property. Buttons are
  * skipped: Notion's API returns the button but not the actions behind it, so
- * there is nothing to recreate them from.
+ * there is nothing to recreate them from. Video and audio blocks become links;
+ * a Notion-hosted one is a signed URL that expires, and `--retry-files` never
+ * sees those blocks. Rich-text and callout colours,
+ * callout icons and a toggle's collapsed state have no KBS equivalent and are
+ * dropped, and a date keeps only its day (its time and time zone are dropped).
+ * Comments are available from Notion's API, but KBS has no comment model to
+ * store them in, so they are not imported.
  *
  * Every run that writes also writes a manifest of the rows and files it created
  * (only the ones that were actually new) so the import can be undone exactly:
@@ -102,6 +121,19 @@
  * object a run wrote is stored in `notion_objects`, so `--update` can still name
  * one that disappeared from the walk (Notion omits trashed objects from search
  * results and from a parent's children).
+ *
+ * `--prune-trashed` is the explicit counterpart to that report: it asks Notion
+ * about every object recorded in `notion_objects` and removes the ones Notion
+ * says are trashed. Pages are soft-deleted, exactly as the KBS trash button
+ * does, so they can be restored; records and databases have no trash of their
+ * own, so their rows are deleted and the pages they own go to the trash.
+ * Nothing Notion did not trash is touched, and `--update` keeps reporting.
+ * Every removed row and trashed page is recorded in a prune manifest (default
+ * `data/import-manifests/notion-prune-<timestamp>.json`), and `--restore
+ * <manifest>` replays it: pages are un-trashed with their previous timestamps,
+ * the captured rows are inserted again, and rows that already exist are left
+ * alone. A page permanently deleted from the KBS trash cannot be un-trashed;
+ * the restore reports it instead of failing.
  */
 
 import "dotenv/config";
@@ -626,9 +658,10 @@ function rollupEntryText(entry: Json): string {
 
 /**
  * Notion writes arithmetic either infix or as a function call; KBS's formula
- * language has only the operators, so these map one to the other. A function
- * KBS cannot express (if, concat, comparisons, dates, pow, mod, …) makes the
- * whole expression untranslatable rather than silently wrong.
+ * language has the same operators, so these map one to the other. A function
+ * this translator does not map (if, concat, comparisons, dates, pow, mod, …)
+ * makes the whole expression untranslatable rather than silently wrong, even
+ * where KBS itself can now compute a value.
  */
 const NOTION_FORMULA_OPERATORS: Record<string, "+" | "-" | "*" | "/"> = {
   add: "+",
@@ -1093,15 +1126,31 @@ type ManifestFile = {
   size: number;
 };
 
+/** Which mode wrote a manifest. Old manifests without it are imports. */
+type ManifestRun = "import" | "update" | "retry-files";
+
+/**
+ * The Notion URL an attachment replaced. Undo restores it before deleting the
+ * bytes, so a page that still exists never references a missing attachment.
+ */
+type ManifestAttachmentSource = {
+  attachmentId: string;
+  url: string;
+  filename: string;
+  mimeType: string;
+};
+
 type ImportManifest = {
   format: "kbs-import-manifest";
   version: 1;
   kind: "notion";
+  run: ManifestRun;
   createdAt: string;
   database: string;
   roots: string[];
   rows: ManifestRows;
   files: ManifestFile[];
+  attachmentSources: ManifestAttachmentSource[];
   totals: { rows: number; files: number; bytes: number };
   undoneAt?: string;
   removed?: Record<string, number>;
@@ -1168,7 +1217,7 @@ type TrashedNotion = {
 };
 
 type AttachmentReplacement = {
-  attachmentId: string;
+  attachmentId: string | null;
   url: string;
   filename: string;
   mimeType: string;
@@ -1330,9 +1379,16 @@ class NotionImporter {
   private readonly fileUploadUrls = new Map<string, string>();
   private readonly writtenAttachments = new Set<string>();
   private readonly createdFiles = new Map<string, ManifestFile>();
+  /** The Notion URL each stored attachment replaced, for a manifest. */
+  private readonly attachmentSources = new Map<
+    string,
+    { url: string; filename: string; mimeType: string }
+  >();
   private readonly retryFiles = new Map<string, RetryFile>();
   /** Notion objects found in the trash during this walk, by kind and id. */
   private readonly trashed = new Map<string, TrashedNotion>();
+  /** Hosted video/audio kept as links; counted once in the run's warnings. */
+  private readonly hostedMedia: { type: string; blockId: string }[] = [];
   /** Attachments an earlier run stored; an update reuses them instead of fetching. */
   private readonly knownAttachments = new Map<string, StoredAttachment>();
   private readonly pendingRelationProperties: PendingRelationProperty[] = [];
@@ -1807,7 +1863,23 @@ class NotionImporter {
         return this.convertFileBlock(block, payload);
 
       case "video":
-      case "audio":
+      case "audio": {
+        // `file_upload` media has no inline URL: it has to be resolved through
+        // the same lookup images and file blocks use, or the block is dropped.
+        const url = (await this.fileUrl(payload)) || this.blockMediaUrl(payload);
+        if (!url) return [];
+        const hosted =
+          asString(payload.type) === "file" || asString(payload.type) === "file_upload";
+        // Notion signs its own media URLs and expires them. These blocks never
+        // go through storeMedia, so they are not downloaded and never enter the
+        // retry list: the link is all KBS will ever have, and it will rot. One
+        // warning per block would flood a media-heavy workspace, so the run
+        // counts them and prints a single line.
+        if (hosted) this.hostedMedia.push({ type, blockId: asString(block.id) });
+        const caption = plainTextFromRichText(asArray(payload.caption)) || url;
+        return [paragraphLink(caption, url)];
+      }
+
       case "embed":
       case "bookmark":
       case "link_preview": {
@@ -2125,6 +2197,11 @@ class NotionImporter {
     };
 
     this.model.attachments.set(attachmentId, attachment);
+    this.attachmentSources.set(attachmentId, {
+      url,
+      filename: attachment.filename,
+      mimeType,
+    });
     await this.writeAttachmentFile(attachmentId, downloaded.bytes);
 
     return {
@@ -2845,9 +2922,9 @@ class NotionImporter {
    * Turns Notion formulas into KBS formulas when the expression means the same
    * thing: both languages do arithmetic over number properties, so numbers,
    * `prop("…")` references, + - * /, parentheses and round() translate one to
-   * one (Notion's operators may be written infix or as functions). Anything
-   * else — if(), concat(), comparisons, dates, strings, pow(), mod(), … — has no
-   * KBS equivalent, so the values Notion computed are kept in a number or text
+   * one (Notion's operators may be written infix or as functions). Anything the
+   * translator does not map — if(), concat(), comparisons, dates, strings,
+   * pow(), mod(), … — keeps the values Notion computed in a number or text
    * property instead of leaving an empty column.
    */
   private resolveFormulas() {
@@ -3148,11 +3225,13 @@ class NotionImporter {
     try {
       // Media the walk downloaded for changed content, with the same
       // deterministic ids the import would have used.
+      const addedAttachments: string[] = [];
       for (const batch of batches([...this.model.attachments.values()], 400)) {
-        await client.query(
+        const inserted = await client.query<{ id: string }>(
           `INSERT INTO attachments (id, filename, mime_type, size)
            SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[], $4::int[])
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id`,
           [
             batch.map((attachment) => attachment.id),
             batch.map((attachment) => attachment.filename),
@@ -3160,8 +3239,12 @@ class NotionImporter {
             batch.map((attachment) => attachment.size),
           ],
         );
+        addedAttachments.push(...inserted.rows.map((row) => row.id));
       }
 
+      // What this run adds is recorded so a later --undo can remove it. Content
+      // changes and parent moves are not additions; they have no row to delete.
+      const additions = emptyRows();
       const databaseByPageId = new Map(
         this.model.databases.map((database) => [database.pageId, database]),
       );
@@ -3274,6 +3357,7 @@ class NotionImporter {
             pageLinksChanged += structure.links;
             if (!contentChanged) changes.push(`links in page "${page.title}"`);
           }
+          additions.pageLinks.push(...structure.addedLinks);
 
           const refreshedDatabase = databaseByPageId.get(page.id);
           if (refreshedDatabase) refreshedDatabases.add(refreshedDatabase.id);
@@ -3326,10 +3410,11 @@ class NotionImporter {
             record,
             relationPropertyIds.get(record.databaseId) ?? [],
           );
-          if (relations > 0) {
-            relationsChanged += relations;
+          if (relations.changed > 0) {
+            relationsChanged += relations.changed;
             if (!contentChanged) changes.push(`relations of record "${record.title}"`);
           }
+          additions.databaseRecordRelations.push(...relations.added);
         }
       }
 
@@ -3345,7 +3430,13 @@ class NotionImporter {
           viewsChanged += synced.views;
           changes.push(`views of database "${synced.name}"`);
         }
+        additions.databaseProperties.push(...synced.addedProperties);
+        additions.databaseViews.push(...synced.addedViews);
       }
+
+      additions.attachments = [
+        ...new Set([...addedAttachments, ...this.createdFiles.keys()]),
+      ];
 
       // Store the Notion ids this walk saw before looking for the objects it
       // did not, so a newly imported page is never mistaken for a missing one.
@@ -3359,7 +3450,7 @@ class NotionImporter {
         `  pages:              ${this.model.pages.length - missingPages} checked, ${pagesUpdated} updated`,
         `  records:            ${this.model.records.length - missingRecords} checked, ${recordsUpdated} updated`,
         `  databases:          ${this.model.databases.length} checked, ${databasesRenamed} renamed`,
-        `  attachments:        ${this.model.attachments.size} added`,
+        `  attachments:        ${additions.attachments.length} added`,
         `  not in KBS:         ${skipped} skipped${skipped > 0 ? ` (${missingPages} pages, ${missingRecords} records — run the import first)` : ""}`,
         `  newer in KBS:       ${pagesNewer} pages, ${recordsNewer} records kept their local edits`,
         `  structure:          ${parentsUpdated} parents, ${relationsChanged} relations, ${pageLinksChanged} page links, ${propertiesChanged} properties, ${viewsChanged} views`,
@@ -3401,6 +3492,26 @@ class NotionImporter {
 
       lines.push(...this.warningLines());
       console.log(lines.join("\n"));
+
+      const attachmentSources: ManifestAttachmentSource[] = [];
+      for (const attachmentId of additions.attachments) {
+        const source = this.attachmentSources.get(attachmentId);
+        if (source) attachmentSources.push({ attachmentId, ...source });
+      }
+      const manifestFile = await saveManifest({
+        databaseName: await currentDatabaseName(client),
+        roots: this.rootNotionIds,
+        rows: additions,
+        files: [...this.createdFiles.values()],
+        attachmentSources,
+        run: "update",
+        destination: this.options.manifestPath,
+      });
+      console.log(
+        manifestFile
+          ? `Update manifest: ${manifestFile}\nUndo this run with: npm run import:notion -- --undo "${manifestFile}"`
+          : "No rows or files were added, so there is nothing for --undo to remove.",
+      );
     } finally {
       await client.end();
     }
@@ -3415,7 +3526,7 @@ class NotionImporter {
     client: Client,
     page: PageRow,
     storedParentId: string | null,
-  ): Promise<{ parent: boolean; links: number }> {
+  ): Promise<{ parent: boolean; links: number; addedLinks: ManifestPageLink[] }> {
     let parent = false;
     const nextParent = page.parentId ?? null;
     if (nextParent !== (storedParentId ?? null)) {
@@ -3452,6 +3563,7 @@ class NotionImporter {
     const added = [...after].filter((id) => !before.has(id));
 
     let links = 0;
+    let addedLinks: ManifestPageLink[] = [];
     if (removed.length > 0) {
       const deleted = await client.query(
         `DELETE FROM page_links
@@ -3463,18 +3575,23 @@ class NotionImporter {
     if (added.length > 0) {
       // A link to a page that is not in KBS (a partial import, or a page
       // trashed since) is dropped instead of failing the foreign key.
-      const inserted = await client.query(
+      const inserted = await client.query<{ source_page_id: string; target_page_id: string }>(
         `INSERT INTO page_links (source_page_id, target_page_id, origin)
          SELECT $1, target.id, 'inline'
          FROM pages AS target
          WHERE target.id = ANY($2::uuid[])
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT DO NOTHING
+         RETURNING source_page_id, target_page_id`,
         [page.id, added],
       );
       links += inserted.rowCount ?? 0;
+      addedLinks = inserted.rows.map((link) => ({
+        sourcePageId: link.source_page_id,
+        targetPageId: link.target_page_id,
+      }));
     }
 
-    return { parent, links };
+    return { parent, links, addedLinks };
   }
 
   /**
@@ -3486,8 +3603,8 @@ class NotionImporter {
     client: Client,
     record: RecordRow,
     relationPropertyIds: string[],
-  ): Promise<number> {
-    if (relationPropertyIds.length === 0) return 0;
+  ): Promise<{ changed: number; added: ManifestRelation[] }> {
+    if (relationPropertyIds.length === 0) return { changed: 0, added: [] };
 
     const relationProperties = new Set(relationPropertyIds);
     const wanted = new Map<string, Set<string>>();
@@ -3513,6 +3630,7 @@ class NotionImporter {
     }
 
     let changed = 0;
+    const addedRelations: ManifestRelation[] = [];
     for (const propertyId of relationPropertyIds) {
       const current = before.get(propertyId) ?? new Set<string>();
       const next = wanted.get(propertyId) ?? new Set<string>();
@@ -3528,19 +3646,29 @@ class NotionImporter {
         changed += deleted.rowCount ?? 0;
       }
       if (added.length > 0) {
-        const inserted = await client.query(
+        const inserted = await client.query<{
+          source_record_id: string;
+          property_id: string;
+          target_record_id: string;
+        }>(
           `INSERT INTO database_record_relations (source_record_id, property_id, target_record_id)
            SELECT $1, $2, target.id
            FROM database_records AS target
            WHERE target.id = ANY($3::uuid[])
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT DO NOTHING
+           RETURNING source_record_id, property_id, target_record_id`,
           [record.id, propertyId, added],
         );
         changed += inserted.rowCount ?? 0;
+        addedRelations.push(...inserted.rows.map((relation) => ({
+          sourceRecordId: relation.source_record_id,
+          propertyId: relation.property_id,
+          targetRecordId: relation.target_record_id,
+        })));
       }
     }
 
-    return changed;
+    return { changed, added: addedRelations };
   }
 
   /**
@@ -3553,7 +3681,13 @@ class NotionImporter {
   private async syncDatabaseStructure(
     client: Client,
     databaseId: string,
-  ): Promise<{ name: string; properties: number; views: number }> {
+  ): Promise<{
+    name: string;
+    properties: number;
+    views: number;
+    addedProperties: string[];
+    addedViews: string[];
+  }> {
     const database = this.model.databases.find((row) => row.id === databaseId);
     const name = database?.name ?? databaseId;
     const properties = this.model.properties.filter((row) => row.databaseId === databaseId);
@@ -3571,6 +3705,7 @@ class NotionImporter {
     );
     const stored = new Map(existing.rows.map((row) => [row.id, row]));
     let propertyChanges = 0;
+    const addedProperties: string[] = [];
 
     for (const property of properties) {
       const row = stored.get(property.id);
@@ -3581,7 +3716,8 @@ class NotionImporter {
           `INSERT INTO database_properties
              (id, database_id, name, type, options, sort_order, created_at)
            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
           [
             property.id,
             property.databaseId,
@@ -3592,6 +3728,7 @@ class NotionImporter {
             property.createdAt,
           ],
         );
+        if ((inserted.rowCount ?? 0) > 0) addedProperties.push(property.id);
         propertyChanges += inserted.rowCount ?? 0;
         continue;
       }
@@ -3621,7 +3758,15 @@ class NotionImporter {
     }
 
     const dataSourceId = this.dataSourceByDatabase.get(databaseId);
-    if (!dataSourceId) return { name, properties: propertyChanges, views: 0 };
+    if (!dataSourceId) {
+      return {
+        name,
+        properties: propertyChanges,
+        views: 0,
+        addedProperties,
+        addedViews: [],
+      };
+    }
 
     const tableId = kbsId("view", dataSourceId);
     const boardId = kbsId("view-board", dataSourceId);
@@ -3633,6 +3778,7 @@ class NotionImporter {
     const storedViews = new Map(views.rows.map((row) => [row.id, row]));
     let viewChanges = 0;
 
+    const addedViews: string[] = [];
     const insertView = async (view: ViewRow) => {
       const inserted = await client.query(
         `INSERT INTO database_views
@@ -3649,6 +3795,7 @@ class NotionImporter {
           view.createdAt,
         ],
       );
+      if ((inserted.rowCount ?? 0) > 0) addedViews.push(view.id);
       return inserted.rowCount ?? 0;
     };
 
@@ -3680,7 +3827,13 @@ class NotionImporter {
       viewChanges += deleted.rowCount ?? 0;
     }
 
-    return { name, properties: propertyChanges, views: viewChanges };
+    return {
+      name,
+      properties: propertyChanges,
+      views: viewChanges,
+      addedProperties,
+      addedViews,
+    };
   }
 
   /** The trashed objects this walk found that still have a row in KBS. */
@@ -3801,27 +3954,7 @@ class NotionImporter {
 
   /** The current label of a Notion object when it is trashed, otherwise null. */
   private async trashedNotionLabel(kind: string, notionId: string): Promise<string | null> {
-    const endpoints =
-      kind === "database"
-        ? [`/databases/${notionId}`, `/data_sources/${notionId}`]
-        : [`/pages/${notionId}`];
-
-    for (const endpoint of endpoints) {
-      let payload: Json;
-      try {
-        payload = await this.client.request(endpoint);
-      } catch (error) {
-        // Notion keeps a trashed object retrievable; a 404 means it is gone or
-        // no longer shared, which is not something this report can name.
-        if (error instanceof NotionApiError && error.status === 404) continue;
-        throw error;
-      }
-      if (!asBoolean(payload.in_trash) && !asBoolean(payload.archived)) return null;
-      return kind === "database"
-        ? plainTextFromRichText(asArray(payload.title))
-        : pageTitle(payload);
-    }
-    return null;
+    return notionTrashLabel(this.client, kind, notionId);
   }
 
   // -- File retry -----------------------------------------------------------
@@ -3883,6 +4016,8 @@ class NotionImporter {
       }
 
       const fetched: string[] = [];
+      const fetchedFiles: ManifestFile[] = [];
+      const attachmentSources: ManifestAttachmentSource[] = [];
       const failures: string[] = [];
       const notes: string[] = [];
 
@@ -3922,6 +4057,17 @@ class NotionImporter {
         }
 
         fetched.push(file.attachmentId);
+        fetchedFiles.push({
+          attachmentId: file.attachmentId,
+          path: path.join(directory, file.attachmentId),
+          size,
+        });
+        attachmentSources.push({
+          attachmentId: file.attachmentId,
+          url: file.url,
+          filename: existing?.filename ?? filename,
+          mimeType: existing?.mimeType ?? mimeType,
+        });
         replacements.set(attachmentSourceUrl(file.url), {
           attachmentId: file.attachmentId,
           url: attachmentUrl(file.attachmentId),
@@ -3930,12 +4076,12 @@ class NotionImporter {
         });
       }
 
-      const pagesUpdated = await this.patchPageReferences(
+      const pagesUpdated = await patchPageReferences(
         client,
         this.model.pages.map((page) => page.id),
         replacements,
       );
-      const recordsUpdated = await this.patchRecordReferences(
+      const recordsUpdated = await patchRecordReferences(
         client,
         this.model.records.map((record) => record.id),
         replacements,
@@ -3968,106 +4114,32 @@ class NotionImporter {
 
       lines.push(...this.warningLines());
       console.log(lines.join("\n"));
+
+      // Files this run stored are exactly what a later --undo has to remove:
+      // the Notion URL each one replaced is kept so the references can be put
+      // back before the bytes go away.
+      if (fetched.length > 0) {
+        const rows = emptyRows();
+        rows.attachments = [...fetched];
+        const manifestFile = await saveManifest({
+          databaseName: await currentDatabaseName(client),
+          roots: this.rootNotionIds,
+          rows,
+          files: fetchedFiles,
+          attachmentSources,
+          run: "retry-files",
+          destination: this.options.manifestPath,
+        });
+        if (manifestFile) {
+          console.log(
+            `Retry manifest: ${manifestFile}\nUndo this run with: npm run import:notion -- --undo "${manifestFile}"`,
+          );
+        }
+      }
       return failures.length === 0;
     } finally {
       await client.end();
     }
-  }
-
-  /** Rewrites Notion file URLs in page documents and covers. */
-  private async patchPageReferences(
-    client: Client,
-    pageIds: string[],
-    replacements: ReadonlyMap<string, AttachmentReplacement>,
-  ): Promise<number> {
-    if (replacements.size === 0 || pageIds.length === 0) return 0;
-    let updated = 0;
-
-    for (const ids of batches(pageIds, 500)) {
-      const result = await client.query<{
-        id: string;
-        content_json: DocNode;
-        cover_image_url: string | null;
-      }>(
-        `SELECT id, content_json, cover_image_url FROM pages WHERE id = ANY($1::uuid[])`,
-        [ids],
-      );
-
-      for (const row of result.rows) {
-        const document = asRecord(row.content_json) as DocNode;
-        let changed = replaceDocumentUrls(document, replacements);
-        let cover = row.cover_image_url;
-        if (cover) {
-          const replacement = replacements.get(attachmentSourceUrl(cover));
-          if (replacement) {
-            cover = replacement.url;
-            changed = true;
-          }
-        }
-        if (!changed) continue;
-
-        await client.query(
-          `UPDATE pages SET content_json = $2::jsonb, content = $3, cover_image_url = $4 WHERE id = $1`,
-          [
-            row.id,
-            JSON.stringify(document),
-            documentToPlainText(document).slice(0, 2_000_000),
-            cover,
-          ],
-        );
-        updated += 1;
-      }
-    }
-
-    return updated;
-  }
-
-  /** Rewrites the Notion file URL a file property value still holds. */
-  private async patchRecordReferences(
-    client: Client,
-    recordIds: string[],
-    replacements: ReadonlyMap<string, AttachmentReplacement>,
-  ): Promise<number> {
-    if (replacements.size === 0 || recordIds.length === 0) return 0;
-    let updated = 0;
-
-    for (const ids of batches(recordIds, 500)) {
-      const result = await client.query<{ id: string; values: Json }>(
-        `SELECT id, values FROM database_records WHERE id = ANY($1::uuid[])`,
-        [ids],
-      );
-
-      for (const row of result.rows) {
-        let changed = false;
-        for (const [propertyId, rawValue] of Object.entries(asRecord(row.values))) {
-          if (typeof rawValue !== "object" || rawValue === null || Array.isArray(rawValue)) continue;
-          const value = asRecord(rawValue);
-          const url = asString(value.url);
-          if (!url) continue;
-          const replacement = replacements.get(attachmentSourceUrl(url));
-          if (!replacement) continue;
-          row.values[propertyId] = {
-            ...value,
-            attachmentId: replacement.attachmentId,
-            url: replacement.url,
-            filename: replacement.filename,
-            mimeType: replacement.mimeType,
-          };
-          changed = true;
-        }
-        if (!changed) continue;
-
-        // The timestamp stays as it was: `--update` compares Notion's
-        // last-edited time with it, and rewriting a URL is not a Notion edit.
-        await client.query(
-          `UPDATE database_records SET values = $2::jsonb WHERE id = $1`,
-          [row.id, JSON.stringify(row.values)],
-        );
-        updated += 1;
-      }
-    }
-
-    return updated;
   }
 
   // -- Reporting ------------------------------------------------------------
@@ -4227,13 +4299,34 @@ class NotionImporter {
    * snapshot, …). Every write mode prints them, so a quiet summary never hides
    * something the update or retry could not bring over.
    */
+  /** One line for every hosted video/audio block the walk had to keep as a link. */
+  private hostedMediaWarning(): string | null {
+    const count = this.hostedMedia.length;
+    if (count === 0) return null;
+    const video = this.hostedMedia.filter((block) => block.type === "video").length;
+    const audio = count - video;
+    const kinds = [
+      video > 0 ? `${video} video` : "",
+      audio > 0 ? `${audio} audio` : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return [
+      `${count} Notion-hosted video/audio ${count === 1 ? "block" : "blocks"}`,
+      `kept as ${count === 1 ? "an expiring link" : "expiring links"} (${kinds});`,
+      `--retry-files cannot refresh ${count === 1 ? "it" : "them"}.`,
+    ].join(" ");
+  }
+
   private warningLines(): string[] {
-    if (this.warnings.length === 0) return [];
+    const summary = this.hostedMediaWarning();
+    if (this.warnings.length === 0 && !summary) return [];
     const lines = ["", "Warnings:"];
     for (const warning of this.warnings) lines.push(`  - ${warning}`);
     if (this.warnings.length >= MAX_WARNINGS) {
       lines.push(`  - … only the first ${MAX_WARNINGS} are shown`);
     }
+    if (summary) lines.push(`  - ${summary}`);
     return lines;
   }
 
@@ -4242,6 +4335,7 @@ class NotionImporter {
       (total, attachment) => total + attachment.size,
       0,
     );
+    const warningCount = this.warnings.length + (this.hostedMediaWarning() ? 1 : 0);
     const lines = [
       "",
       this.options.verify
@@ -4273,7 +4367,7 @@ class NotionImporter {
       `  record relations:   ${this.model.relations.length}`,
       `  page links:         ${this.model.pageLinks.length}`,
       `  files:              ${this.model.attachments.size} (${(attachmentBytes / (1024 * 1024)).toFixed(1)} MB)`,
-      `  warnings:           ${this.warnings.length}${this.warnings.length >= MAX_WARNINGS ? " (first " + MAX_WARNINGS + " kept)" : ""}`,
+      `  warnings:           ${warningCount}${this.warnings.length >= MAX_WARNINGS ? " (first " + MAX_WARNINGS + " kept)" : ""}`,
       `  elapsed:            ${(elapsedMs / 1000).toFixed(1)}s`,
     ];
 
@@ -4564,6 +4658,130 @@ async function upsertNotionObjects(client: Client, objects: NotionObjectRow[]) {
   }
 }
 
+/** Rewrites Notion file URLs in page documents and covers. */
+async function patchPageReferences(
+  client: Client,
+  pageIds: string[],
+  replacements: ReadonlyMap<string, AttachmentReplacement>,
+): Promise<number> {
+  if (replacements.size === 0 || pageIds.length === 0) return 0;
+  let updated = 0;
+
+  for (const ids of batches(pageIds, 500)) {
+    const result = await client.query<{
+      id: string;
+      content_json: DocNode;
+      cover_image_url: string | null;
+    }>(
+      `SELECT id, content_json, cover_image_url FROM pages WHERE id = ANY($1::uuid[])`,
+      [ids],
+    );
+
+    for (const row of result.rows) {
+      const document = asRecord(row.content_json) as DocNode;
+      let changed = replaceDocumentUrls(document, replacements);
+      let cover = row.cover_image_url;
+      if (cover) {
+        const replacement = replacements.get(attachmentSourceUrl(cover));
+        if (replacement) {
+          cover = replacement.url;
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+
+      await client.query(
+        `UPDATE pages SET content_json = $2::jsonb, content = $3, cover_image_url = $4 WHERE id = $1`,
+        [
+          row.id,
+          JSON.stringify(document),
+          documentToPlainText(document).slice(0, 2_000_000),
+          cover,
+        ],
+      );
+      updated += 1;
+    }
+  }
+
+  return updated;
+}
+
+/** Rewrites the Notion file URL a file property value still holds. */
+async function patchRecordReferences(
+  client: Client,
+  recordIds: string[],
+  replacements: ReadonlyMap<string, AttachmentReplacement>,
+): Promise<number> {
+  if (replacements.size === 0 || recordIds.length === 0) return 0;
+  let updated = 0;
+
+  for (const ids of batches(recordIds, 500)) {
+    const result = await client.query<{ id: string; values: Json }>(
+      `SELECT id, values FROM database_records WHERE id = ANY($1::uuid[])`,
+      [ids],
+    );
+
+    for (const row of result.rows) {
+      let changed = false;
+      for (const [propertyId, rawValue] of Object.entries(asRecord(row.values))) {
+        if (typeof rawValue !== "object" || rawValue === null || Array.isArray(rawValue)) continue;
+        const value = asRecord(rawValue);
+        const url = asString(value.url);
+        if (!url) continue;
+        const replacement = replacements.get(attachmentSourceUrl(url));
+        if (!replacement) continue;
+        row.values[propertyId] = {
+          ...value,
+          attachmentId: replacement.attachmentId,
+          url: replacement.url,
+          filename: replacement.filename,
+          mimeType: replacement.mimeType,
+        };
+        changed = true;
+      }
+      if (!changed) continue;
+
+      // The timestamp stays as it was: `--update` compares Notion's
+      // last-edited time with it, and rewriting a URL is not a Notion edit.
+      await client.query(
+        `UPDATE database_records SET values = $2::jsonb WHERE id = $1`,
+        [row.id, JSON.stringify(row.values)],
+      );
+      updated += 1;
+    }
+  }
+
+  return updated;
+}
+
+/**
+ * The pages and records whose JSON holds one of these attachment URLs. Undo
+ * uses this to put the Notion URL back before the attachment rows are deleted.
+ */
+async function attachmentReferenceIds(
+  client: Client,
+  urls: string[],
+): Promise<{ pageIds: string[]; recordIds: string[] }> {
+  const pageIds = new Set<string>();
+  const recordIds = new Set<string>();
+  for (const batch of batches(urls, 100)) {
+    const patterns = batch.map((url) => `%${url}%`);
+    const pages = await client.query<{ id: string }>(
+      `SELECT id FROM pages
+       WHERE content_json::text LIKE ANY($1::text[]) OR cover_image_url LIKE ANY($1::text[])`,
+      [patterns],
+    );
+    for (const row of pages.rows) pageIds.add(row.id);
+
+    const records = await client.query<{ id: string }>(
+      `SELECT id FROM database_records WHERE values::text LIKE ANY($1::text[])`,
+      [patterns],
+    );
+    for (const row of records.rows) recordIds.add(row.id);
+  }
+  return { pageIds: [...pageIds], recordIds: [...recordIds] };
+}
+
 async function dumpImportModel(model: ImportModel, destination: string, warnings: string[]) {
   const file = path.resolve(process.cwd(), destination);
   await mkdir(path.dirname(file), { recursive: true });
@@ -4772,6 +4990,8 @@ export async function writeImportModel(
         roots: context.roots,
         rows,
         files: context.files,
+        attachmentSources: [],
+        run: "import",
         destination: context.manifestPath,
       });
 
@@ -4843,9 +5063,10 @@ function countManifestRows(rows: ManifestRows): number {
   );
 }
 
-function defaultManifestPath(): string {
+function defaultManifestPath(run: ManifestRun): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").slice(0, 19);
-  return path.join(process.cwd(), "data", "import-manifests", `notion-${stamp}.json`);
+  const prefix = run === "update" ? "notion-update" : run === "retry-files" ? "notion-retry-files" : "notion";
+  return path.join(process.cwd(), "data", "import-manifests", `${prefix}-${stamp}.json`);
 }
 
 async function currentDatabaseName(client: Client): Promise<string> {
@@ -4858,6 +5079,8 @@ async function saveManifest(input: {
   roots: string[];
   rows: ManifestRows;
   files: ManifestFile[];
+  attachmentSources: ManifestAttachmentSource[];
+  run: ManifestRun;
   destination: string | null;
 }): Promise<string | null> {
   const totals = {
@@ -4871,16 +5094,18 @@ async function saveManifest(input: {
     format: MANIFEST_FORMAT,
     version: MANIFEST_VERSION,
     kind: "notion",
+    run: input.run,
     createdAt: new Date().toISOString(),
     database: input.databaseName,
     roots: input.roots,
     rows: input.rows,
     files: input.files,
+    attachmentSources: input.attachmentSources,
     totals,
   };
   const file = input.destination
     ? path.resolve(process.cwd(), input.destination)
-    : defaultManifestPath();
+    : defaultManifestPath(input.run);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   return file;
@@ -4931,6 +5156,18 @@ function manifestRows(value: unknown): ManifestRows {
   };
 }
 
+function manifestAttachmentSources(value: unknown): ManifestAttachmentSource[] {
+  return (Array.isArray(value) ? value : [])
+    .map((entry) => asRecord(entry))
+    .map((source) => ({
+      attachmentId: asString(source.attachmentId),
+      url: asString(source.url),
+      filename: asString(source.filename),
+      mimeType: asString(source.mimeType),
+    }))
+    .filter((source) => source.attachmentId && source.url);
+}
+
 function manifestFiles(value: unknown): ManifestFile[] {
   return (Array.isArray(value) ? value : [])
     .map((entry) => asRecord(entry))
@@ -4971,15 +5208,19 @@ async function readManifest(file: string): Promise<ImportManifest> {
 
   const totals = asRecord(value.totals);
   const undoneAt = asString(value.undoneAt);
+  const run =
+    value.run === "update" || value.run === "retry-files" ? value.run : "import";
   return {
     format: MANIFEST_FORMAT,
     version: MANIFEST_VERSION,
     kind: "notion",
+    run,
     createdAt: asString(value.createdAt),
     database: asString(value.database),
     roots: asStringArray(value.roots),
     rows: manifestRows(value.rows),
     files: manifestFiles(value.files),
+    attachmentSources: manifestAttachmentSources(value.attachmentSources),
     totals: {
       rows: typeof totals.rows === "number" ? totals.rows : 0,
       files: typeof totals.files === "number" ? totals.files : 0,
@@ -4996,8 +5237,14 @@ function describeManifest(manifest: ImportManifest): string {
     manifest.files.length > 0
       ? ` (${manifest.files.length} file(s), ${megabytes.toFixed(1)} MB)`
       : "";
+  const label =
+    manifest.run === "update"
+      ? "Update manifest"
+      : manifest.run === "retry-files"
+        ? "File retry manifest"
+        : "Import manifest";
   return [
-    `Import manifest for database "${manifest.database}", recorded ${manifest.createdAt}`,
+    `${label} for database "${manifest.database}", recorded ${manifest.createdAt}`,
     `  pages:            ${rows.pages.length}`,
     `  databases:        ${rows.databases.length} (${rows.databaseProperties.length} properties, ${rows.databaseViews.length} views)`,
     `  records:          ${rows.databaseRecords.length}`,
@@ -5151,7 +5398,7 @@ async function removeManifestFiles(
   return cleanup;
 }
 
-async function confirmUndo(): Promise<void> {
+async function confirmRemoval(word: string, prompt: string, cancelled: string): Promise<void> {
   if (!process.stdin.isTTY) {
     throw new Error(
       "Refusing to delete without confirmation in a non-interactive shell. Re-run with --yes.",
@@ -5159,13 +5406,27 @@ async function confirmUndo(): Promise<void> {
   }
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = await readline.question('\nType "undo" to delete these rows and files: ');
-    if (answer.trim().toLowerCase() !== "undo") {
-      throw new Error("Undo cancelled; nothing was deleted.");
-    }
+    const answer = await readline.question(prompt);
+    if (answer.trim().toLowerCase() !== word) throw new Error(cancelled);
   } finally {
     readline.close();
   }
+}
+
+function confirmUndo(): Promise<void> {
+  return confirmRemoval(
+    "undo",
+    '\nType "undo" to delete these rows and files: ',
+    "Undo cancelled; nothing was deleted.",
+  );
+}
+
+function confirmPrune(): Promise<void> {
+  return confirmRemoval(
+    "prune",
+    '\nType "prune" to trash these pages and remove these records and databases: ',
+    "Prune cancelled; nothing was removed.",
+  );
 }
 
 export async function undoImport(manifestArgument: string, options: UndoOptions): Promise<void> {
@@ -5197,9 +5458,29 @@ export async function undoImport(manifestArgument: string, options: UndoOptions)
     if (!options.yes) await confirmUndo();
 
     const rows = manifest.rows;
+    const sources = manifest.attachmentSources;
     const removed: Record<string, number> = {};
     await client.query("BEGIN");
     try {
+      // An update or a file retry stored bytes that refreshed content now
+      // points at. Put the Notion URL back first, or deleting the attachment
+      // would leave the page linked to a file that no longer exists.
+      removed.references = 0;
+      if (sources.length > 0) {
+        const replacements = new Map<string, AttachmentReplacement>();
+        for (const source of sources) {
+          replacements.set(attachmentUrl(source.attachmentId), {
+            attachmentId: null,
+            url: source.url,
+            filename: source.filename,
+            mimeType: source.mimeType,
+          });
+        }
+        const affected = await attachmentReferenceIds(client, [...replacements.keys()]);
+        removed.references += await patchPageReferences(client, affected.pageIds, replacements);
+        removed.references += await patchRecordReferences(client, affected.recordIds, replacements);
+      }
+
       removed.pageLinks = await deletePageLinkRows(client, rows.pageLinks);
       removed.relations = await deleteRelationRows(client, rows.databaseRecordRelations);
       removed.records = await deleteIdRows(client, "database_records", rows.databaseRecords);
@@ -5213,7 +5494,16 @@ export async function undoImport(manifestArgument: string, options: UndoOptions)
         ...rows.databases,
         ...rows.databaseRecords,
       ]);
-      removed.attachments = await deleteUnreferencedAttachments(client, rows.attachments);
+      const restoredIds = new Set(sources.map((source) => source.attachmentId));
+      removed.attachments = await deleteIdRows(
+        client,
+        "attachments",
+        sources.map((source) => source.attachmentId),
+      );
+      removed.attachments += await deleteUnreferencedAttachments(
+        client,
+        rows.attachments.filter((id) => !restoredIds.has(id)),
+      );
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -5225,24 +5515,775 @@ export async function undoImport(manifestArgument: string, options: UndoOptions)
     manifest.removed = removed;
     await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
+    const summary = ["", "Undone:"];
+    if (rows.pages.length > 0 || removed.pages > 0) {
+      summary.push(`  pages:            ${removed.pages} of ${rows.pages.length}`);
+    }
+    if (rows.databases.length > 0) {
+      summary.push(`  databases:        ${removed.databases} of ${rows.databases.length}`);
+    }
+    if (rows.databaseProperties.length > 0) {
+      summary.push(`  properties:       ${removed.properties} of ${rows.databaseProperties.length}`);
+    }
+    if (rows.databaseViews.length > 0) {
+      summary.push(`  views:            ${removed.views} of ${rows.databaseViews.length}`);
+    }
+    if (rows.databaseRecords.length > 0) {
+      summary.push(`  records:          ${removed.records} of ${rows.databaseRecords.length}`);
+    }
+    if (rows.databaseRecordRelations.length > 0) {
+      summary.push(`  relations:        ${removed.relations} of ${rows.databaseRecordRelations.length}`);
+    }
+    if (rows.pageLinks.length > 0) {
+      summary.push(`  page links:       ${removed.pageLinks} of ${rows.pageLinks.length}`);
+    }
+    if (rows.parentLinks.length > 0) {
+      summary.push(`  parent links:     ${removed.parentLinks} restored`);
+    }
+    if (removed.notionObjects > 0) {
+      summary.push(`  notion ids:       ${removed.notionObjects} forgotten`);
+    }
+    if (rows.attachments.length > 0) {
+      summary.push(
+        `  attachments:      ${removed.attachments} of ${rows.attachments.length} (the rest are still used elsewhere)`,
+      );
+    }
+    if (removed.references > 0) {
+      summary.push(`  content:          ${removed.references} attachment references restored to Notion`);
+    }
+    summary.push(
+      `  files:            ${files.deleted} deleted, ${files.kept} kept (still referenced), ${files.changed} kept (changed on disk), ${files.missing} already gone${files.failed > 0 ? `, ${files.failed} could not be removed` : ""}`,
+      `  manifest:         ${file} (marked undone)`,
+    );
+    console.log(summary.join("\n"));
+  } finally {
+    await client.end();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pruning what Notion trashed
+// ---------------------------------------------------------------------------
+
+type PruneOptions = {
+  dryRun: boolean;
+  yes: boolean;
+};
+
+/** A recorded Notion object that Notion now reports in its trash. */
+type TrashedCandidate = {
+  kind: TrashedNotion["kind"];
+  notionId: string;
+  kbsId: string;
+  label: string;
+};
+
+/**
+ * The label of a Notion object when Notion reports it trashed, otherwise null.
+ * A 404 is not trashed: the object was deleted permanently or is no longer
+ * shared, and neither is a reason to remove a KBS row.
+ */
+async function notionTrashLabel(
+  notion: NotionClient,
+  kind: string,
+  notionId: string,
+): Promise<string | null> {
+  const endpoints =
+    kind === "database"
+      ? [`/databases/${notionId}`, `/data_sources/${notionId}`]
+      : [`/pages/${notionId}`];
+
+  for (const endpoint of endpoints) {
+    let payload: Json;
+    try {
+      payload = await notion.request(endpoint);
+    } catch (error) {
+      // Notion keeps a trashed object retrievable; a 404 means it is gone or
+      // no longer shared, which is not a trash state this mode can act on.
+      if (error instanceof NotionApiError && error.status === 404) continue;
+      throw error;
+    }
+    if (!asBoolean(payload.in_trash) && !asBoolean(payload.archived)) return null;
+    return kind === "database"
+      ? plainTextFromRichText(asArray(payload.title))
+      : pageTitle(payload);
+  }
+  return null;
+}
+
+/** The ids among `ids` whose page row is, or is not, already in the KBS trash. */
+async function pageIdsByTrashState(
+  client: Client,
+  ids: string[],
+  trashed: boolean,
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (const batch of batches(ids, 2000)) {
+    const result = await client.query<{ id: string }>(
+      `SELECT id FROM pages
+       WHERE deleted_at IS ${trashed ? "NOT NULL" : "NULL"} AND id = ANY($1::uuid[])`,
+      [batch],
+    );
+    for (const row of result.rows) found.add(row.id);
+  }
+  return found;
+}
+
+/** Soft-deletes pages exactly as the app's trash action does. */
+async function trashPageRows(client: Client, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const result = await client.query(
+    `UPDATE pages SET deleted_at = now(), updated_at = now()
+     WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [ids],
+  );
+  return result.rowCount ?? 0;
+}
+
+/**
+ * Removes the pages, records and databases Notion has moved to its trash.
+ *
+ * `--update` reports those objects but never acts on them; this mode is the
+ * explicit opt-in. Candidates come from `notion_objects`, so an object trashed
+ * after the import is found even though Notion omits it from search results and
+ * from its parent's children, and nothing KBS added on its own is considered.
+ * A 404 is ignored: a permanently deleted or unshared object is not something
+ * this mode can name, and guessing would remove rows on a revoked integration.
+ *
+ * Pages are soft-deleted, exactly as the KBS trash button does, so they can be
+ * restored. Records and databases have no trash of their own, so their rows are
+ * removed; the pages that records own, and the page that groups a database, go
+ * to the trash with them. Attachment bytes are left alone: a trashed page still
+ * references them, and the trash's permanent delete removes the unused ones.
+ */
+export async function pruneTrashedImport(options: PruneOptions): Promise<void> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error("DATABASE_URL is required to prune trashed objects.");
+  const token = (process.env.NOTION_TOKEN ?? "").trim();
+  if (!token) {
+    throw new Error("NOTION_TOKEN is required to check which objects Notion has in its trash.");
+  }
+
+  const apiBase = (process.env.NOTION_API_BASE ?? DEFAULT_API_BASE).trim() || DEFAULT_API_BASE;
+  const notion = new NotionClient(token, apiBase);
+  const client = new Client({ connectionString, application_name: "kbs-notion-prune" });
+  await client.connect();
+
+  try {
+    const mapped = (
+      await client.query<{
+        notion_id: string;
+        kind: string;
+        kbs_id: string;
+        label: string;
+      }>("SELECT notion_id, kind, kbs_id, label FROM notion_objects ORDER BY kind, label")
+    ).rows;
+
+    if (mapped.length === 0) {
+      console.log(
+        "No Notion ids are recorded in this database, so there is nothing to compare with Notion's trash. Run the import first.",
+      );
+      return;
+    }
+
+    const idsOf = (kind: string) =>
+      mapped.filter((row) => row.kind === kind).map((row) => row.kbs_id);
+    const livePages = await pageIdsByTrashState(client, idsOf("page"), false);
+    const trashedPages = await pageIdsByTrashState(client, idsOf("page"), true);
+    const liveRecords = await existingRowIds(client, "database_records", idsOf("record"));
+    const liveDatabases = await existingRowIds(client, "databases", idsOf("database"));
+
+    console.log(`Checking ${mapped.length} recorded Notion object(s) against Notion's trash…`);
+    const candidates: TrashedCandidate[] = [];
+    let alreadyTrashed = 0;
+    let alreadyGone = 0;
+    let checked = 0;
+
+    for (const row of mapped) {
+      if (row.kind !== "page" && row.kind !== "record" && row.kind !== "database") continue;
+      const kind = row.kind;
+      const stored =
+        kind === "page"
+          ? livePages.has(row.kbs_id)
+          : kind === "record"
+            ? liveRecords.has(row.kbs_id)
+            : liveDatabases.has(row.kbs_id);
+      if (!stored) {
+        if (kind === "page" && trashedPages.has(row.kbs_id)) alreadyTrashed += 1;
+        else alreadyGone += 1;
+        continue;
+      }
+
+      const label = await notionTrashLabel(notion, kind, row.notion_id);
+      checked += 1;
+      if (checked % 25 === 0) console.log(`  ${checked} checked…`);
+      if (label === null) continue;
+      candidates.push({
+        kind,
+        notionId: row.notion_id,
+        kbsId: row.kbs_id,
+        label: label || row.label,
+      });
+    }
+
+    // A trashed database takes its records with it, and a removed record takes
+    // its page to the KBS trash. The grouping page of a database goes too, so
+    // the sidebar never points at a database that no longer exists.
+    const removeRecords = new Set<string>();
+    const removeDatabases = new Set<string>();
+    const trashPages = new Set<string>();
+    for (const candidate of candidates) {
+      if (candidate.kind === "page") trashPages.add(candidate.kbsId);
+      else if (candidate.kind === "record") removeRecords.add(candidate.kbsId);
+      else removeDatabases.add(candidate.kbsId);
+    }
+
+    if (removeDatabases.size > 0) {
+      const databaseIds = [...removeDatabases];
+      const grouped = await client.query<{ page_id: string | null }>(
+        "SELECT page_id FROM databases WHERE id = ANY($1::uuid[])",
+        [databaseIds],
+      );
+      for (const row of grouped.rows) if (row.page_id) trashPages.add(row.page_id);
+
+      const records = await client.query<{ id: string; page_id: string | null }>(
+        "SELECT id, page_id FROM database_records WHERE database_id = ANY($1::uuid[])",
+        [databaseIds],
+      );
+      for (const row of records.rows) {
+        removeRecords.add(row.id);
+        if (row.page_id) trashPages.add(row.page_id);
+      }
+    }
+
+    if (removeRecords.size > 0) {
+      const records = await client.query<{ page_id: string | null }>(
+        "SELECT page_id FROM database_records WHERE id = ANY($1::uuid[])",
+        [[...removeRecords]],
+      );
+      for (const row of records.rows) if (row.page_id) trashPages.add(row.page_id);
+    }
+
+    const lines = [
+      "",
+      options.dryRun ? "Notion → KBS prune (dry run)" : "Notion → KBS prune",
+      `  recorded Notion ids:  ${mapped.length}`,
+      `  trashed in Notion:    ${candidates.length}`,
+      `  pages to trash:       ${trashPages.size}`,
+      `  records to remove:    ${removeRecords.size}`,
+      `  databases to remove:  ${removeDatabases.size}`,
+      `  already in trash:     ${alreadyTrashed}`,
+      `  no longer in KBS:     ${alreadyGone}`,
+    ];
+
+    if (candidates.length > 0) {
+      lines.push("", "Would remove:");
+      for (const candidate of candidates.slice(0, 20)) {
+        lines.push(`  - ${candidate.kind} "${candidate.label}"`);
+      }
+      if (candidates.length > 20) lines.push(`  - … and ${candidates.length - 20} more`);
+    }
+
+    if (candidates.length === 0) {
+      lines.push("", "Nothing to prune: no recorded object is in Notion's trash.");
+      console.log(lines.join("\n"));
+      return;
+    }
+
+    if (options.dryRun) {
+      lines.push("", "Dry run: nothing was removed.");
+      console.log(lines.join("\n"));
+      return;
+    }
+
+    console.log(lines.join("\n"));
+    if (!options.yes) await confirmPrune();
+
+    const databaseName = await currentDatabaseName(client);
+    const removed: Record<string, number> = {};
+    const forgottenIds = [...new Set([...trashPages, ...removeRecords, ...removeDatabases])];
+    let manifestFile: string | null = null;
+    await client.query("BEGIN");
+    try {
+      // Captured inside the same transaction as the delete, so the manifest
+      // describes exactly the rows this run is about to remove.
+      const capture = await capturePrunedRows(client, {
+        databases: [...removeDatabases],
+        records: [...removeRecords],
+        pages: [...trashPages],
+      });
+      removed.notionObjects = await deleteNotionObjects(client, forgottenIds);
+      removed.records = await deleteIdRows(client, "database_records", [...removeRecords]);
+      removed.databases = await deleteIdRows(client, "databases", [...removeDatabases]);
+      removed.pages = await trashPageRows(client, [...trashPages]);
+      manifestFile = await savePruneManifest({ databaseName, candidates, capture });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (manifestFile) await rm(manifestFile, { force: true });
+      throw error;
+    }
+
     console.log(
       [
         "",
-        "Undone:",
-        `  pages:            ${removed.pages} of ${rows.pages.length}`,
-        `  databases:        ${removed.databases} of ${rows.databases.length}`,
-        `  properties:       ${removed.properties} of ${rows.databaseProperties.length}`,
-        `  views:            ${removed.views} of ${rows.databaseViews.length}`,
-        `  records:          ${removed.records} of ${rows.databaseRecords.length}`,
-        `  relations:        ${removed.relations} of ${rows.databaseRecordRelations.length}`,
-        `  page links:       ${removed.pageLinks} of ${rows.pageLinks.length}`,
-        `  parent links:     ${removed.parentLinks} restored`,
-        `  notion ids:       ${removed.notionObjects} forgotten`,
-        `  attachments:      ${removed.attachments} of ${rows.attachments.length} (the rest are still used elsewhere)`,
-        `  files:            ${files.deleted} deleted, ${files.kept} kept (still referenced), ${files.changed} kept (changed on disk), ${files.missing} already gone${files.failed > 0 ? `, ${files.failed} could not be removed` : ""}`,
-        `  manifest:         ${file} (marked undone)`,
+        "Pruned:",
+        `  pages:        ${removed.pages} moved to the KBS trash`,
+        `  records:      ${removed.records} removed`,
+        `  databases:    ${removed.databases} removed`,
+        `  notion ids:   ${removed.notionObjects} forgotten`,
+        "",
+        `Prune manifest: ${manifestFile}`,
+        `Restore it with: npm run import:notion -- --restore "${manifestFile}"`,
+        "Attachment files are kept until a trashed page is permanently deleted.",
       ].join("\n"),
     );
+  } finally {
+    await client.end();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prune manifest and restore
+// ---------------------------------------------------------------------------
+
+const PRUNE_MANIFEST_FORMAT = "kbs-prune-manifest";
+const PRUNE_MANIFEST_VERSION = 1;
+
+type PrunedPage = { id: string; updatedAt: string };
+
+type PruneManifestRows = {
+  databases: Json[];
+  databaseProperties: Json[];
+  databaseViews: Json[];
+  databaseTemplates: Json[];
+  databaseRecords: Json[];
+  databaseRecordRelations: Json[];
+  pageRecordLinks: Json[];
+  notionObjects: Json[];
+};
+
+type PruneTotals = {
+  pages: number;
+  databases: number;
+  properties: number;
+  views: number;
+  templates: number;
+  records: number;
+  relations: number;
+  pageLinks: number;
+  notionObjects: number;
+};
+
+/**
+ * Everything a `--prune-trashed` run removed, row by row, plus the pages it
+ * soft-deleted and the `notion_objects` ids it forgot. Replaying it with
+ * `--restore` puts the rows back and un-trashes the pages.
+ */
+type PruneManifest = {
+  format: typeof PRUNE_MANIFEST_FORMAT;
+  version: typeof PRUNE_MANIFEST_VERSION;
+  kind: "notion";
+  createdAt: string;
+  database: string;
+  candidates: TrashedCandidate[];
+  pages: PrunedPage[];
+  rows: PruneManifestRows;
+  totals: PruneTotals;
+  restoredAt?: string;
+  restored?: Record<string, number>;
+};
+
+type PruneCapture = { pages: PrunedPage[]; rows: PruneManifestRows };
+
+type RestoreOptions = { dryRun: boolean; force: boolean };
+
+function defaultPruneManifestPath(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").slice(0, 19);
+  return path.join(process.cwd(), "data", "import-manifests", `notion-prune-${stamp}.json`);
+}
+
+/**
+ * Snapshots every row the prune is about to remove. A deleted database takes
+ * its properties, views, templates, records and relations with it, and a
+ * deleted record takes its relations and page links, so those are captured
+ * through the ids the delete will cascade to.
+ */
+async function capturePrunedRows(
+  client: Client,
+  targets: { databases: string[]; records: string[]; pages: string[] },
+): Promise<PruneCapture> {
+  const select = async (sql: string, parameters: unknown[]): Promise<Json[]> =>
+    (await client.query(sql, parameters)).rows as Json[];
+
+  const pageRows = await client.query<{ id: string; updated_at: Date }>(
+    "SELECT id, updated_at FROM pages WHERE id = ANY($1::uuid[]) ORDER BY id",
+    [targets.pages],
+  );
+  const databases = await select(
+    "SELECT * FROM databases WHERE id = ANY($1::uuid[]) ORDER BY id",
+    [targets.databases],
+  );
+  const properties = await select(
+    "SELECT * FROM database_properties WHERE database_id = ANY($1::uuid[]) ORDER BY id",
+    [targets.databases],
+  );
+  const views = await select(
+    "SELECT * FROM database_views WHERE database_id = ANY($1::uuid[]) ORDER BY id",
+    [targets.databases],
+  );
+  const templates = await select(
+    "SELECT * FROM database_templates WHERE database_id = ANY($1::uuid[]) ORDER BY id",
+    [targets.databases],
+  );
+  const records = await select(
+    `SELECT * FROM database_records
+     WHERE database_id = ANY($1::uuid[]) OR id = ANY($2::uuid[])
+     ORDER BY id`,
+    [targets.databases, targets.records],
+  );
+
+  const recordIds = records.map((row) => String(row.id));
+  const propertyIds = properties.map((row) => String(row.id));
+  const relations = await select(
+    `SELECT * FROM database_record_relations
+     WHERE property_id = ANY($1::uuid[])
+        OR source_record_id = ANY($2::uuid[])
+        OR target_record_id = ANY($2::uuid[])
+     ORDER BY source_record_id, property_id, target_record_id`,
+    [propertyIds, recordIds],
+  );
+  const pageLinks = await select(
+    "SELECT * FROM page_record_links WHERE record_id = ANY($1::uuid[]) ORDER BY page_id, record_id",
+    [recordIds],
+  );
+  const notionObjects = await select(
+    "SELECT * FROM notion_objects WHERE kbs_id = ANY($1::uuid[]) ORDER BY notion_id",
+    [[...targets.pages, ...recordIds, ...targets.databases]],
+  );
+
+  return {
+    pages: pageRows.rows.map((row) => ({ id: row.id, updatedAt: row.updated_at.toISOString() })),
+    rows: {
+      databases,
+      databaseProperties: properties,
+      databaseViews: views,
+      databaseTemplates: templates,
+      databaseRecords: records,
+      databaseRecordRelations: relations,
+      pageRecordLinks: pageLinks,
+      notionObjects,
+    },
+  };
+}
+
+function pruneTotals(capture: PruneCapture): PruneTotals {
+  return {
+    pages: capture.pages.length,
+    databases: capture.rows.databases.length,
+    properties: capture.rows.databaseProperties.length,
+    views: capture.rows.databaseViews.length,
+    templates: capture.rows.databaseTemplates.length,
+    records: capture.rows.databaseRecords.length,
+    relations: capture.rows.databaseRecordRelations.length,
+    pageLinks: capture.rows.pageRecordLinks.length,
+    notionObjects: capture.rows.notionObjects.length,
+  };
+}
+
+async function savePruneManifest(input: {
+  databaseName: string;
+  candidates: TrashedCandidate[];
+  capture: PruneCapture;
+}): Promise<string> {
+  const manifest: PruneManifest = {
+    format: PRUNE_MANIFEST_FORMAT,
+    version: PRUNE_MANIFEST_VERSION,
+    kind: "notion",
+    createdAt: new Date().toISOString(),
+    database: input.databaseName,
+    candidates: input.candidates,
+    pages: input.capture.pages,
+    rows: input.capture.rows,
+    totals: pruneTotals(input.capture),
+  };
+  const file = defaultPruneManifestPath();
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  return file;
+}
+
+function asJsonRows(value: unknown): Json[] {
+  return (Array.isArray(value) ? value : [])
+    .map((entry) => asRecord(entry))
+    .filter((row) => Object.keys(row).length > 0);
+}
+
+function numberField(value: Json, key: string): number {
+  return typeof value[key] === "number" ? (value[key] as number) : 0;
+}
+
+async function readPruneManifest(file: string): Promise<PruneManifest> {
+  let contents: string;
+  try {
+    contents = await readFile(file, "utf8");
+  } catch {
+    throw new Error(
+      `Could not read the prune manifest at ${file}. Pass the path printed at the end of --prune-trashed.`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    throw new Error(`${file} is not valid JSON.`);
+  }
+
+  const value = asRecord(parsed);
+  if (value.format !== PRUNE_MANIFEST_FORMAT) {
+    throw new Error(`${file} is not a KBS prune manifest.`);
+  }
+  if (value.version !== PRUNE_MANIFEST_VERSION) {
+    throw new Error(
+      `${file} uses prune manifest version ${String(value.version)}, but this importer only understands version ${PRUNE_MANIFEST_VERSION}.`,
+    );
+  }
+
+  const rows = asRecord(value.rows);
+  const totals = asRecord(value.totals);
+  const restoredAt = asString(value.restoredAt);
+  const restored = asRecord(value.restored);
+  const pages = (Array.isArray(value.pages) ? value.pages : [])
+    .map((entry) => asRecord(entry))
+    .map((page) => ({ id: asString(page.id), updatedAt: asString(page.updatedAt) }))
+    .filter((page) => page.id && page.updatedAt);
+  const candidates = (Array.isArray(value.candidates) ? value.candidates : [])
+    .map((entry) => asRecord(entry))
+    .map((candidate) => ({
+      kind: asString(candidate.kind) as TrashedCandidate["kind"],
+      notionId: asString(candidate.notionId),
+      kbsId: asString(candidate.kbsId),
+      label: asString(candidate.label),
+    }))
+    .filter(
+      (candidate) =>
+        candidate.kind === "page"
+        || candidate.kind === "record"
+        || candidate.kind === "database",
+    )
+    .filter((candidate) => candidate.kbsId);
+
+  return {
+    format: PRUNE_MANIFEST_FORMAT,
+    version: PRUNE_MANIFEST_VERSION,
+    kind: "notion",
+    createdAt: asString(value.createdAt),
+    database: asString(value.database),
+    candidates,
+    pages,
+    rows: {
+      databases: asJsonRows(rows.databases),
+      databaseProperties: asJsonRows(rows.databaseProperties),
+      databaseViews: asJsonRows(rows.databaseViews),
+      databaseTemplates: asJsonRows(rows.databaseTemplates),
+      databaseRecords: asJsonRows(rows.databaseRecords),
+      databaseRecordRelations: asJsonRows(rows.databaseRecordRelations),
+      pageRecordLinks: asJsonRows(rows.pageRecordLinks),
+      notionObjects: asJsonRows(rows.notionObjects),
+    },
+    totals: {
+      pages: numberField(totals, "pages"),
+      databases: numberField(totals, "databases"),
+      properties: numberField(totals, "properties"),
+      views: numberField(totals, "views"),
+      templates: numberField(totals, "templates"),
+      records: numberField(totals, "records"),
+      relations: numberField(totals, "relations"),
+      pageLinks: numberField(totals, "pageLinks"),
+      notionObjects: numberField(totals, "notionObjects"),
+    },
+    ...(restoredAt ? { restoredAt } : {}),
+    ...(Object.keys(restored).length > 0
+      ? {
+          restored: Object.fromEntries(
+            Object.entries(restored).map(([key, count]) => [
+              key,
+              typeof count === "number" ? count : 0,
+            ]),
+          ),
+        }
+      : {}),
+  };
+}
+
+function describePruneManifest(manifest: PruneManifest): string {
+  const totals = manifest.totals;
+  return [
+    `Prune manifest for database "${manifest.database}", recorded ${manifest.createdAt}`,
+    `  pages:        ${totals.pages} to un-trash`,
+    `  databases:    ${totals.databases} (${totals.properties} properties, ${totals.views} views, ${totals.templates} templates)`,
+    `  records:      ${totals.records}`,
+    `  relations:    ${totals.relations} (${totals.pageLinks} page links)`,
+    `  notion ids:   ${totals.notionObjects}`,
+  ].join("\n");
+}
+
+/** Inserts captured rows, keeping any row that already exists. */
+async function insertJsonRows(client: Client, table: string, rows: Json[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  let inserted = 0;
+  for (const batch of batches(rows, 500)) {
+    const result = await client.query(
+      `INSERT INTO "${table}"
+       SELECT * FROM jsonb_populate_recordset(NULL::"${table}", $1::jsonb)
+       ON CONFLICT DO NOTHING`,
+      [JSON.stringify(batch)],
+    );
+    inserted += result.rowCount ?? 0;
+  }
+  return inserted;
+}
+
+/** Un-trashes the pages and puts their pre-prune timestamps back. */
+async function untrashPageRows(client: Client, pages: PrunedPage[]): Promise<number> {
+  if (pages.length === 0) return 0;
+  const result = await client.query(
+    `UPDATE pages AS page
+     SET deleted_at = NULL, updated_at = doomed.updated_at
+     FROM unnest($1::uuid[], $2::timestamptz[]) AS doomed(id, updated_at)
+     WHERE page.id = doomed.id AND page.deleted_at IS NOT NULL`,
+    [pages.map((page) => page.id), pages.map((page) => page.updatedAt)],
+  );
+  return result.rowCount ?? 0;
+}
+
+/**
+ * Puts back what a `--prune-trashed` run removed: the captured database,
+ * property, view, template, record, relation and page-link rows, the Notion ids
+ * it forgot, and the pages it soft-deleted. Rows that already exist (a
+ * re-import, or a manual recreate) are kept as they are, so the manifest never
+ * overwrites newer work.
+ *
+ * A page the user permanently deleted from KBS's trash cannot be un-trashed.
+ * Its records are restored without a page rather than failing the whole run,
+ * and the missing count is reported.
+ */
+export async function restorePrunedImport(
+  manifestArgument: string,
+  options: RestoreOptions,
+): Promise<void> {
+  const file = path.resolve(process.cwd(), manifestArgument);
+  const manifest = await readPruneManifest(file);
+  if (manifest.restoredAt) {
+    throw new Error(`${file} was already restored at ${manifest.restoredAt}. Nothing was changed.`);
+  }
+
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error("DATABASE_URL is required to restore a prune.");
+
+  const client = new Client({ connectionString, application_name: "kbs-notion-restore" });
+  await client.connect();
+
+  try {
+    const databaseName = await currentDatabaseName(client);
+    if (manifest.database && databaseName && manifest.database !== databaseName && !options.force) {
+      throw new Error(
+        `That prune manifest was recorded against database "${manifest.database}", but DATABASE_URL points at "${databaseName}". Nothing was changed; pass --force to restore anyway.`,
+      );
+    }
+
+    console.log(describePruneManifest(manifest));
+    const capturedPages = manifest.pages.map((page) => page.id);
+    const existingPages = await existingRowIds(client, "pages", capturedPages);
+    const missingPages = capturedPages.length - existingPages.size;
+
+    if (options.dryRun) {
+      if (missingPages > 0) {
+        console.log(
+          `\n${missingPages} page(s) were permanently deleted from the KBS trash and cannot be un-trashed.`,
+        );
+      }
+      console.log("\nDry run: nothing was restored.");
+      return;
+    }
+
+    const rows = manifest.rows;
+    // A row whose page no longer exists is restored without it, so the foreign
+    // key stays valid instead of failing the whole manifest.
+    const keepPage = (row: Json): Json =>
+      row.page_id && !existingPages.has(String(row.page_id))
+        ? { ...row, page_id: null }
+        : row;
+    const databases = rows.databases.map(keepPage);
+    const records = rows.databaseRecords.map(keepPage);
+    const linkPageIds = rows.pageRecordLinks.map((row) => String(row.page_id));
+    const linkedPages = await existingRowIds(client, "pages", linkPageIds);
+    const pageLinks = rows.pageRecordLinks.filter((row) => linkedPages.has(String(row.page_id)));
+    // A page purged from the trash keeps no Notion id either: the map exists to
+    // find stored rows, and that page is no longer one.
+    const notionObjects = rows.notionObjects.filter(
+      (row) => asString(row.kind) !== "page" || existingPages.has(String(row.kbs_id)),
+    );
+
+    const restored: Record<string, number> = {};
+    await client.query("BEGIN");
+    try {
+      restored.databases = await insertJsonRows(client, "databases", databases);
+      restored.properties = await insertJsonRows(
+        client,
+        "database_properties",
+        rows.databaseProperties,
+      );
+      restored.views = await insertJsonRows(client, "database_views", rows.databaseViews);
+      restored.templates = await insertJsonRows(
+        client,
+        "database_templates",
+        rows.databaseTemplates,
+      );
+      restored.records = await insertJsonRows(client, "database_records", records);
+      restored.relations = await insertJsonRows(
+        client,
+        "database_record_relations",
+        rows.databaseRecordRelations,
+      );
+      restored.pageLinks = await insertJsonRows(client, "page_record_links", pageLinks);
+      restored.notionObjects = await insertJsonRows(client, "notion_objects", notionObjects);
+      restored.pages = await untrashPageRows(client, manifest.pages);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+
+    manifest.restoredAt = new Date().toISOString();
+    manifest.restored = restored;
+    await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+    const summary = ["", "Restored:"];
+    const counts: { label: string; count: number; total: number }[] = [
+      { label: "pages", count: restored.pages, total: manifest.totals.pages },
+      { label: "databases", count: restored.databases, total: manifest.totals.databases },
+      { label: "properties", count: restored.properties, total: manifest.totals.properties },
+      { label: "views", count: restored.views, total: manifest.totals.views },
+      { label: "templates", count: restored.templates, total: manifest.totals.templates },
+      { label: "records", count: restored.records, total: manifest.totals.records },
+      { label: "relations", count: restored.relations, total: manifest.totals.relations },
+      { label: "page links", count: restored.pageLinks, total: manifest.totals.pageLinks },
+      { label: "notion ids", count: restored.notionObjects, total: manifest.totals.notionObjects },
+    ];
+    for (const entry of counts) {
+      if (entry.total === 0) continue;
+      const suffix = entry.label === "pages" ? " un-trashed" : "";
+      summary.push(`  ${`${entry.label}:`.padEnd(14)} ${entry.count} of ${entry.total}${suffix}`);
+    }
+    if (missingPages > 0) {
+      summary.push(
+        `  ${"purged pages:".padEnd(14)} ${missingPages} (deleted from Trash; not restored)`,
+      );
+    }
+    summary.push(`  ${"manifest:".padEnd(14)} ${file} (marked restored)`);
+    console.log(summary.join("\n"));
   } finally {
     await client.end();
   }
@@ -5272,24 +6313,42 @@ Options:
                        create is present in KBS (and that stored files still
                        have the right size). Writes nothing; exits non-zero
                        when anything is missing or different.
-  --retry-files        Re-download the Notion-hosted files an earlier run left
-                       as Notion links. Fetches only attachment ids that are
-                       missing from KBS, writes them, and repoints the pages,
-                       covers and file properties that still hold the Notion
-                       URL. Exits non-zero when a file still cannot be stored.
+  --retry-files        Re-download the Notion-hosted images and documents an
+                       earlier run left as Notion links. Fetches only attachment
+                       ids that are missing from KBS, writes them, and repoints
+                       the pages, covers and file properties that still hold
+                       the Notion URL. Video and audio blocks are always links
+                       and are not retried. Records what it stores in a
+                       manifest so --undo can put those links back. Exits
+                       non-zero when a file still cannot be stored.
   --update             Refresh an existing import in place from Notion: page
                        bodies, titles, icons and covers, record titles and
                        property values, and database names. Only rows Notion
                        edited after their stored timestamp are touched, and
                        nothing is inserted, so it cannot duplicate a page or
-                       record. Reports every change by count.
+                       record. Reports every change by count and records the
+                       properties, views, links, relations and files it adds in
+                       a manifest so --undo can remove them.
+  --prune-trashed      Remove the pages, records and databases Notion has moved
+                       to its trash, using the Notion ids the import stored.
+                       Pages go to KBS's trash and can be restored; record and
+                       database rows are removed and recorded in a prune
+                       manifest. Add --dry-run to preview what would go, and
+                       --yes to skip the typed confirmation.
+  --restore <manifest> Put back exactly what a --prune-trashed run removed:
+                       un-trash its pages and re-insert its databases,
+                       properties, views, templates, records, relations and
+                       Notion ids. Rows that already exist are kept. Add
+                       --dry-run to preview.
   --manifest <file>    Where to write this run's manifest. Defaults to
                        data/import-manifests/notion-<timestamp>.json. It lists
                        every row and file the run created.
   --undo <manifest>    Delete exactly the rows and files that run created and
                        mark the manifest undone. Add --dry-run to preview.
-  --yes                Skip the typed confirmation for --undo.
-  --force              Undo even if the manifest names another database.
+  --yes                Skip the typed confirmation for --undo or
+                       --prune-trashed.
+  --force              Undo or restore even if the manifest names another
+                       database.
   --help               Show this message.
 
 Environment:
@@ -5297,17 +6356,22 @@ Environment:
                        https://www.notion.so/my-integrations.
   NOTION_ROOT_IDS      Optional roots, comma- or space-separated.
   DATABASE_URL         KBS connection string (required unless --dry-run;
-                       also required by --verify, --retry-files and --update).
+                       also required by --verify, --retry-files, --update,
+                       --prune-trashed and --restore).
   ATTACHMENTS_DIR      Defaults to data/attachments.
 
 Before importing, run \`npm run db:migrate\` so the schema is current. Import into
 an empty workspace unless you pass --merge.
 
-Every import writes a manifest of the rows and files it created. Keep it until
-the import looks right: --undo <manifest> deletes exactly those rows and the
-files nothing else uses, so a run can be reverted or retried.`;
+Every run that adds rows or files writes a manifest of exactly what it added.
+Keep it until the result looks right: --undo <manifest> deletes those rows and
+the files nothing else uses, so a run can be reverted or retried.`;
 
-type CliOptions = ImportOptions & { help: boolean };
+type CliOptions = ImportOptions & {
+  help: boolean;
+  pruneTrashed: boolean;
+  restorePath: string | null;
+};
 
 function parseOptions(argv: string[]): CliOptions {
   const roots: string[] = [];
@@ -5319,8 +6383,10 @@ function parseOptions(argv: string[]): CliOptions {
   let dumpPath: string | null = null;
   let manifestPath: string | null = null;
   let undoPath: string | null = null;
+  let restorePath: string | null = null;
   let yes = false;
   let force = false;
+  let pruneTrashed = false;
   let help = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -5337,6 +6403,8 @@ function parseOptions(argv: string[]): CliOptions {
       retryFiles = true;
     } else if (argument === "--update") {
       update = true;
+    } else if (argument === "--prune-trashed") {
+      pruneTrashed = true;
     } else if (argument === "--root") {
       const value = argv[index + 1];
       if (!value) throw new Error("--root needs a Notion page, database or data source id.");
@@ -5365,6 +6433,13 @@ function parseOptions(argv: string[]): CliOptions {
       index += 1;
     } else if (argument.startsWith("--undo=")) {
       undoPath = argument.slice("--undo=".length);
+    } else if (argument === "--restore") {
+      const value = argv[index + 1];
+      if (!value) throw new Error("--restore needs the path of a manifest written by --prune-trashed.");
+      restorePath = value;
+      index += 1;
+    } else if (argument.startsWith("--restore=")) {
+      restorePath = argument.slice("--restore=".length);
     } else if (argument === "--yes") {
       yes = true;
     } else if (argument === "--force") {
@@ -5392,6 +6467,8 @@ function parseOptions(argv: string[]): CliOptions {
     undoPath,
     yes,
     force,
+    pruneTrashed,
+    restorePath,
     help,
   };
 }
@@ -5403,6 +6480,56 @@ async function main() {
     return;
   }
 
+  if (options.pruneTrashed) {
+    if (
+      options.roots.length > 0
+      || options.merge
+      || options.verify
+      || options.retryFiles
+      || options.update
+      || options.undoPath
+      || options.restorePath
+      || options.dumpPath
+      || options.manifestPath
+      || options.force
+    ) {
+      throw new Error(
+        "--prune-trashed acts on what Notion trashed, so it cannot be combined with --root, --merge, --verify, --retry-files, --update, --undo, --restore, --dump, --manifest or --force.",
+      );
+    }
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL is required to prune trashed objects.");
+    }
+    await pruneTrashedImport({ dryRun: options.dryRun, yes: options.yes });
+    return;
+  }
+
+  if (options.restorePath) {
+    if (
+      options.roots.length > 0
+      || options.merge
+      || options.verify
+      || options.retryFiles
+      || options.update
+      || options.undoPath
+      || options.pruneTrashed
+      || options.dumpPath
+      || options.manifestPath
+    ) {
+      throw new Error(
+        "--restore replays a prune manifest, so it cannot be combined with import options (--root, --merge, --verify, --retry-files, --update, --undo, --prune-trashed, --dump, --manifest).",
+      );
+    }
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL is required to restore a prune.");
+    }
+    await restorePrunedImport(options.restorePath, {
+      dryRun: options.dryRun,
+      force: options.force,
+    });
+    return;
+  }
+
   if (options.undoPath) {
     if (
       options.roots.length > 0
@@ -5410,11 +6537,13 @@ async function main() {
       || options.verify
       || options.retryFiles
       || options.update
+      || options.pruneTrashed
+      || options.restorePath
       || options.dumpPath
       || options.manifestPath
     ) {
       throw new Error(
-        "--undo cannot be combined with import options (--root, --merge, --verify, --retry-files, --update, --dump, --manifest).",
+        "--undo cannot be combined with import options (--root, --merge, --verify, --retry-files, --update, --prune-trashed, --restore, --dump, --manifest).",
       );
     }
     if (!process.env.DATABASE_URL) {
@@ -5429,7 +6558,9 @@ async function main() {
   }
 
   if (options.yes || options.force) {
-    throw new Error("--yes and --force are only used with --undo.");
+    throw new Error(
+      "--yes is only used with --undo or --prune-trashed, and --force only with --undo or --restore.",
+    );
   }
 
   if (options.verify && (options.merge || options.dryRun || options.dumpPath || options.manifestPath)) {

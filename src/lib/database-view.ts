@@ -1,3 +1,5 @@
+import { todayKey } from "@/lib/calendar";
+
 /** Every view type the API accepts, so the route and the database UI cannot drift. */
 export const DATABASE_VIEW_TYPES = [
   "table",
@@ -54,6 +56,8 @@ export type ViewRecord = {
 
 type ValueOptions<T extends ViewRecord> = {
   valueFor?: (record: T, property: ViewProperty) => unknown;
+  /** The day a relative date filter resolves against; tests pin it. */
+  today?: string;
 };
 
 const MAX_FILTERS = 12;
@@ -132,10 +136,22 @@ export function parseGalleryCardSize(
 export function operatorsForProperty(type: string): ViewFilterOperator[] {
   switch (type) {
     case "number":
-    case "formula":
     // A rollup resolves to a number, so it compares like one.
     case "rollup":
       return ["is", "is_not", "greater_than", "less_than", "is_empty", "is_not_empty"];
+    case "formula":
+      // A formula may compute a number or a date, so it offers both comparisons
+      // and decides which one a filter uses from the values it finds.
+      return [
+        "is",
+        "is_not",
+        "greater_than",
+        "less_than",
+        "before",
+        "after",
+        "is_empty",
+        "is_not_empty",
+      ];
     case "date":
       return ["is", "is_not", "before", "after", "is_empty", "is_not_empty"];
     case "checkbox":
@@ -211,30 +227,61 @@ function dateValue(value: unknown): string | null {
   return match ? match[0] : null;
 }
 
+/** A date filter may say "today" instead of a fixed day, so it stays current. */
+export function isRelativeDateValue(value: string): boolean {
+  return value.trim().toLocaleLowerCase() === "today";
+}
+
+function resolveDateTarget(value: string, today: string): string | null {
+  return isRelativeDateValue(value) ? today : dateValue(value);
+}
+
 /**
  * A filter only applies once it can actually be evaluated: no value yet, or a
  * value that does not parse as the property's type, leaves the view unchanged.
  */
-function isFilterActive(filter: ViewFilter, property: ViewProperty): boolean {
+function isFilterActive(
+  filter: ViewFilter,
+  property: ViewProperty,
+  today: string,
+): boolean {
   if (!filterNeedsValue(filter.operator)) return true;
   if (filter.value.trim() === "") return false;
 
-  if ((property.type === "number" || property.type === "formula" || property.type === "rollup")
+  if (property.type === "formula") {
+    if (filter.operator === "before" || filter.operator === "after") {
+      return resolveDateTarget(filter.value, today) !== null;
+    }
+    if (filter.operator === "is" || filter.operator === "is_not") {
+      // `is 3` compares numbers; `is today` or `is 2026-11-23` compares dates.
+      return numberValue(filter.value) !== null
+        || resolveDateTarget(filter.value, today) !== null;
+    }
+    return numberValue(filter.value) !== null;
+  }
+  if ((property.type === "number" || property.type === "rollup")
     && ["is", "is_not", "greater_than", "less_than"].includes(filter.operator)) {
     return numberValue(filter.value) !== null;
   }
   if (property.type === "date" && ["is", "is_not", "before", "after"].includes(filter.operator)) {
-    return dateValue(filter.value) !== null;
+    return resolveDateTarget(filter.value, today) !== null;
   }
   return true;
 }
 
+/** A filter's value is resolved once per view, not once per record. */
+type ResolvedFilter = {
+  filter: ViewFilter;
+  needle: string;
+  dateTarget: string | null;
+};
+
 function matchesFilter(
   property: ViewProperty,
-  filter: ViewFilter,
+  resolved: ResolvedFilter,
   value: unknown,
 ): boolean {
-  const needle = filter.value.trim().toLocaleLowerCase();
+  const { filter, needle, dateTarget } = resolved;
 
   switch (filter.operator) {
     case "is_empty":
@@ -256,29 +303,42 @@ function matchesFilter(
     case "is":
       if (property.type === "relation") return linkedRecordIds(value).includes(needle);
       if (property.type === "multi_select") return selectedValues(value).includes(needle);
-      if (property.type === "number" || property.type === "formula" || property.type === "rollup") {
+      if (property.type === "formula") {
+        // A formula decides its own type from the value it computed.
+        const currentDate = dateValue(value);
+        if (dateTarget !== null && currentDate !== null) return currentDate === dateTarget;
+        const current = numberValue(value);
+        const target = numberValue(filter.value);
+        return current !== null && target !== null && current === target;
+      }
+      if (property.type === "number" || property.type === "rollup") {
         const current = numberValue(value);
         const target = numberValue(filter.value);
         return current !== null && target !== null && current === target;
       }
       if (property.type === "date") {
         const current = dateValue(value);
-        const target = dateValue(filter.value);
-        return current !== null && target !== null && current === target;
+        return current !== null && dateTarget !== null && current === dateTarget;
       }
       return stringValue(value).toLocaleLowerCase() === needle;
     case "is_not":
       if (property.type === "relation") return !linkedRecordIds(value).includes(needle);
       if (property.type === "multi_select") return !selectedValues(value).includes(needle);
-      if (property.type === "number" || property.type === "formula" || property.type === "rollup") {
+      if (property.type === "formula") {
+        const currentDate = dateValue(value);
+        if (dateTarget !== null && currentDate !== null) return currentDate !== dateTarget;
+        const current = numberValue(value);
+        const target = numberValue(filter.value);
+        return !(current !== null && target !== null && current === target);
+      }
+      if (property.type === "number" || property.type === "rollup") {
         const current = numberValue(value);
         const target = numberValue(filter.value);
         return !(current !== null && target !== null && current === target);
       }
       if (property.type === "date") {
         const current = dateValue(value);
-        const target = dateValue(filter.value);
-        return !(current !== null && target !== null && current === target);
+        return !(current !== null && dateTarget !== null && current === dateTarget);
       }
       return stringValue(value).toLocaleLowerCase() !== needle;
     case "greater_than": {
@@ -293,13 +353,11 @@ function matchesFilter(
     }
     case "before": {
       const current = dateValue(value);
-      const target = dateValue(filter.value);
-      return current !== null && target !== null && current < target;
+      return current !== null && dateTarget !== null && current < dateTarget;
     }
     case "after": {
       const current = dateValue(value);
-      const target = dateValue(filter.value);
-      return current !== null && target !== null && current > target;
+      return current !== null && dateTarget !== null && current > dateTarget;
     }
     default:
       return true;
@@ -321,16 +379,26 @@ export function filterRecords<T extends ViewRecord>(
 
   const propertiesById = new Map(properties.map((property) => [property.id, property]));
   const valueFor = options?.valueFor ?? ((record: T, property: ViewProperty) => record.values[property.id]);
-  const active = filters.filter((filter) => {
+  const today = options?.today ?? todayKey();
+  const active: ResolvedFilter[] = [];
+  for (const filter of filters) {
     const property = propertiesById.get(filter.propertyId);
-    return property ? isFilterActive(filter, property) : false;
-  });
+    if (!property || !isFilterActive(filter, property, today)) continue;
+
+    active.push({
+      filter,
+      needle: filter.value.trim().toLocaleLowerCase(),
+      dateTarget: property.type === "date" || property.type === "formula"
+        ? resolveDateTarget(filter.value, today)
+        : null,
+    });
+  }
 
   if (active.length === 0) return records;
 
-  return records.filter((record) => active.every((filter) => {
-    const property = propertiesById.get(filter.propertyId)!;
-    return matchesFilter(property, filter, valueFor(record, property));
+  return records.filter((record) => active.every((resolved) => {
+    const property = propertiesById.get(resolved.filter.propertyId)!;
+    return matchesFilter(property, resolved, valueFor(record, property));
   }));
 }
 

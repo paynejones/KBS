@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ChevronLeft, ChevronRight, LayoutDashboard, Plus, X } from "lucide-react";
 import { ChartBars, ChartLine, ChartNotes, ChartPie } from "@/components/database-chart";
 import { Button } from "@/components/ui/button";
-import { todayKey } from "@/lib/calendar";
 import { recordHref } from "@/lib/record-link";
 import {
   chartDatePresetWindow,
@@ -37,6 +36,7 @@ import {
   subscribeToDashboardWidgets,
 } from "@/lib/dashboard";
 import { refreshDashboard, useDashboardRequest } from "@/lib/dashboard-request";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 
 type ViewOption = {
   id: string;
@@ -118,8 +118,10 @@ export function DashboardWidgets() {
   const [chartSaving, setChartSaving] = useState("");
   const [chartError, setChartError] = useState("");
 
+  // The previews are filtered server-side, so a new day asks for them again.
+  const today = useCalendarDay();
   const { data: payload, loading, failed } = useDashboardRequest("widgets", {
-    today: todayKey(),
+    today,
     viewIds: widgets.map((widget) => widget.viewId),
   });
   const loadError = failed ? "Could not load dashboard widgets." : "";
@@ -400,7 +402,7 @@ export function DashboardWidgets() {
             const chartDatePreset = parseChartDatePreset(
               picks?.datePreset ?? item.chart?.datePreset ?? item.view.config.chartDatePreset,
             );
-            const chartToday = todayKey();
+            const chartToday = today;
             const chartPresetWindow = chartDatePreset
               ? chartDatePresetWindow(chartToday, chartDatePreset)
               : null;

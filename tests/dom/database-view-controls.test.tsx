@@ -116,6 +116,47 @@ test("DatabaseViewControls uses choices for select filters and hides values for 
   assert.equal(screen.queryByLabelText("Filter value"), null);
 });
 
+test("a formula is filter switches between a number and a day", () => {
+  render(<Harness properties={[
+    { id: "next", name: "Next", type: "formula" },
+    { id: "gap", name: "Gap", type: "formula" },
+  ]} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  fireEvent.change(screen.getByLabelText("Filter property"), { target: { value: "next" } });
+
+  const valueType = () => screen.getByLabelText("Formula value type") as HTMLSelectElement;
+  assert.equal(valueType().value, "number", "a formula filter starts on numbers");
+  assert.equal(screen.getByLabelText("Filter value").getAttribute("type"), "text");
+  assert.equal(screen.queryByRole("button", { name: "Today" }), null);
+
+  // Date mode is the date property's controls: the Today shortcut and a date input.
+  fireEvent.change(valueType(), { target: { value: "date" } });
+  assert.equal(valueType().value, "date");
+  assert.equal(screen.getByLabelText("Filter value").getAttribute("type"), "date");
+  fireEvent.click(screen.getByRole("button", { name: "Today" }));
+  assert.equal(screen.getByRole("button", { name: "Today" }).getAttribute("aria-pressed"), "true");
+  assert.equal((screen.getByLabelText("Filter value") as HTMLInputElement).disabled, true);
+
+  // Switching type clears the value, so a day never becomes a number by accident.
+  fireEvent.change(valueType(), { target: { value: "number" } });
+  assert.equal((screen.getByLabelText("Filter value") as HTMLInputElement).value, "");
+  assert.equal(screen.queryByRole("button", { name: "Today" }), null);
+
+  fireEvent.change(screen.getByLabelText("Filter value"), { target: { value: "12" } });
+  fireEvent.change(valueType(), { target: { value: "date" } });
+  assert.equal(
+    (screen.getByLabelText("Filter value") as HTMLInputElement).value,
+    "",
+    "switching back to dates clears the number",
+  );
+
+  // A different property decides its own value type, so Date does not follow it.
+  fireEvent.change(screen.getByLabelText("Filter property"), { target: { value: "gap" } });
+  assert.equal(valueType().value, "number");
+  assert.equal(screen.getByLabelText("Filter value").getAttribute("type"), "text");
+});
+
 test("DatabaseViewControls disables filtering when every property is unsupported", () => {
   render(<Harness properties={[
     { id: "file", name: "File", type: "file" },

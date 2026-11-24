@@ -84,18 +84,71 @@ test("long formulas are refused", () => {
   assert.equal(parsed.ok, false);
 });
 
-test("today() is parsed only when a caller asks for it", () => {
+test("today() is parsed only when a caller asks for it, and resolves to that day", () => {
   assert.equal(parseFormula("today()").ok, false);
 
   const parsed = parseFormula("today()", { allowToday: true });
   assert.ok(parsed.ok);
   assert.deepEqual(parsed.references, []);
-  // A formula has no number to compute from today's date.
-  assert.equal(evaluateFormula(parsed.ast, resolve), null);
+  assert.equal(evaluateFormula(parsed.ast, resolve, { today: "2026-11-23" }), "2026-11-23");
 
   const withArgument = parseFormula("today(1)", { allowToday: true });
   assert.equal(withArgument.ok, false);
   if (!withArgument.ok) assert.match(withArgument.error, /takes no arguments/);
+});
+
+const datedValues: Record<string, string | number | null> = {
+  Due: "2026-11-20",
+  Missing: null,
+};
+
+function datedResolve(name: string) {
+  return datedValues[name] ?? null;
+}
+
+function datedValue(expression: string) {
+  const parsed = parseFormula(expression, { allowToday: true });
+  assert.ok(parsed.ok, `expected “${expression}” to parse`);
+  return evaluateFormula(parsed.ast, datedResolve, { today: "2026-11-23" });
+}
+
+test("formulas move dates by whole days and subtract them into day counts", () => {
+  assert.equal(datedValue("{Due} + 7"), "2026-11-27");
+  assert.equal(datedValue("7 + {Due}"), "2026-11-27");
+  assert.equal(datedValue("{Due} - 20"), "2026-10-31");
+  assert.equal(datedValue("today()"), "2026-11-23");
+  assert.equal(datedValue("today() + 7"), "2026-11-30");
+  assert.equal(datedValue("{Due} - today()"), -3);
+  assert.equal(datedValue("today() - {Due}"), 3);
+});
+
+test("dateAdd() and daysBetween() name the same date arithmetic", () => {
+  assert.equal(datedValue("dateAdd({Due}, 50)"), "2027-01-09");
+  assert.equal(datedValue("dateAdd(today(), -1)"), "2026-11-22");
+  assert.equal(datedValue("dateAdd({Due}, 0)"), "2026-11-20");
+  assert.equal(datedValue("daysBetween({Due}, today())"), 3);
+  assert.equal(datedValue("daysBetween(today(), {Due})"), -3);
+
+  assert.equal(parseFormula("dateAdd({Due})").ok, false);
+  assert.equal(parseFormula("daysBetween({Due})").ok, false);
+});
+
+test("dates and numbers only combine where the operation has a meaning", () => {
+  assert.equal(datedValue("{Due} * 2"), null);
+  assert.equal(datedValue("round({Due})"), null);
+  assert.equal(datedValue("-{Due}"), null);
+  assert.equal(datedValue("{Due} + 0.5"), null);
+  assert.equal(datedValue("dateAdd({Due}, 0.5)"), null);
+  assert.equal(datedValue("daysBetween(today(), 3)"), null);
+  assert.equal(datedValue("{Missing} + 1"), null);
+});
+
+test("date formula values render as calendar days", () => {
+  const formatted = formatFormulaValue("2026-11-23");
+  assert.match(formatted, /2026/);
+  assert.match(formatted, /23/);
+  assert.notEqual(formatted, "2026-11-23");
+  assert.equal(formatFormulaValue("not a date"), "—");
 });
 
 test("formula values render as compact numbers", () => {

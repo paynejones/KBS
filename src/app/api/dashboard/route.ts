@@ -320,18 +320,21 @@ export async function GET(request: Request) {
             calculationProperty,
             properties as unknown as CalculationProperty[],
             relationTargets,
+            today,
           );
         }
         // A relation filter on a pinned widget reads the record's links.
         if (property.type === "relation") return record.relations[property.id] ?? [];
         return record.values[property.id];
       };
+      // The widget is filtered in the browser's day, not the server's, so a
+      // "today" filter agrees with the widgets that render around it.
       const visible = applyView(
         records,
         properties,
         parseViewFilters(config),
         parseViewSorts(config),
-        { valueFor },
+        { valueFor, today },
       );
 
       // A chart widget keeps the view's saved shape and is computed from every

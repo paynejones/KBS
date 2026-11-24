@@ -288,7 +288,7 @@ export async function DELETE(request: Request, context: Context) {
       if (sibling.type !== "formula") return false;
       const expression = sibling.options.expression;
       if (typeof expression !== "string") return false;
-      const parsed = parseFormula(expression);
+      const parsed = parseFormula(expression, { allowToday: true });
       return parsed.ok && parsed.references.includes(property.name);
     });
     if (formula) {

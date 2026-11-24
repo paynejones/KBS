@@ -105,7 +105,7 @@ export async function validatePropertyOptions(
     if (typeof expression !== "string" || !expression.trim()) {
       return { ok: false, error: "Enter a formula", status: 400 };
     }
-    const parsedFormula = parseFormula(expression);
+    const parsedFormula = parseFormula(expression, { allowToday: true });
     if (!parsedFormula.ok) return { ok: false, error: parsedFormula.error, status: 400 };
 
     const existingProperties = await db
@@ -118,10 +118,15 @@ export async function validatePropertyOptions(
       if (!referenced) {
         return { ok: false, error: `No property named “${reference}” in this database`, status: 400 };
       }
-      if (referenced.type !== "number" && referenced.type !== "rollup" && referenced.type !== "formula") {
+      if (
+        referenced.type !== "number"
+        && referenced.type !== "date"
+        && referenced.type !== "rollup"
+        && referenced.type !== "formula"
+      ) {
         return {
           ok: false,
-          error: "Formulas can reference number, rollup, and formula properties",
+          error: "Formulas can reference number, date, rollup, and formula properties",
           status: 400,
         };
       }

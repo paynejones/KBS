@@ -10,9 +10,9 @@ import {
   monthGrid,
   monthLabel,
   shiftMonth,
-  todayKey,
   WEEKDAY_LABELS,
 } from "@/lib/calendar";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 import type { DatabasePropertyType } from "@/lib/database-property";
 import { recordHref } from "@/lib/record-link";
 
@@ -41,7 +41,7 @@ export function DatabaseCalendar({
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
-  const [today] = useState(() => todayKey());
+  const today = useCalendarDay();
 
   const dateProperties = properties.filter((property) => property.type === "date");
   const dateProperty = dateProperties.find((property) => property.id === datePropertyId) ?? dateProperties[0];

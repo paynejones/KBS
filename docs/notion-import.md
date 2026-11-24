@@ -6,11 +6,12 @@ properties, their rows as records, relations, inline page links, and files.
 
 Ids are derived deterministically from Notion ids, so re-running the importer
 never duplicates an object: a second run only adds what is new. Every run that
-writes records a manifest of exactly the rows and files it created, so an import
-can be undone precisely.
+adds rows or files — an import, an `--update` or a `--retry-files` — records a
+manifest of exactly what it added, so each can be undone precisely.
 
-Notion's API does not expose database views, button actions, or comments, so a
-few things cannot be copied. They are listed under
+Notion's API does not expose database views or button actions, and KBS has no
+comment model and none of the formatting Notion keeps for rich text and
+callouts, so a few things cannot be copied. They are listed under
 [What is not imported](#what-is-not-imported).
 
 ## Setup
@@ -73,11 +74,13 @@ retries throttled and server responses itself.
 | `--dump <file>` | Also write the converted workspace (pages, databases, properties, views, records, relations, links, attachments, warnings) to JSON. The import itself still runs unless `--dry-run` is also passed. | The JSON file, plus the normal import |
 | `--manifest <file>` | Where this run's manifest goes. Defaults to `data/import-manifests/notion-<timestamp>.json` (`/data` is gitignored). | The manifest |
 | `--undo <manifest>` | Delete exactly the rows and files a recorded run created, then mark the manifest undone. Needs a typed confirmation unless `--yes` is passed; add `--dry-run` to preview. | Deletes rows/files |
-| `--yes` | Skip the typed confirmation for `--undo`. | — |
-| `--force` | Undo even when the manifest names a different database than `DATABASE_URL`. | — |
+| `--yes` | Skip the typed confirmation for `--undo` or `--prune-trashed`. | — |
+| `--force` | Undo or restore even when the manifest names a different database than `DATABASE_URL`. | — |
 | `--verify` | Re-read Notion and compare its counts with KBS. Writes nothing; exits non-zero on a mismatch. | Nothing |
-| `--retry-files` | Re-download the Notion-hosted files an earlier run left as Notion links and repoint the pages and records at them. Exits non-zero if a file still cannot be stored. | Attachment rows/files, page and record references |
-| `--update` | Refresh existing pages, record titles and property values from Notion. Never inserts; only rows Notion edited after their stored timestamp are touched. | Existing rows, new media for changed content |
+| `--retry-files` | Re-download the Notion-hosted images and documents an earlier run left as Notion links and repoint the pages and records at them. Video and audio blocks are always links and are not retried. Exits non-zero if a file still cannot be stored. | Attachment rows/files, page and record references, a manifest of additions |
+| `--update` | Refresh existing pages, record titles and property values from Notion. Never inserts; only rows Notion edited after their stored timestamp are touched. | Existing rows, new media for changed content, a manifest of additions |
+| `--prune-trashed` | Remove the pages, records and databases Notion has moved to its trash, using the Notion ids the import stored. Pages go to the KBS trash; record and database rows are removed and recorded in a prune manifest. Add `--dry-run` to preview. | Page `deleted_at`, deletes records/databases, the prune manifest |
+| `--restore <manifest>` | Put back exactly what a `--prune-trashed` run removed: un-trash its pages and re-insert its databases, properties, views, templates, records, relations, page links and Notion ids. Existing rows are kept. Add `--dry-run` to preview. | Rows, page `deleted_at` |
 | `--help` | Print the usage above. | — |
 
 Combination rules:
@@ -87,8 +90,16 @@ Combination rules:
 - `--verify` cannot be combined with `--merge`, `--dry-run`, `--dump` or
   `--manifest`.
 - `--retry-files` and `--update` cannot be combined with `--merge`,
-  `--dry-run`, `--verify`, `--dump` or `--manifest`; they accept `--root`.
-- `--yes`/`--force` are only meaningful with `--undo`.
+  `--dry-run`, `--verify`, `--dump` or `--manifest`; they accept `--root` and
+  write their own manifest at the default path.
+- `--prune-trashed` cannot be combined with import options (`--root`,
+  `--merge`, `--verify`, `--retry-files`, `--update`, `--undo`, `--dump`,
+  `--manifest`, `--force`); it accepts `--dry-run` and `--yes`.
+- `--restore` cannot be combined with import options (`--root`, `--merge`,
+  `--verify`, `--retry-files`, `--update`, `--undo`, `--prune-trashed`,
+  `--dump`, `--manifest`); it accepts `--dry-run` and `--force`.
+- `--yes` is only meaningful with `--undo` or `--prune-trashed`; `--force` only
+  with `--undo` or `--restore`.
 
 Exit codes: `0` on success; `1` for an error, for `--verify` mismatches, and for
 `--retry-files` files that are still unavailable. `--update` exits `0` even when
@@ -116,14 +127,21 @@ Titles, emoji icons, covers and the body are imported. Block support:
   toggles, quotes, dividers, code blocks (with language), tables, columns
   (flattened), equations (as `$$ … $$` text), child pages, child databases and
   `link_to_page`;
-- `video`, `audio`, `embed`, `bookmark` and `link_preview` become links;
+- `embed`, `bookmark` and `link_preview` become links;
+- `video` and `audio` become links too. When Notion hosts the file, the link is
+  a signed URL that expires, and `--retry-files` cannot refresh it: these blocks
+  never go through the downloader. The run reports how many it kept this way in
+  a single summary line rather than one warning per block;
 - synced blocks are read from their original block (it must be shared with the
   integration);
 - table of contents, breadcrumb, template and unsupported blocks are dropped;
 - an unknown block keeps its text.
 
 A page whose body cannot be read is imported without it and reported in the
-warnings. Non-emoji (file/image) icons are not imported.
+warnings. Non-emoji (file/image) icons are not imported. Rich-text colours
+(text and background), callout icons and colours, and a toggle's collapsed
+state have no KBS equivalent: the text and nesting are kept, but those
+attributes are dropped.
 
 ### Property mapping
 
@@ -133,7 +151,7 @@ warnings. Non-emoji (file/image) icons are not imported.
 | `rich_text` | `text` | |
 | `number` | `number` | |
 | `checkbox` | `checkbox` | |
-| `date`, `created_time`, `last_edited_time` | `date` | Created/last-edited values are stored as dates |
+| `date`, `created_time`, `last_edited_time` | `date` | Stored as the calendar day; a date's time and time zone are dropped. Created/last-edited values come from those timestamps. |
 | `url` | `url` | |
 | `email`, `phone_number`, `unique_id`, `people` | `text` | People become a comma-separated list of names |
 | `files` | `file` | KBS keeps the first file; more than one is reported |
@@ -173,10 +191,16 @@ translate one to one:
 - Notion's function forms `add`, `subtract`, `multiply`, `divide` and
   `unaryMinus`.
 
-KBS formulas may only read number, rollup and formula properties. A reference
-to text, a date, a checkbox, a title or a dropped property makes the formula
-untranslatable. So does anything KBS's language lacks: `if()`, `concat()`,
-comparisons, dates, strings, `pow()`, `mod()`, and so on.
+KBS's own formula language is broader than that translation: it reads number,
+date, rollup and formula properties, and computes dates with `today()`, whole-day
+`+`/`-` (`{Due} + 7`, `{Due} - today()`), `dateAdd(date, days)` and
+`daysBetween(start, end)`. A formula that computes a date renders as a calendar
+day, and views can filter it with `is`, `is before` or `is after` (including
+`today`). The importer still translates only the arithmetic listed above: a
+reference to text, a date, a checkbox, a title or a dropped property stays
+untranslatable because the translator does not map date values or date
+functions. So does anything KBS does not support: `if()`, `concat()`,
+comparisons, strings, `pow()`, `mod()`, and so on.
 
 Untranslatable formulas are **snapshotted** like rollups: Notion's computed
 values become a `number` column when all of them are numeric, otherwise a `text`
@@ -205,7 +229,11 @@ cover, a block, or a record property), and the page or record references it as
   GZIP, 7z, EPUB, Word, Excel, PowerPoint, OpenDocument text/sheets/slides.
 - Maximum size: 10 MB per file.
 - Anything else, or any failed download, is kept as a link to the Notion URL
-  and reported. That URL expires; `--retry-files` is the fix.
+  and reported. That URL expires; `--retry-files` is the fix for media the
+  importer tried to download (an image, a file block, a page cover, or a
+  `files` property value). Video and audio blocks never reach the downloader —
+  KBS stores neither type — so a retry does not refresh their links either; the
+  run counts them once in its warnings.
 - External (non-Notion) image and file URLs are kept as links and never
   re-downloaded by a retry.
 - Files already on disk are not claimed by a new run, and `--undo` only removes
@@ -245,11 +273,13 @@ Both modes are insert-only. To refresh something that changed in Notion, use
 
 ### Manifest and `--undo`
 
-Every run that writes records a manifest: the database it wrote to, the roots,
-every row id per table that this run actually created (not rows that already
-existed), and every file it wrote with its size. The manifest is written just
-before `COMMIT` and removed if the transaction rolls back, so it never describes
-uncommitted rows. It is skipped entirely when nothing new was written.
+Every run that adds rows or files records a manifest: the database it wrote to,
+the roots, every row id per table that this run actually created (not rows that
+already existed), and every file it wrote with its size. The `run` field names
+the mode that wrote it (`import`, `update` or `retry-files`). An import writes
+its manifest just before `COMMIT` and removes it if the transaction rolls back,
+so it never describes uncommitted rows. A run with no additions writes no
+manifest.
 
 ```bash
 npm run import:notion -- --undo "data/import-manifests/notion-2026-11-22-10-30-00.json"
@@ -267,6 +297,14 @@ Undo is exact and defensive:
 - also deletes the `notion_objects` ids for the pages, databases and records it
   removes, so the trash map never keeps ids for rows that are gone;
 - deletes a file only when its size still matches the manifest.
+
+An `--update` or `--retry-files` manifest lists only what that run added, so
+undoing it removes those properties, views, page links, relations and stored
+files without touching rows it did not create. Refreshed content may still point
+at the stored bytes, so undo first puts the Notion URL back into the page
+covers, documents and record file values that hold them, and only then deletes
+the attachment rows and files. That leaves the content referencing Notion rather
+than a `/api/attachments/` URL whose bytes just went away.
 
 `--undo` needs no `NOTION_TOKEN` and accepts no import flags.
 
@@ -344,10 +382,15 @@ still matches the same file, so retry does not depend on the old link working.
 - touch external (non-Notion) URLs;
 - create pages, records, relations or views;
 - re-download a file kept as a link because KBS refuses its type — that fails
-  again and is reported again;
-- write a manifest (it only fills in missing attachments and fixes references).
+  again and is reported again.
 
-Only Notion-hosted media (`file` and `file_upload`) is retried.
+The files it stores, the references it rewrites and each file's original Notion
+URL are recorded in a manifest (default `data/import-manifests/notion-retry-files-*.json`),
+so `--undo <manifest>` can put the URL back and remove the bytes again.
+
+Only Notion-hosted media the importer downloads is retried: images, file
+blocks, page covers and `files` property values. Video and audio blocks are
+always links, so a retry never sees them, and their signed URLs expire.
 
 ### `--update`
 
@@ -387,8 +430,8 @@ database keeps its schema and views.
 ```
 
 A page, record or database Notion has moved to its trash is reported under
-`trashed in Notion` and kept in KBS; `--update` never deletes content. Remove or
-archive it in KBS if it should go.
+`trashed in Notion` and kept in KBS; `--update` never deletes content. Use
+`--prune-trashed` to act on that report, or remove the object in KBS yourself.
 
 Notion's search results and a page's children both omit trashed objects, so the
 walk alone cannot name them. Every import and update therefore stores the Notion
@@ -416,6 +459,12 @@ step, and the board is removed when its status-like select is gone.
 Conversion warnings (an unreadable body, a failed download, a snapshot) are
 printed after the report, as they are for `--retry-files`.
 
+What it adds — properties, inferred views, page links, relations, attachments
+and media — is recorded in a manifest (default
+`data/import-manifests/notion-update-*.json`). The run prints the path; keep it
+so `--undo <manifest>` can remove exactly those additions later. Content and
+parent changes are not additions and are not reverted by that undo.
+
 `--update` does **not**:
 
 - insert pages, records, databases or attachments. Rows Notion has that KBS
@@ -428,7 +477,87 @@ printed after the report, as they are for `--retry-files`.
 - create relations or page links that point at rows not in KBS; those pairs are
   skipped rather than failing the foreign key;
 - fix files that were kept as Notion links — use `--retry-files` for that;
-- write a manifest.
+- revert content or parent changes when its manifest is undone; only the rows
+  and files it added are removed.
+
+### `--prune-trashed`
+
+`--update` reports what Notion trashed and leaves it in KBS. This mode is the
+explicit opt-in that removes it, using the Notion ids recorded in
+`notion_objects`:
+
+```bash
+# Ask Notion about every recorded object and change nothing.
+npm run import:notion -- --prune-trashed --dry-run
+
+# Apply it. A typed confirmation is required unless --yes is passed.
+npm run import:notion -- --prune-trashed
+```
+
+The run reads every `notion_objects` row, skips objects whose KBS row is already
+gone or already in the trash, and asks Notion about the rest. Only an object
+Notion reports as trashed (or archived) is affected. A 404 — an object deleted
+permanently, or one the integration can no longer read — is ignored, so a
+revoked token or a re-shared page cannot empty the workspace.
+
+```
+Notion → KBS prune
+  recorded Notion ids:  24
+  trashed in Notion:    3
+  pages to trash:       5
+  records to remove:    3
+  databases to remove:  1
+  already in trash:     0
+  no longer in KBS:     0
+
+Removing:
+  - page "Beta"
+  - record "Task one"
+  - database "Projects"
+```
+
+- **Pages are soft-deleted** (`deleted_at`), exactly as the trash button does,
+  so they appear in Trash and can be restored with their revisions and links.
+- **Records and databases have no trash table**, so their rows are deleted. The
+  page a record owns, and the page that groups a database, are soft-deleted with
+  them; deleting a database cascades its properties, views, records, relations
+  and templates.
+- **Attachment bytes are kept.** A trashed page still references them, and the
+  trash's permanent delete removes the files nothing else uses.
+- The `notion_objects` rows for everything removed are deleted too, so a later
+  `--update` stops reporting an object that is already gone.
+- A trashed database takes its records with it even when a record's own Notion
+  page cannot be read, so no record is left in a database that no longer exists.
+
+The report is the same for `--dry-run`, which ends with `Dry run: nothing was
+removed.` The mode needs `NOTION_TOKEN` and `DATABASE_URL` and accepts no import
+flags.
+
+Each applied run writes a prune manifest (default
+`data/import-manifests/notion-prune-*.json`). Before deleting, it captures the
+full rows it is about to remove — databases, their properties, views, templates
+and records, the relations and page links those cascade to, and the
+`notion_objects` ids it forgets — plus every page it soft-deletes and that
+page's previous `updated_at`. Keep it until the prune looks right.
+
+```bash
+# Preview a restore.
+npm run import:notion -- --restore "data/import-manifests/notion-prune-2026-11-24-10-30-00.json" --dry-run
+
+# Put the pages, records and databases back.
+npm run import:notion -- --restore "data/import-manifests/notion-prune-2026-11-24-10-30-00.json"
+```
+
+A restore runs in one transaction. It un-trashes the pages (putting their
+pre-prune timestamps back, so `--update` still compares against Notion's edit
+time) and re-inserts the captured rows, keeping any row that already exists — a
+later re-import, or a manual recreate — so the manifest never overwrites newer
+work. The `notion_objects` ids come back with the rows, so
+`--update` and `--prune-trashed` can find them again. A page the user
+permanently deleted from KBS's trash cannot be un-trashed; it is reported, and
+its records are restored without a page instead of failing the run. `--restore`
+refuses a manifest recorded against another database unless `--force`, marks the
+manifest `restoredAt`, and refuses to replay it twice.
 
 ## Re-running and idempotency
 
@@ -444,7 +573,16 @@ changed content use `--update`; for files use `--retry-files`; for checking use
   layout and view names are lost. Each database gets a table view, plus an
   inferred board over a status-like select.
 - **Button actions.** The API returns `button: {}` and nothing else.
-- **Comments and discussions.**
+- **Notion-hosted video and audio.** The blocks become links, but Notion's
+  signed URLs expire and `--retry-files` does not refresh them; the run reports
+  how many it kept in a single summary line.
+- **Comments.** Notion's API returns them, but KBS has no comment model to
+  store them in.
+- **Rich-text colours** (text and background), **callout icons and colours**,
+  and **a toggle's collapsed state**. The text and nesting survive; these
+  attributes are dropped.
+- **Date times and time zones.** A date property keeps its `YYYY-MM-DD` day
+  only, and a date rollup or formula snapshot is stored the same way.
 - **Non-emoji page icons** (uploaded images).
 - **Notion people as users.** A `people` property becomes a text list of names;
   KBS has no workspace membership.
@@ -458,7 +596,7 @@ Further limits worth knowing:
 - A data source query is capped by Notion at 10,000 rows; when the API reports
   the result as incomplete the import warns that some rows were not imported.
 - A `files` property with several files keeps the first and warns.
-- Rollups and formulas that cannot be computed in KBS keep a snapshot of
+- Rollups and formulas the importer cannot translate keep a snapshot of
   Notion's values. The snapshot is not live: it does not update when the
   underlying records change.
 - KBS has no per-user identity, so imported content is owned by the workspace.

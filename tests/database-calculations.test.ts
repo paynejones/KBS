@@ -8,6 +8,7 @@ import {
   type RelationTargetMap,
 } from "../src/lib/database-calculations";
 import {
+  buttonExpressionDateWarning,
   buttonExpressionError,
   evaluateButtonDateExpression,
   evaluateButtonExpression,
@@ -91,6 +92,42 @@ test("formulas read number properties and rollups", () => {
   assert.equal(formulaValue(record, formula("{Score} / 0"), properties, targets), null);
 });
 
+test("formulas read date properties and today()", () => {
+  const due: CalculationProperty = { id: "due", name: "Due", type: "date", options: {} };
+  const formula = (expression: string): CalculationProperty => ({
+    id: `formula:${expression}`,
+    name: "Calculated",
+    type: "formula",
+    options: { expression },
+  });
+  const properties = [score, due];
+  const dated = { values: { score: 4, due: "2026-11-20" }, relations: {} };
+  const today = "2026-11-23";
+
+  assert.equal(formulaValue(dated, formula("{Due} + 7"), properties, targets, today), "2026-11-27");
+  assert.equal(formulaValue(dated, formula("{Due} - today()"), properties, targets, today), -3);
+  assert.equal(formulaValue(dated, formula("today()"), properties, targets, today), "2026-11-23");
+  assert.equal(formulaValue({ values: {} }, formula("{Due} + 1"), properties, targets, today), null);
+
+  const copy: CalculationProperty = {
+    id: "copy",
+    name: "Copy",
+    type: "formula",
+    options: { expression: "{Due} + 1" },
+  };
+  const shifted: CalculationProperty = {
+    id: "shifted",
+    name: "Shifted",
+    type: "formula",
+    options: { expression: "{Copy} + 1" },
+  };
+  assert.equal(
+    formulaValue(dated, shifted, [...properties, copy, shifted], targets, today),
+    "2026-11-22",
+    "a formula can read another formula's date",
+  );
+});
+
 test("buttons and formulas read the same references", () => {
   const properties = [score, total];
   const evaluated = evaluateButtonExpression("{Total} + 1", properties, record, targets);
@@ -166,6 +203,92 @@ test("button date expressions copy dates and move them by whole days", () => {
 
   const todayAndNumber = evaluateButtonDateExpression("today() + {Snooze}", properties, dated, {}, today);
   assert.equal(todayAndNumber.ok ? todayAndNumber.value : "error", "2026-11-22");
+});
+
+test("button number targets refuse a formula that computes a date", () => {
+  const due: CalculationProperty = { id: "due", name: "Due", type: "date", options: {} };
+  const next: CalculationProperty = {
+    id: "next",
+    name: "Next",
+    type: "formula",
+    options: { expression: "{Due} + 7" },
+  };
+  const sum: CalculationProperty = {
+    id: "sum",
+    name: "Sum",
+    type: "formula",
+    options: { expression: "1 + 2" },
+  };
+  const properties = [due, next, sum];
+  const dated = { values: { due: "2026-11-15" }, relations: {} };
+
+  const dateResult = evaluateButtonExpression("{Next}", properties, dated, {});
+  assert.equal(dateResult.ok, false, "a date cannot be written to a number target");
+  assert.match(dateResult.ok ? "" : dateResult.error, /computed a date/);
+
+  const numberResult = evaluateButtonExpression("{Sum}", properties, dated, {});
+  assert.equal(numberResult.ok ? numberResult.value : "error", 3);
+});
+
+test("the button editor warns before saving when a formula can compute a date", () => {
+  const due: CalculationProperty = { id: "due", name: "Due", type: "date", options: {} };
+  const next: CalculationProperty = {
+    id: "next",
+    name: "Next",
+    type: "formula",
+    options: { expression: "{Due} + 7" },
+  };
+  const sum: CalculationProperty = {
+    id: "sum",
+    name: "Sum",
+    type: "formula",
+    options: { expression: "1 + 2" },
+  };
+  const gap: CalculationProperty = {
+    id: "gap",
+    name: "Gap",
+    type: "formula",
+    options: { expression: "{Due} - today()" },
+  };
+  const properties = [due, next, sum, gap];
+
+  assert.match(buttonExpressionDateWarning("{Next}", properties, "number") ?? "", /can compute a date/);
+  assert.match(buttonExpressionDateWarning("{Next}", properties, "text") ?? "", /can compute a date/);
+  assert.equal(buttonExpressionDateWarning("{Next}", properties, "date"), null, "a date target is what a date should be written to");
+  assert.equal(buttonExpressionDateWarning("{Sum}", properties, "number"), null);
+  assert.equal(
+    buttonExpressionDateWarning("{Gap}", properties, "number"),
+    null,
+    "date arithmetic that computes a day count is not a date",
+  );
+  assert.equal(
+    buttonExpressionDateWarning("{Due}", properties, "number"),
+    null,
+    "a direct date reference is already a validation error",
+  );
+});
+
+test("the button editor warning recurses through nested date formulas", () => {
+  const due: CalculationProperty = { id: "due", name: "Due", type: "date", options: {} };
+  const next: CalculationProperty = {
+    id: "next",
+    name: "Next",
+    type: "formula",
+    options: { expression: "{Due} + 7" },
+  };
+  const later: CalculationProperty = {
+    id: "later",
+    name: "Later",
+    type: "formula",
+    options: { expression: "{Next} + 1" },
+  };
+  const properties = [due, next, later];
+
+  assert.match(
+    buttonExpressionDateWarning("{Later}", properties, "number") ?? "",
+    /can compute a date/,
+    "a date two formula levels away is still seen by the sample",
+  );
 });
 
 test("button expressions read formula properties, including nested ones", () => {

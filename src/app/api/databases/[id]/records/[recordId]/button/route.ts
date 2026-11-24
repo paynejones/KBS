@@ -131,7 +131,7 @@ function computeActionValue(
     return { error: `${target.name} cannot use an expression value` };
   }
   // A date target reads dates and moves them by whole days; every other target
-  // keeps the numeric expression a formula uses.
+  // evaluates the shared formula language for a value it can store.
   const computed = target.type === "date"
     ? evaluateButtonDateExpression(raw.expression, source.properties, source.record, source.targets)
     : evaluateButtonExpression(raw.expression, source.properties, source.record, source.targets);
@@ -351,10 +351,11 @@ export async function POST(request: Request, context: Context) {
       });
 
       // An expression reads what a formula reads on this record: its number
-      // properties, its rollups, and its formulas. Formulas are expanded into
-      // the references they use, so a rollup read only through a formula still
-      // has its linked records loaded. Only the rollups that are needed are
-      // loaded, from the linked records as they are now.
+      // properties, its rollups, its formulas, and (for a date target) its date
+      // properties. Formulas are expanded into the references they use, so a
+      // rollup read only through a formula still has its linked records loaded.
+      // Only the rollups that are needed are loaded, from the linked records as
+      // they are now.
       const relationsByProperty: Record<string, string[]> = {};
       for (const row of relationRows) {
         relationsByProperty[row.propertyId] = [

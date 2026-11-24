@@ -41,6 +41,8 @@ const NOTION_EDITED_AT = "2026-02-01T00:00:00.000Z";
 const KBS_EDITED_AT = "2026-03-01T00:00:00.000Z";
 
 const IMAGE_NAME = "photo.png";
+/** A file the fake server refuses until a retry test turns it on. */
+const LATE_IMAGE = "late.png";
 const IMAGE_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 // -- Fake Notion workspace ---------------------------------------------------
@@ -48,6 +50,8 @@ const IMAGE_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 type BodyItem =
   | { text: string; href?: string }
   | { image: string }
+  | { video: string; caption: string }
+  | { videoUpload: string; caption: string }
   | { childPage: string; title: string };
 
 type FakePage = {
@@ -64,6 +68,7 @@ type FakeRecord = {
   title: string;
   editedAt: string;
   properties: Json;
+  trashed?: boolean;
 };
 
 type FakeDatabase = {
@@ -73,6 +78,7 @@ type FakeDatabase = {
   editedAt: string;
   properties: Json;
   records: FakeRecord[];
+  trashed?: boolean;
 };
 
 type FakeWorkspace = {
@@ -193,7 +199,12 @@ function createWorkspace(): FakeWorkspace {
         editedAt: IMPORTED_AT,
         body: [
           { text: "intro" },
+          // Notion-hosted video: kept as an expiring link, never downloaded.
+          { video: "clip.mp4", caption: "launch clip" },
+          // A newer file upload has no inline URL; it resolves via /file_uploads.
+          { videoUpload: "upload-clip-2", caption: "second clip" },
           { image: IMAGE_NAME },
+          { image: LATE_IMAGE },
           { childPage: ID.alpha, title: "Alpha" },
           { childPage: ID.beta, title: "Beta" },
           { childPage: ID.gamma, title: "Gamma" },
@@ -292,7 +303,11 @@ function createWorkspace(): FakeWorkspace {
 
 // -- Fake Notion HTTP API ----------------------------------------------------
 
-type FakeServer = { server: Server; baseUrl: string };
+type FakeServer = {
+  server: Server;
+  baseUrl: string;
+  serveLateImage: (available: boolean) => void;
+};
 
 function sendJson(response: ServerResponse, status: number, payload: unknown) {
   const body = JSON.stringify(payload);
@@ -351,6 +366,32 @@ function blocksPayload(page: FakePage, baseUrl: string): Json[] {
         },
       };
     }
+    if ("video" in item) {
+      return {
+        object: "block",
+        id,
+        type: "video",
+        has_children: false,
+        video: {
+          type: "file",
+          file: { url: `${baseUrl}/files/${item.video}`, expiry_time: "2026-01-01T01:00:00.000Z" },
+          caption: richText(item.caption),
+        },
+      };
+    }
+    if ("videoUpload" in item) {
+      return {
+        object: "block",
+        id,
+        type: "video",
+        has_children: false,
+        video: {
+          type: "file_upload",
+          file_upload: { id: item.videoUpload },
+          caption: richText(item.caption),
+        },
+      };
+    }
     // Notion uses the child page's own id as the block id.
     return {
       object: "block",
@@ -368,7 +409,7 @@ function recordPayload(database: FakeDatabase, record: FakeRecord): Json {
     id: record.id,
     created_time: IMPORTED_AT,
     last_edited_time: record.editedAt,
-    in_trash: false,
+    in_trash: record.trashed ?? false,
     archived: false,
     parent: { type: "data_source_id", data_source_id: database.dataSourceId },
     properties: {
@@ -380,12 +421,14 @@ function recordPayload(database: FakeDatabase, record: FakeRecord): Json {
 
 async function startFakeNotion(workspace: FakeWorkspace): Promise<FakeServer> {
   let baseUrl = "";
+  let lateImageAvailable = false;
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const parts = url.pathname.split("/").filter(Boolean);
 
     if (parts[0] === "files") {
-      if (url.pathname !== `/files/${IMAGE_NAME}`) {
+      const filename = parts[1] ?? "";
+      if (filename !== IMAGE_NAME && !(filename === LATE_IMAGE && lateImageAvailable)) {
         response.writeHead(404).end();
         return;
       }
@@ -399,8 +442,29 @@ async function startFakeNotion(workspace: FakeWorkspace): Promise<FakeServer> {
 
     if (parts[0] === "pages" && parts.length === 2) {
       const page = workspace.pages.get(parts[1]);
-      if (page) sendJson(response, 200, pagePayload(page));
-      else sendJson(response, 404, { object: "error", code: "object_not_found", message: "No page" });
+      if (page) {
+        sendJson(response, 200, pagePayload(page));
+        return;
+      }
+      // A record is a page in Notion; --prune-trashed asks about it by id.
+      for (const database of workspace.databases.values()) {
+        const record = database.records.find((row) => row.id === parts[1]);
+        if (record) {
+          sendJson(response, 200, recordPayload(database, record));
+          return;
+        }
+      }
+      sendJson(response, 404, { object: "error", code: "object_not_found", message: "No page" });
+      return;
+    }
+
+    if (parts[0] === "file_uploads" && parts.length === 2) {
+      // A file upload has no inline URL; its signed URL comes from this lookup.
+      sendJson(response, 200, {
+        object: "file_upload",
+        id: parts[1],
+        upload_url: `${baseUrl}/files/uploaded-video.mp4`,
+      });
       return;
     }
 
@@ -429,6 +493,7 @@ async function startFakeNotion(workspace: FakeWorkspace): Promise<FakeServer> {
         icon: null,
         created_time: IMPORTED_AT,
         last_edited_time: database.editedAt,
+        in_trash: database.trashed ?? false,
         data_sources: [{ id: database.dataSourceId, name: database.title }],
       });
       return;
@@ -458,6 +523,7 @@ async function startFakeNotion(workspace: FakeWorkspace): Promise<FakeServer> {
         title: richText(database.title),
         created_time: IMPORTED_AT,
         last_edited_time: database.editedAt,
+        in_trash: database.trashed ?? false,
         properties: database.properties,
       });
       return;
@@ -470,7 +536,13 @@ async function startFakeNotion(workspace: FakeWorkspace): Promise<FakeServer> {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Fake Notion server did not bind.");
   baseUrl = `http://127.0.0.1:${address.port}`;
-  return { server, baseUrl };
+  return {
+    server,
+    baseUrl,
+    serveLateImage: (available: boolean) => {
+      lateImageAvailable = available;
+    },
+  };
 }
 
 // -- Importer runner ---------------------------------------------------------
@@ -530,6 +602,10 @@ describe("Notion importer", () => {
   let fake: FakeServer;
   let workspace: FakeWorkspace;
   let manifestPath: string;
+  let updateManifestPath: string;
+  let retryManifestPath: string;
+  let reimportManifestPath: string;
+  let pruneManifestPath: string;
   let importRun: RunResult;
 
   const environment = () => ({
@@ -567,18 +643,44 @@ describe("Notion importer", () => {
     workspace = createWorkspace();
     fake = await startFakeNotion(workspace);
     manifestPath = path.join(tmpdir(), `kbs-notion-import-${process.pid}-${Date.now()}.json`);
+    reimportManifestPath = path.join(tmpdir(), `kbs-notion-reimport-${process.pid}-${Date.now()}.json`);
     importRun = await run([...roots, "--manifest", manifestPath]);
   });
 
   after(async () => {
     if (fake) await new Promise<void>((resolve) => fake.server.close(() => resolve()));
     if (manifestPath) await rm(manifestPath, { force: true });
+    if (updateManifestPath) await rm(updateManifestPath, { force: true });
+    if (retryManifestPath) await rm(retryManifestPath, { force: true });
+    if (reimportManifestPath) await rm(reimportManifestPath, { force: true });
+    if (pruneManifestPath) await rm(pruneManifestPath, { force: true });
     if (pool) await pool.end();
     if (harness) await harness.dispose();
   });
 
   it("imports the workspace and records it in a manifest", async () => {
     assert.equal(importRun.status, 0, importRun.output);
+
+    // A Notion-hosted video never reaches the downloader, so the run has to
+    // say that the links it keeps will expire and a retry will not fix them.
+    // Both the `file` and the `file_upload` shapes count as hosted, and the
+    // detail is collapsed into one summary line instead of one per block.
+    assert.match(
+      importRun.output,
+      /2 Notion-hosted video\/audio blocks kept as expiring links \(2 video\); --retry-files cannot refresh them\./,
+    );
+    assert.doesNotMatch(importRun.output, /Notion-hosted video is kept as a link/);
+    const journal = await pageByTitle("Journal");
+    assert.match(journal.content, /launch clip/, "the video stays as a link");
+    assert.match(journal.content, /second clip/, "a file-upload video is kept too");
+    const [journalJson] = await rows<{ content_json: Json }>(
+      "SELECT content_json FROM pages WHERE title = 'Journal'",
+    );
+    assert.match(
+      JSON.stringify(journalJson.content_json),
+      /\/files\/uploaded-video\.mp4/,
+      "a file_upload video resolves through /file_uploads instead of being dropped",
+    );
 
     const [count] = await rows<{ count: number }>("SELECT count(*)::int AS count FROM pages");
     assert.equal(
@@ -685,6 +787,7 @@ describe("Notion importer", () => {
     alpha.title = "Alpha renamed";
     alpha.body = [
       { text: "alpha two" },
+      { image: IMAGE_NAME },
       { text: "see Gamma", href: notionPageUrl(ID.gamma) },
     ];
     alpha.editedAt = NOTION_EDITED_AT;
@@ -834,6 +937,25 @@ describe("Notion importer", () => {
       runResult.output,
       /structure:\s+1 parents, 1 relations, 1 page links, 2 properties, 1 views/,
     );
+
+    // Everything the update added is recorded, so a later --undo can remove
+    // exactly those rows and files.
+    const manifestLine = runResult.output.match(/Update manifest: (.+)/);
+    assert.ok(manifestLine, "the update should write a manifest of what it added");
+    updateManifestPath = manifestLine[1].trim();
+    const updateManifest = JSON.parse(await readFile(updateManifestPath, "utf8"));
+    assert.equal(updateManifest.run, "update");
+    assert.equal(updateManifest.rows.databaseProperties.length, 1, "the Notes property");
+    assert.equal(updateManifest.rows.databaseViews.length, 1, "the restored board view");
+    assert.equal(
+      updateManifest.rows.databaseRecordRelations.length,
+      1,
+      "Beta's new relation",
+    );
+    assert.equal(updateManifest.rows.pageLinks.length, 1, "Alpha's link to Gamma");
+    assert.equal(updateManifest.rows.attachments.length, 1, "Alpha's new image");
+    assert.equal(updateManifest.files.length, 1);
+    assert.equal(updateManifest.attachmentSources.length, 1);
   });
 
   it("--update reports pages Notion trashed instead of keeping them silently", async (t) => {
@@ -870,6 +992,48 @@ describe("Notion importer", () => {
     assert.equal(kept.count, 1, "a trashed page is reported, not deleted");
   });
 
+  it("--retry-files records the file and the reference rewrite it adds", async (t) => {
+    fake.serveLateImage(true);
+    t.after(() => fake.serveLateImage(false));
+
+    const retry = await run([...roots, "--retry-files"]);
+    assert.equal(retry.status, 0, retry.output);
+    const manifestLine = retry.output.match(/Retry manifest: (.+)/);
+    assert.ok(manifestLine, "the retry should write a manifest of the file it stored");
+    retryManifestPath = manifestLine[1].trim();
+
+    const manifest = JSON.parse(await readFile(retryManifestPath, "utf8"));
+    assert.equal(manifest.run, "retry-files");
+    assert.equal(manifest.rows.attachments.length, 1);
+    assert.equal(manifest.files.length, 1);
+    assert.equal(manifest.attachmentSources.length, 1);
+    const attachmentId = manifest.rows.attachments[0] as string;
+    assert.ok(await stat(path.join(harness.attachmentsDir, attachmentId)));
+
+    const [journal] = await rows<{ content_json: Json }>(
+      "SELECT content_json FROM pages WHERE title = 'Journal'",
+    );
+    assert.match(
+      JSON.stringify(journal.content_json),
+      new RegExp(`/api/attachments/${attachmentId}`),
+    );
+
+    const undo = await run(["--undo", retryManifestPath, "--yes"]);
+    assert.equal(undo.status, 0, undo.output);
+    assert.match(undo.output, /content:\s+1 attachment references restored to Notion/);
+
+    const [left] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM attachments WHERE id = $1",
+      [attachmentId],
+    );
+    assert.equal(left.count, 0);
+    await assert.rejects(stat(path.join(harness.attachmentsDir, attachmentId)));
+    const [restored] = await rows<{ content_json: Json }>(
+      "SELECT content_json FROM pages WHERE title = 'Journal'",
+    );
+    assert.match(JSON.stringify(restored.content_json), /\/files\/late\.png/);
+  });
+
   it("--verify passes on a complete import and fails on missing rows and files", async () => {
     const complete = await run([...roots, "--verify"]);
     assert.equal(complete.status, 0, complete.output);
@@ -877,9 +1041,10 @@ describe("Notion importer", () => {
 
     // Simulate a damaged import: a property row and the attachment bytes are gone.
     await pool.query("DELETE FROM database_properties WHERE name = 'Remainder'");
-    const [attachment] = await rows<{ id: string }>("SELECT id FROM attachments");
-    assert.ok(attachment);
-    const attachmentFile = path.join(harness.attachmentsDir, attachment.id);
+    const importManifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const importedAttachmentId = importManifest.rows.attachments[0] as string;
+    assert.ok(importedAttachmentId);
+    const attachmentFile = path.join(harness.attachmentsDir, importedAttachmentId);
     assert.ok(await stat(attachmentFile));
     await rm(attachmentFile);
 
@@ -887,6 +1052,45 @@ describe("Notion importer", () => {
     assert.equal(damaged.status, 1, damaged.output);
     assert.match(damaged.output, /1 of 11 properties is missing from KBS/);
     assert.match(damaged.output, /1 of 1 attachment .*missing from/);
+  });
+
+  it("--undo removes the rows and files --update added", async () => {
+    const manifest = JSON.parse(await readFile(updateManifestPath, "utf8"));
+    const attachmentId = manifest.rows.attachments[0] as string;
+    assert.ok(await stat(path.join(harness.attachmentsDir, attachmentId)));
+
+    const undo = await run(["--undo", updateManifestPath, "--yes"]);
+    assert.equal(undo.status, 0, undo.output);
+
+    assert.equal((await properties()).has("Notes"), false);
+    const [board] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM database_views WHERE type = 'board'",
+    );
+    assert.equal(board.count, 0);
+    const [betaRecord] = await rows<{ id: string }>(
+      "SELECT id FROM database_records WHERE title = 'Beta'",
+    );
+    const [relations] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM database_record_relations WHERE source_record_id = $1",
+      [betaRecord.id],
+    );
+    assert.equal(relations.count, 0);
+    const [links] = await rows<{ count: number }>("SELECT count(*)::int AS count FROM page_links");
+    assert.equal(links.count, 0);
+    const [left] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM attachments WHERE id = $1",
+      [attachmentId],
+    );
+    assert.equal(left.count, 0);
+    await assert.rejects(stat(path.join(harness.attachmentsDir, attachmentId)));
+
+    // Refreshed content still exists, so its image points at Notion again
+    // instead of at an attachment that was just deleted.
+    const [alpha] = await rows<{ content_json: Json }>(
+      "SELECT content_json FROM pages WHERE title = 'Alpha renamed'",
+    );
+    assert.match(JSON.stringify(alpha.content_json), /\/files\/photo\.png/);
+    assert.doesNotMatch(JSON.stringify(alpha.content_json), new RegExp(attachmentId));
   });
 
   it("--undo previews first, deletes only the recorded rows, and refuses a second undo", async () => {
@@ -928,5 +1132,178 @@ describe("Notion importer", () => {
     const again = await run(["--undo", manifestPath, "--yes"]);
     assert.equal(again.status, 1);
     assert.match(again.output, /already undone/);
+  });
+
+  it("--prune-trashed previews and removes only the objects Notion trashed", async (t) => {
+    // The undo above emptied the workspace, so import again; this test is last
+    // and leaves the workspace pruned.
+    const reimport = await run([...roots, "--manifest", reimportManifestPath]);
+    assert.equal(reimport.status, 0, reimport.output);
+
+    // The mapping is the precise row prune acts on, independent of where the
+    // re-import placed Alpha in the page tree.
+    const [alphaMapping] = await rows<{ kbs_id: string }>(
+      "SELECT kbs_id FROM notion_objects WHERE notion_id = $1 AND kind = 'page'",
+      [ID.alpha],
+    );
+    assert.ok(alphaMapping, "the re-import should record Alpha's Notion id");
+
+    const alpha = workspace.pages.get(ID.alpha)!;
+    const projects = workspace.databases.get(ID.projectsDatabase)!;
+    const taskOne = workspace.databases
+      .get(ID.tasksDatabase)!
+      .records.find((record) => record.id === ID.taskOne)!;
+    alpha.trashed = true;
+    projects.trashed = true;
+    taskOne.trashed = true;
+    t.after(() => {
+      alpha.trashed = false;
+      projects.trashed = false;
+      taskOne.trashed = false;
+    });
+
+    const dry = await run(["--prune-trashed", "--dry-run"]);
+    assert.equal(dry.status, 0, dry.output);
+    assert.match(dry.output, /trashed in Notion:\s+3/);
+    assert.match(dry.output, /page "Alpha"/);
+    assert.match(dry.output, /record "Task one"/);
+    assert.match(dry.output, /database "Projects"/);
+    assert.match(dry.output, /Dry run: nothing was removed/);
+
+    const [untouched] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM pages WHERE deleted_at IS NULL",
+    );
+    assert.equal(untouched.count, 10, "a dry run must not change anything");
+
+    // Removing data needs the same typed confirmation as --undo.
+    const unconfirmed = await run(["--prune-trashed"]);
+    assert.equal(unconfirmed.status, 1, unconfirmed.output);
+    assert.match(unconfirmed.output, /Re-run with --yes/);
+
+    const prune = await run(["--prune-trashed", "--yes"]);
+    assert.equal(prune.status, 0, prune.output);
+    assert.match(prune.output, /pages:\s+5 moved to the KBS trash/);
+    assert.match(prune.output, /records:\s+3 removed/);
+    assert.match(prune.output, /databases:\s+1 removed/);
+
+    // Pages go to the trash, the way the trash button does, so restoring one
+    // stays possible; the rest of the imported tree is untouched.
+    const [alphaState] = await rows<{ deleted_at: Date | null }>(
+      "SELECT deleted_at FROM pages WHERE id = $1",
+      [alphaMapping.kbs_id],
+    );
+    assert.ok(alphaState.deleted_at, "a trashed Notion page is soft-deleted in KBS");
+    const [taskPage] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM pages WHERE title = 'Task one' AND deleted_at IS NOT NULL",
+    );
+    assert.equal(taskPage.count, 1, "a removed record's page goes to the trash");
+    const [groupingPage] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM pages WHERE title = 'Projects' AND deleted_at IS NOT NULL",
+    );
+    assert.equal(groupingPage.count, 1, "a removed database's grouping page goes to the trash");
+    const [beta] = await rows<{ deleted_at: Date | null; content: string }>(
+      "SELECT deleted_at, content FROM pages WHERE title = 'Beta'",
+    );
+    assert.equal(beta.deleted_at, null, "an object Notion did not trash is left alone");
+    // Beta's body is the one the earlier --update test wrote from Notion.
+    assert.match(beta.content, /^beta two/);
+
+    // Records and databases have no trash table, so their rows are gone.
+    const records = await rows<{ title: string }>(
+      "SELECT title FROM database_records ORDER BY title",
+    );
+    assert.deepEqual(records.map((record) => record.title), ["Task two"]);
+    const databases = await rows<{ name: string }>("SELECT name FROM databases ORDER BY name");
+    assert.deepEqual(databases.map((database) => database.name), ["Tasks"]);
+
+    // The Notion ids of everything removed are forgotten with its rows.
+    const [mapped] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM notion_objects",
+    );
+    assert.equal(mapped.count, 5);
+
+    const [files] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM attachments",
+    );
+    assert.equal(files.count, 1, "attachment bytes are kept for the trash to clean up");
+
+    // What was removed is captured, so a later run can put it back.
+    const manifestLine = prune.output.match(/Prune manifest: (.+)/);
+    assert.ok(manifestLine, "the prune should record what it removed");
+    pruneManifestPath = manifestLine[1].trim();
+    const pruneManifest = JSON.parse(await readFile(pruneManifestPath, "utf8"));
+    assert.equal(pruneManifest.format, "kbs-prune-manifest");
+    assert.equal(pruneManifest.totals.pages, 5);
+    assert.equal(pruneManifest.totals.databases, 1);
+    assert.equal(pruneManifest.totals.records, 3);
+    assert.equal(pruneManifest.totals.properties, 10, "every Projects property");
+    assert.equal(pruneManifest.totals.views, 2, "the Projects table and board");
+    assert.equal(pruneManifest.rows.databases.length, 1);
+    assert.equal(pruneManifest.rows.databaseRecords.length, 3);
+    assert.equal(pruneManifest.rows.databaseRecordRelations.length, 2);
+    assert.equal(pruneManifest.rows.notionObjects.length, 5);
+
+    // The restore previews without writing, then replays the manifest.
+    const restoreDry = await run(["--restore", pruneManifestPath, "--dry-run"]);
+    assert.equal(restoreDry.status, 0, restoreDry.output);
+    assert.match(restoreDry.output, /Dry run: nothing was restored/);
+    const [stillPruned] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM databases",
+    );
+    assert.equal(stillPruned.count, 1, "a restore dry run must not change anything");
+
+    const restore = await run(["--restore", pruneManifestPath]);
+    assert.equal(restore.status, 0, restore.output);
+    assert.match(restore.output, /pages:\s+5 of 5 un-trashed/);
+    assert.match(restore.output, /databases:\s+1 of 1/);
+    assert.match(restore.output, /records:\s+3 of 3/);
+
+    const [live] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM pages WHERE deleted_at IS NULL",
+    );
+    assert.equal(live.count, 10, "every trashed page is un-trashed");
+    const [taskPageAgain] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM pages WHERE title = 'Task one' AND deleted_at IS NULL",
+    );
+    assert.equal(taskPageAgain.count, 1, "a removed record's page comes back");
+    const [databasesAgain] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM databases",
+    );
+    assert.equal(databasesAgain.count, 2);
+    const [recordsAgain] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM database_records",
+    );
+    assert.equal(recordsAgain.count, 4);
+    const [relationsAgain] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM database_record_relations",
+    );
+    assert.equal(relationsAgain.count, 2);
+    const [propertiesAgain] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM database_properties",
+    );
+    assert.equal(propertiesAgain.count, 11);
+    const [viewsAgain] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM database_views",
+    );
+    assert.equal(viewsAgain.count, 3);
+    const [mappedAgain] = await rows<{ count: number }>(
+      "SELECT count(*)::int AS count FROM notion_objects",
+    );
+    assert.equal(mappedAgain.count, 10, "the Notion ids come back with their rows");
+
+    // Un-trashing restores the pre-prune timestamp, so --update still compares
+    // against Notion's edit time instead of treating the page as new work.
+    const [alphaUpdated] = await rows<{ updated_at: Date }>(
+      "SELECT updated_at FROM pages WHERE id = $1",
+      [alphaMapping.kbs_id],
+    );
+    assert.equal(alphaUpdated.updated_at.toISOString(), IMPORTED_AT);
+
+    const restoredManifest = JSON.parse(await readFile(pruneManifestPath, "utf8"));
+    assert.ok(restoredManifest.restoredAt);
+
+    const restoreAgain = await run(["--restore", pruneManifestPath]);
+    assert.equal(restoreAgain.status, 1);
+    assert.match(restoreAgain.output, /already restored/);
   });
 });

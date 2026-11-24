@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { Check, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  buttonExpressionDateWarning,
   buttonExpressionError,
   defaultButtonActionValue,
   isButtonActionExpression,
@@ -18,7 +19,7 @@ type ActionProperty = {
   id: string;
   name: string;
   type: string;
-  options: { choices?: string[] };
+  options: { choices?: string[]; expression?: string };
 };
 type RelationOption = {
   id: string;
@@ -307,6 +308,7 @@ function ExpressionValueEditor(
       : candidate.type === "number" || candidate.type === "rollup" || candidate.type === "formula");
   const valueNames = readable.map((candidate) => `{${candidate.name}}`);
   const error = buttonExpressionError(value.expression, properties, property.type);
+  const warning = error ? null : buttonExpressionDateWarning(value.expression, properties, property.type);
 
   return (
     <div className="grid gap-1">
@@ -328,6 +330,12 @@ function ExpressionValueEditor(
             : "Add a number, rollup, or formula property to this database to read a current value here."}
       </p>
       {error && <p className="text-[11px] text-destructive">{error}</p>}
+      {/* The warning helper stays quiet when the expression has an error above. */}
+      {warning && (
+        <p role="status" className="text-[11px] text-amber-600 dark:text-amber-400">
+          {warning}
+        </p>
+      )}
       <button
         type="button"
         onClick={() => onChange(defaultButtonActionValue(property.type))}
@@ -438,7 +446,11 @@ export function ButtonActionsEditor({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">Actions</p>
-          <p className="text-xs text-muted-foreground">Each click runs these actions in order. Values are checked again on the server.</p>
+          <p className="text-xs text-muted-foreground">
+            Each click runs these actions in order, and the server checks the values again. A non-date
+            target refuses a date result at click time; the amber note is only a save-time warning, so
+            the button can still be saved.
+          </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={addAction}>
           <Plus size={14} /> Add action

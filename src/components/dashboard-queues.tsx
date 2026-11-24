@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { ArrowRight, CalendarClock, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { todayKey } from "@/lib/calendar";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 import { refreshDashboard, useDashboardRequest } from "@/lib/dashboard-request";
 import {
   DUE_SOON_DAYS,
@@ -74,7 +74,7 @@ export function DashboardQueues() {
   );
   const taskConfig = queues.tasks;
   const projectConfig = queues.projects;
-  const today = todayKey();
+  const today = useCalendarDay();
   // The queues contribute their two configured sources to the shared dashboard
   // request, which is why the page makes one call instead of three.
   const { data: payload, loading, failed } = useDashboardRequest("queues", {

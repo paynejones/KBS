@@ -65,7 +65,7 @@ import {
   PropertyTypeIcon,
   StatusChips,
 } from "@/components/property-display";
-import { todayKey } from "@/lib/calendar";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 import { parseTimelineRange } from "@/lib/timeline";
 import { boardSectionsFor } from "@/lib/database-board";
 import { recordHref } from "@/lib/record-link";
@@ -176,7 +176,7 @@ function DatabaseEmbedView({ node, deleteNode, updateAttributes }: NodeViewProps
   // on every render.
   const [chosenView, setChosenView] = useState({ savedViewId: viewId, viewId });
   const activeViewId = chosenView.savedViewId === viewId ? chosenView.viewId : viewId;
-  const [chartToday] = useState(() => todayKey());
+  const chartToday = useCalendarDay();
   const [relationTargets, setRelationTargets] = useState<RelationTargetMap>({});
   // Target record names, so a board grouped by a relation can name its columns.
   const [relationTitles, setRelationTitles] = useState<Record<string, Record<string, string>>>({});
@@ -456,7 +456,7 @@ function DatabaseEmbedView({ node, deleteNode, updateAttributes }: NodeViewProps
       : record.values[property.id];
   };
   const sorted = data
-    ? applyView(data.records, data.properties, viewFilters, parseViewSorts(selectedView?.config), { valueFor })
+    ? applyView(data.records, data.properties, viewFilters, parseViewSorts(selectedView?.config), { valueFor, today: chartToday })
     : [];
   const records = filterText
     ? sorted.filter((record) => [

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { todayKey } from "@/lib/calendar";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 import { refreshDashboard, useDashboardRequest } from "@/lib/dashboard-request";
 import { recordHref } from "@/lib/record-link";
 import {
@@ -47,11 +47,13 @@ function formatDay(date: string): string {
 export function DashboardTimeline() {
   const [range, setRange] = useState<TimelineRange>(DEFAULT_TIMELINE_RANGE);
   // The horizon is this widget's only contribution to the shared dashboard
-  // request; the payload arrives already scoped to it.
+  // request; the payload arrives already scoped to it, and a new day asks for
+  // the same horizon shifted to today.
+  const calendarDay = useCalendarDay();
   const { data: payload, loading, failed } = useDashboardRequest("timeline", {
     timeline: true,
     timelineDays: String(range),
-    today: todayKey(),
+    today: calendarDay,
   });
   const data = (payload as { timeline: TimelineData | null } | null)?.timeline ?? null;
   const loadError = failed ? "Could not load your timeline." : "";

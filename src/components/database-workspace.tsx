@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CopyPlus, Download, Eye, EyeOff, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
@@ -16,6 +16,11 @@ import { FileCell } from "@/components/file-cell";
 import { MediaImage } from "@/components/media-image";
 import { DatabaseViewControls } from "@/components/database-view-controls";
 import { ViewPropertiesMenu } from "@/components/view-properties-menu";
+import {
+  readSearchFiltersHidden,
+  subscribeToSearchFiltersHidden,
+  writeSearchFiltersHidden,
+} from "@/lib/database-search-filters-prefs";
 import { PropertySettingsDialog, type PropertyChanges } from "@/components/property-settings-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +71,8 @@ import { formulaValue, rollupValue } from "@/lib/database-calculations";
 import { getDashboardWidgetsSnapshot } from "@/lib/dashboard";
 import { recordHref } from "@/lib/record-link";
 import { galleryCoverForRecord } from "@/lib/gallery-cover";
-import { dateKey, todayKey } from "@/lib/calendar";
+import { dateKey } from "@/lib/calendar";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 import { parseTimelineRange } from "@/lib/timeline";
 import { DateCell, MultiSelectCell, SelectCell } from "@/components/database-cell-editors";
 import {
@@ -208,7 +214,8 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
-  const [chartToday] = useState(() => todayKey());
+  // The chart window and relative date filters both follow the calendar day.
+  const chartToday = useCalendarDay();
   const [showPropertyForm, setShowPropertyForm] = useState(false);
   const [propertyName, setPropertyName] = useState("");
   const [propertyType, setPropertyType] = useState<DatabasePropertyType>("text");
@@ -226,6 +233,13 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [filterText, setFilterText] = useState("");
   const [filters, setFilters] = useState<ViewFilter[]>([]);
   const [sorts, setSorts] = useState<ViewSort[]>(parseViewSorts(undefined));
+  // The bar's visibility follows the database, not the view, like the
+  // hidden-property preference on entry pages.
+  const searchFiltersHidden = useSyncExternalStore(
+    subscribeToSearchFiltersHidden,
+    () => readSearchFiltersHidden(id),
+    () => false,
+  );
   const [viewSaveError, setViewSaveError] = useState("");
   const [activeViewId, setActiveViewId] = useState("");
   const [hiddenViewIds, setHiddenViewIds] = useState<string[]>([]);
@@ -246,6 +260,10 @@ export function DatabaseWorkspace({ id }: { id: string }) {
   const [importError, setImportError] = useState("");
   const csvInputRef = useRef<HTMLInputElement>(null);
   const cancelViewRenameRef = useRef(false);
+  function toggleSearchFilters() {
+    writeSearchFiltersHidden(id, !readSearchFiltersHidden(id));
+  }
+
   const addViewMenuRef = useRef<HTMLDivElement>(null);
   const viewOptionsMenuRef = useRef<HTMLDivElement>(null);
 
@@ -1260,7 +1278,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
       ...database.properties.filter((property) => property.type === "formula").map((property) => formatFormulaValue(getFormulaValue(record, property)))]
       .some((value) => value.toLocaleLowerCase().includes(normalizedFilter));
   });
-  const sortedRecords = applyView(matchingRecords, database.properties, filters, sorts, { valueFor });
+  const sortedRecords = applyView(matchingRecords, database.properties, filters, sorts, { valueFor, today: chartToday });
   const visibleRecords = sortedRecords.filter(
     (record) =>
       (!adHocFilter || matchesAdHocFilter(record, adHocFilter)) &&
@@ -1717,6 +1735,19 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                     <Upload size={15} aria-hidden="true" /> Import CSV
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    toggleSearchFilters();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                >
+                  {searchFiltersHidden
+                    ? <Eye size={15} aria-hidden="true" />
+                    : <EyeOff size={15} aria-hidden="true" />}
+                  {searchFiltersHidden ? "Show search and filters" : "Hide search and filters"}
+                </button>
                 <div className="my-1 border-t" role="separator" />
                 <button
                   type="button"
@@ -2131,7 +2162,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
                   className="rounded-md border bg-background px-3 py-2 font-mono text-xs"
                 />
                 <span className="text-xs text-muted-foreground">
-                  Reference number and rollup properties as {"{Property}"}; arithmetic, parentheses, and round(value, digits) are supported.
+                  Reference number, date, rollup, and formula properties as {"{Property}"}. Arithmetic, parentheses, round(value, digits), dateAdd(date, days), daysBetween(start, end), and today() are supported; a date moves by whole days with + or -.
                 </span>
               </label>
             )}
@@ -2174,6 +2205,11 @@ export function DatabaseWorkspace({ id }: { id: string }) {
         )}
 
         <div className="flex flex-wrap items-start gap-2">
+          {searchFiltersHidden ? (
+            <Button type="button" variant="outline" size="sm" onClick={toggleSearchFilters}>
+              <Eye size={15} aria-hidden="true" /> Search and filters
+            </Button>
+          ) : (
           <div className="min-w-0 flex-1">
             <DatabaseViewControls
               properties={database.properties}
@@ -2192,6 +2228,7 @@ export function DatabaseWorkspace({ id }: { id: string }) {
               onSortsChange={setSorts}
             />
           </div>
+          )}
           {activeView && (
             <ViewPropertiesMenu
               properties={database.properties}

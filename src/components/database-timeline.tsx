@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { dateKey, todayKey } from "@/lib/calendar";
+import { dateKey } from "@/lib/calendar";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 import {
   parseTimelineRange,
   timelineDayLabel,
@@ -49,7 +49,7 @@ export function DatabaseTimeline({
   onDatePropertyChange: (propertyId: string) => void;
   onRangeChange: (range: TimelineRange) => void;
 }) {
-  const [today] = useState(() => todayKey());
+  const today = useCalendarDay();
 
   const dateProperties = properties.filter((property) => property.type === "date");
   const dateProperty =

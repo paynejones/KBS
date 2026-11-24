@@ -2,6 +2,7 @@ const DATABASE_DISPLAY_PREFIXES = [
   "kbs:database-view:",
   "kbs:database-hidden-views:",
   "kbs:database-hidden-properties:",
+  "kbs:database-search-filters-hidden:",
 ] as const;
 const PAGE_DRAFT_PREFIX = "kbs:page-draft:";
 const SETTINGS_PREFERENCES_UPDATED_EVENT = "kbs:settings-preferences-updated";

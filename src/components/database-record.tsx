@@ -31,12 +31,13 @@ import { RecordConnections } from "@/components/record-connections";
 import type { RecordBacklink } from "@/components/record-backlinks";
 import { RelationCell } from "@/components/relation-cell";
 import { Button } from "@/components/ui/button";
-import { formatFormulaValue } from "@/lib/database-formula";
+import { formatFormulaValue, type FormulaValue } from "@/lib/database-formula";
 import type { DatabasePropertyType } from "@/lib/database-property";
 import { formulaValue, rollupValue } from "@/lib/database-calculations";
 import { readHiddenPropertyIds, setPropertyHidden, writeHiddenPropertyIds } from "@/lib/database-record-prefs";
 import { recordHref } from "@/lib/record-link";
 import { isViewMode, viewModeHref } from "@/lib/view-mode";
+import { useCalendarDay } from "@/lib/use-calendar-day";
 
 type Property = {
   id: string;
@@ -79,6 +80,8 @@ export function DatabaseRecordWorkspace({
   const router = useRouter();
   const searchParams = useSearchParams();
   const readOnly = isViewMode(searchParams);
+  // `today()` in a formula follows midnight, like the database views do.
+  const calendarDay = useCalendarDay();
   const [record, setRecord] = useState<RecordRow | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [databaseName, setDatabaseName] = useState("");
@@ -272,9 +275,9 @@ export function DatabaseRecordWorkspace({
     return rollupValue(record, property, relationTargets);
   }
 
-  function getFormulaValue(property: Property): number | null {
+  function getFormulaValue(property: Property): FormulaValue {
     if (!record) return null;
-    return formulaValue(record, property, properties, relationTargets);
+    return formulaValue(record, property, properties, relationTargets, calendarDay);
   }
 
   async function runButton(property: Property) {

@@ -311,8 +311,10 @@ export function PropertySettingsDialog({
                 className="rounded-md border bg-background px-3 py-2 font-mono text-xs"
               />
               <span className="text-xs text-muted-foreground">
-                Reference number, rollup, and formula properties as {"{Property}"};
-                arithmetic, parentheses, and round(value, digits) are supported.
+                Reference number, date, rollup, and formula properties as {"{Property}"}.
+                Arithmetic, parentheses, round(value, digits), dateAdd(date, days),
+                daysBetween(start, end), and today() are supported; a date moves by
+                whole days with + or -.
               </span>
             </label>
           )}

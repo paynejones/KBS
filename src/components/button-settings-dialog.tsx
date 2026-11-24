@@ -22,6 +22,7 @@ export type ButtonSettingsProperty = {
   type: string;
   options: {
     choices?: string[];
+    expression?: string;
     relatedDatabaseId?: string;
     actions?: ButtonAction[];
   };

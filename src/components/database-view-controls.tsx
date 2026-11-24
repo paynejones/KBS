@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +30,12 @@ function inputTypeFor(type: string) {
   return "text";
 }
 
+/** A value that names a day, which is how a formula's date filter reads it. */
+function looksLikeDay(value: string) {
+  const trimmed = value.trim();
+  return trimmed.toLocaleLowerCase() === "today" || /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+}
+
 export function DatabaseViewControls({
   properties,
   filterText,
@@ -53,6 +60,9 @@ export function DatabaseViewControls({
 }) {
   const filterableProperties = properties.filter((property) => isFilterableProperty(property.type));
   const sortableProperties = properties.filter((property) => property.type !== "relation");
+  // A formula computes its own type, so an is/is not filter can compare a
+  // number or a day. The choice starts from the value already entered.
+  const [formulaValueTypes, setFormulaValueTypes] = useState<Record<string, boolean>>({});
 
   function addFilter() {
     const property = filterableProperties[0];
@@ -69,17 +79,40 @@ export function DatabaseViewControls({
   }
 
   function updateFilter(id: string, changes: Partial<ViewFilter>) {
+    const nextProperty = changes.propertyId === undefined
+      ? undefined
+      : properties.find((property) => property.id === changes.propertyId);
+    const propertyChanged = nextProperty !== undefined
+      && filters.some((filter) => filter.id === id && filter.propertyId !== changes.propertyId);
+    if (propertyChanged) {
+      // A new property decides its own value type, so a formula's Date choice
+      // does not follow the filter to a number column (or the other way round).
+      setFormulaValueTypes((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    }
+
     onFiltersChange(filters.map((filter) => filter.id === id ? {
       ...filter,
       ...changes,
-      ...(changes.propertyId !== undefined && changes.propertyId !== filter.propertyId
-        ? { operator: operatorsForProperty(properties.find((property) => property.id === changes.propertyId)?.type ?? "text")[0], value: "" }
+      ...(propertyChanged
+        ? { operator: operatorsForProperty(nextProperty?.type ?? "text")[0], value: "" }
         : {}),
     } : filter));
   }
 
   function removeFilter(id: string) {
     onFiltersChange(filters.filter((filter) => filter.id !== id));
+  }
+
+  function setFormulaValueType(filter: ViewFilter, date: boolean) {
+    setFormulaValueTypes((current) => ({ ...current, [filter.id]: date }));
+    // A number and a day cannot share one value, so switching clears it.
+    if (filter.value !== "" && date !== looksLikeDay(filter.value)) {
+      updateFilter(filter.id, { value: "" });
+    }
   }
 
   function addSort() {
@@ -135,6 +168,16 @@ export function DatabaseViewControls({
             const linkedRecords = property?.type === "relation"
               ? relationOptions?.[filter.propertyId] ?? []
               : [];
+            // A formula can compute a date, so its before/after filters take a
+            // day too. Its is/is not filters keep a text value that can also be
+            // "today" or a date key.
+            const dateFilter = property?.type === "date"
+              || (property?.type === "formula" && (
+                filter.operator === "before"
+                || filter.operator === "after"
+                || ((filter.operator === "is" || filter.operator === "is_not")
+                  && (formulaValueTypes[filter.id] ?? looksLikeDay(filter.value)))
+              ));
 
             return (
               <li key={filter.id} className="flex flex-wrap items-center gap-2 text-sm">
@@ -158,6 +201,20 @@ export function DatabaseViewControls({
                     <option key={operator} value={operator}>{FILTER_OPERATORS[operator]}</option>
                   ))}
                 </select>
+                {property?.type === "formula"
+                  && (filter.operator === "is" || filter.operator === "is_not")
+                  && filterNeedsValue(filter.operator) && (
+                  <select
+                    aria-label="Formula value type"
+                    value={dateFilter ? "date" : "number"}
+                    onChange={(event) => setFormulaValueType(filter, event.target.value === "date")}
+                    title="Compare a formula column against a number or a day"
+                    className="rounded-md border bg-background px-2 py-1.5"
+                  >
+                    <option value="number">Number</option>
+                    <option value="date">Date</option>
+                  </select>
+                )}
                 {filterNeedsValue(filter.operator) && (
                   property?.type === "relation" ? (
                     linkedRecords.length > 0 ? (
@@ -188,13 +245,37 @@ export function DatabaseViewControls({
                       <option value="">Choose a value…</option>
                       {choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
                     </select>
+                  ) : dateFilter ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant={filter.value === "today" ? "default" : "outline"}
+                        size="sm"
+                        aria-pressed={filter.value === "today"}
+                        title="Compare against today's date, whatever day the view opens"
+                        onClick={() => updateFilter(filter.id, {
+                          value: filter.value === "today" ? "" : "today",
+                        })}
+                      >
+                        Today
+                      </Button>
+                      <input
+                        aria-label="Filter value"
+                        type="date"
+                        value={filter.value === "today" ? "" : filter.value}
+                        disabled={filter.value === "today"}
+                        onChange={(event) => updateFilter(filter.id, { value: event.target.value })}
+                        placeholder="Value"
+                        className="w-40 rounded-md border bg-background px-2 py-1.5 disabled:opacity-50"
+                      />
+                    </>
                   ) : (
                     <input
                       aria-label="Filter value"
                       type={inputTypeFor(property?.type ?? "text")}
                       value={filter.value}
                       onChange={(event) => updateFilter(filter.id, { value: event.target.value })}
-                      placeholder="Value"
+                      placeholder={property?.type === "formula" ? "Value or today" : "Value"}
                       className="w-40 rounded-md border bg-background px-2 py-1.5"
                     />
                   )

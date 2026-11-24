@@ -9,6 +9,37 @@ Effort scale: **XS** under an hour · **S** half a day · **M** 1–2 days ·
 
 ## Progress
 
+- 2026-11-23 — date filters on a formula column are one click away. An `is` /
+  `is not` filter on a formula gains a Number/Date choice beside the operator;
+  Date swaps the plain value box for the same Today shortcut and date input a
+  date property uses, and a saved day (`today` or `2026-11-23`) opens in Date.
+  Number keeps comparing numbers, switching type clears the value so a number
+  and a day cannot be mixed, and changing the filter's property resets the
+  choice. `is before` / `is after` still open straight into the date controls.
+  Covered by `tests/dom/database-view-controls.test.tsx`.
+- 2026-11-23 — date filters recognise formula dates. A formula column that
+  returns a date key now offers `is before` / `is after` in its filter list, and
+  `is` / `is not` compare the day when the value is a day (`today` or
+  `2026-11-23`) and a number otherwise, so the same column keeps its numeric
+  filters. A before/after filter on a formula column shows the same date input
+  and Today toggle a date property has. The rules live in `applyView`, so
+  database views and dashboard previews agree, and a formula value that is a
+  date never matches a numeric filter or the other way around. Covered by
+  `tests/database-view.test.ts` and a browser check of a formula date filter in
+  a view and a pinned widget.
+- 2026-11-23 — formulas can work with dates. A formula value may now be a date
+  key (`YYYY-MM-DD`, exactly what a date property stores), so a formula reads a
+  date property, moves it by whole days with `+`/`-` (`{Due} + 7`,
+  `{Due} - {Snooze days}`), subtracts two dates into a day count
+  (`{Due} - today()`), and formats the result as a calendar day. `today()` is
+  accepted in formula properties (validation, evaluation, and rename handling),
+  and `dateAdd(date, days)` / `daysBetween(start, end)` name the same
+  arithmetic; a date multiplied, negated, divided, or rounded, a fractional day
+  count, or a blank reference leaves the cell blank instead of writing a wrong
+  date. Button expressions keep their existing date-target and numeric rules,
+  though a date button can now use the two date functions too. Covered by
+  `tests/database-formula.test.ts`, `tests/database-calculations.test.ts`, and
+  the formula validation case in `tests/api/routes.test.ts`.
 - 2026-11-22 — v0.4.0 closed the remaining scope. The pre-hydration theme
   script now shares one theme list with the picker, so Slate, Rose, and Midnight
   paint correctly and Midnight is dark from the first frame; editor prose keeps
