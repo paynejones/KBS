@@ -5,6 +5,7 @@ import {
   SignInAttemptLimiter,
   createSessionToken,
   readAuthConfig,
+  recordFailedSignInAttempt,
   requestClientAddress,
   safeNextPath,
   sessionCookieOptions,
@@ -23,6 +24,16 @@ const signInSchema = z.object({
   next: z.string().max(2048).nullish(),
 });
 
+function tooManyAttempts() {
+  return NextResponse.json(
+    { error: "Too many attempts. Wait a few minutes and try again." },
+    {
+      status: 429,
+      headers: { "Cache-Control": "no-store", "Retry-After": "600" },
+    },
+  );
+}
+
 export async function POST(request: Request) {
   const configResult = readAuthConfig(process.env, readStoredPassword());
   if (!configResult.ok) {
@@ -33,20 +44,16 @@ export async function POST(request: Request) {
   }
 
   const client = requestClientAddress(request);
-  if (limiter.isBlocked(client)) {
-    return NextResponse.json(
-      { error: "Too many attempts. Wait a few minutes and try again." },
-      {
-        status: 429,
-        headers: { "Cache-Control": "no-store", "Retry-After": "600" },
-      },
-    );
-  }
+  // A throttled address still gets its password checked: only a wrong guess is
+  // refused, so a spent allowance can slow the owner down but never lock them
+  // out, and no caller can turn the throttle into a denial of service.
+  const throttled = client !== null && limiter.isBlocked(client);
 
   const body: unknown = await request.json().catch(() => null);
   const parsed = signInSchema.safeParse(body);
   if (!parsed.success) {
-    limiter.recordFailure(client);
+    await recordFailedSignInAttempt(limiter, client);
+    if (throttled) return tooManyAttempts();
 
     return NextResponse.json(
       { error: "Enter the workspace password." },
@@ -55,8 +62,8 @@ export async function POST(request: Request) {
   }
 
   if (!verifyPassword(parsed.data.password, configResult.config.password)) {
-    limiter.recordFailure(client);
-    if (limiter.size > 1000) limiter.prune();
+    await recordFailedSignInAttempt(limiter, client);
+    if (throttled) return tooManyAttempts();
 
     return NextResponse.json(
       { error: "That password is not correct." },
@@ -64,7 +71,7 @@ export async function POST(request: Request) {
     );
   }
 
-  limiter.clear(client);
+  if (client) limiter.clear(client);
 
   const response = NextResponse.json(
     { redirectTo: safeNextPath(parsed.data.next) },

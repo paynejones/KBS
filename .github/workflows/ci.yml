@@ -37,6 +37,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run test:api
+      - run: npm run test:notion
       - run: npm run test:db
       - run: npm run lint
       - run: npx next typegen

@@ -203,6 +203,10 @@ function editorMenuPlacement(anchor: { x: number; y: number }) {
   );
 }
 
+/** A failed save retries on its own, waiting longer each time up to a cap. */
+const SAVE_RETRY_BASE_MS = 1_000;
+const SAVE_RETRY_MAX_MS = 8_000;
+
 export function PageEditor({
   id,
   hideTitle = false,
@@ -718,18 +722,40 @@ useEffect(() => {
   if (!editor || !loaded) return;
 
   let cancelled = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryDelay = SAVE_RETRY_BASE_MS;
+
+  function clearSaveRetry() {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  }
+
+  /** A failed save stays dirty and tries again after a widening, capped wait. */
+  function scheduleSaveRetry(silent: boolean) {
+    if (cancelled || retryTimer) return;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, SAVE_RETRY_MAX_MS);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void flushSave(silent);
+    }, delay);
+  }
 
   async function flushSave(silent = false) {
     if (saveInProgress.current || !dirty.current) return;
 
+    clearSaveRetry();
     saveInProgress.current = true;
     dirty.current = false;
+    let saved = false;
 
     const snapshot = { ...latestContent.current };
     const { revision, ...updates } = snapshot;
 
     try {
-      const saved = await savePage(updates, { silent });
+      saved = await savePage(updates, { silent });
       if (saved) {
         // A checkbox in the editor is an ordinary document edit, so the
         // check-off is found by comparing this save with the previous one.
@@ -756,8 +782,16 @@ useEffect(() => {
     } finally {
       saveInProgress.current = false;
 
+      if (saved) retryDelay = SAVE_RETRY_BASE_MS;
+
       if (dirty.current) {
+        // An edit landed while saving, so save it straight away.
         void flushSave(silent || cancelled);
+      } else if (!saved && !cancelled) {
+        // Keep the content marked dirty (beforeunload reads it) and come back
+        // after a capped backoff instead of spinning on a failing server.
+        dirty.current = true;
+        scheduleSaveRetry(silent);
       }
     }
   }
@@ -833,6 +867,7 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    clearSaveRetry();
     editor.off("update", handleUpdate);
 
     if (saveTimer.current) {

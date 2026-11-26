@@ -1,7 +1,84 @@
-# Release plan — v0.4.0
+# Release plan — v0.4.0 and v0.5.0
 
-Planning date: 2026-11-19. Current version: `0.3.0` (`package.json`), latest
-migration `0028_database_grouping_page`, no git tags in the repository.
+Planning date: 2026-11-19; the 0.5.0 section was added 2026-11-24. The 0.4.0 plan
+below was written when `package.json` still said `0.3.0`, the latest migration was
+`0028_database_grouping_page`, and the repository had no tags. It shipped on
+2026-11-22 as `v0.4.0`; the current release is `0.5.0`.
+
+## v0.5.0 — Notion import and hardening (current)
+
+Two commits landed after the `v0.4.0` tag: the Notion importer (`5e1beca`,
+`768b78b`) with migration `0029_notion_object_map`. Every "no schema change" or
+"no new migration" statement in the 0.4.0 sections below describes 0.4.0 only.
+
+### What changed since v0.4.0
+
+| Change | Where | Why it is in 0.5.0 |
+| --- | --- | --- |
+| Notion importer: `--dry-run`, `--dump`, `--verify`, `--retry-files`, `--update`, `--merge`, `--prune-trashed`, `--restore`, `--undo` | `scripts/import-notion.ts`, [importing a Notion workspace](notion-import.md) | The release's feature, and its only new user-facing capability |
+| `notion_objects` table (migration `0029`) | `drizzle/0029_notion_object_map.sql`, `src/db/schema.ts` | `--update` and `--prune-trashed` need the stored Notion ids. Additive: one new table, no backfill |
+| The Notion suite in CI | `.github/workflows/ci.yml` | A 6,600-line importer with a 1,300-line suite must gate a release like everything else |
+| Refuse IPv4-mapped, IPv4-compatible, and NAT64 IPv6 in link previews | `src/lib/link-preview.ts` | `http://[::ffff:7f00:1]/` reached loopback through the preview fetch |
+| Trust `X-Forwarded-For` only with `KBS_TRUST_PROXY`, last hop only, and delay instead of block when no address is known | `src/lib/auth.ts`, the two auth routes, `docs/deployment-readiness.md`, `README.md` | A client-set header could reset the sign-in throttle, and a single shared bucket let any caller lock the owner out |
+
+### Release steps
+
+1. Release mechanics: `package.json` says `0.5.0`, `CHANGELOG.md` has the 0.5.0
+   section naming the importer and migration 0029, and the release commit is
+   tagged `v0.5.0` (push only when authorized).
+2. CI: `test:notion` now runs in the `verify` job, so `release.yml` cannot ship a
+   commit whose importer suite fails.
+3. Docs: the runbook's release checklist names migration 0029 and the
+   `KBS_TRUST_PROXY` requirement, and `README.md` lists the variable.
+4. Deploy: the push to `main` — not the tag — starts `release.yml`, which runs the
+   migration before recreating the app, so 0029 applies as part of the normal
+   step. There is no one-time backfill for it.
+5. Post-deploy: `/signin` answers, an unauthenticated `/api/pages` returns `401`,
+   one page save round-trips, one link capture produces a preview, and — only
+   when a proxy is in front — failed sign-ins are counted per real address.
+
+### Acceptance criteria
+
+- `npm test`, `npm run test:api`, `npm run test:notion`, `npm run test:db`,
+  `npm run lint`, `npx next typegen`, `npx tsc --noEmit`,
+  `npm run check:build-warnings`, and `npm run test:browser` pass locally and in
+  CI.
+- `npm run db:migrate` on an empty database creates `notion_objects` and reports
+  nothing pending on a second run.
+- Link previews refuse `http://[::ffff:127.0.0.1]/`, `http://[::ffff:a9fe:a9fe]/`,
+  `http://[::127.0.0.1]/`, and `http://[64:ff9b::7f00:1]/`, and still preview a
+  public URL, including its hex mapped form.
+- Sign-in throttling ignores `X-Forwarded-For` unless `KBS_TRUST_PROXY` is set.
+  With it, the last hop is used, so a forged first hop cannot spend another
+  address's allowance, and a blocked address does not affect a second one.
+- With no trusted proxy, repeated wrong passwords never return `429`: each pays
+  the 500 ms delay, and a correct password still signs in.
+- A throttled address gets `429` for a wrong guess but `200` for the correct
+  password, so spending the allowance cannot lock the owner out.
+- `npm run import:notion -- --dry-run` then `--verify` complete against a test
+  integration, and `--undo` of that run leaves the workspace as it was.
+
+### Not in this release
+
+- Multi-user identity, workspace membership, sharing, or any per-user isolation.
+- Two-way Notion sync. `--update` pulls Notion's edits into KBS; nothing is
+  written back, and a KBS edit newer than Notion's is kept.
+- Notion comments (KBS has no comment model), buttons, linked database views, and
+  Notion-hosted video or audio, which stay links because their URLs expire.
+
+### Risks
+
+- **Importer size.** It is the largest script in the repository and it writes to
+  every table. Run `--dry-run` and then `--dump` against a production copy, and
+  keep the manifest until the imported workspace looks right.
+- **`KBS_TRUST_PROXY` is a deployment change.** A host behind a reverse proxy
+  keeps working without it, but falls back to the delay: about two guesses a
+  second per connection instead of 8 attempts per 10 minutes per address. It must
+  not be set on a directly exposed instance, where a caller can forge the hop
+  the app would read.
+- **The IPv6 check is hand-written.** It is covered for mapped, compatible,
+  NAT64, link-local, unique-local, and multicast forms plus a public control;
+  extend `tests/link-preview.test.ts` before changing it.
 
 ## Where 0.3.0 leaves us
 

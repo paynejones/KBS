@@ -6,6 +6,7 @@ import {
   SignInAttemptLimiter,
   createSessionToken,
   readAuthConfig,
+  recordFailedSignInAttempt,
   requestClientAddress,
   sessionCookieOptions,
   shouldUseSecureCookies,
@@ -41,15 +42,9 @@ export async function POST(request: Request) {
   }
 
   const client = requestClientAddress(request);
-  if (limiter.isBlocked(client)) {
-    return NextResponse.json(
-      { error: "Too many attempts. Wait a few minutes and try again." },
-      {
-        status: 429,
-        headers: { "Cache-Control": "no-store", "Retry-After": "600" },
-      },
-    );
-  }
+  // Only a wrong current password is refused when the address is throttled, so
+  // the real password always works and a spent allowance cannot lock anyone out.
+  const throttled = client !== null && limiter.isBlocked(client);
 
   const body: unknown = await request.json().catch(() => null);
   const parsed = changePasswordSchema.safeParse(body);
@@ -63,8 +58,16 @@ export async function POST(request: Request) {
   const { currentPassword, newPassword } = parsed.data;
 
   if (!verifyPassword(currentPassword, currentConfig.config.password)) {
-    limiter.recordFailure(client);
-    if (limiter.size > 1000) limiter.prune();
+    await recordFailedSignInAttempt(limiter, client);
+    if (throttled) {
+      return NextResponse.json(
+        { error: "Too many attempts. Wait a few minutes and try again." },
+        {
+          status: 429,
+          headers: { "Cache-Control": "no-store", "Retry-After": "600" },
+        },
+      );
+    }
 
     return noStore({ error: "That password is not correct." }, 401);
   }
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
     });
   }
 
-  limiter.clear(client);
+  if (client) limiter.clear(client);
 
   const nextConfig = readAuthConfig(process.env, stored.material);
   if (!nextConfig.ok) {

@@ -171,6 +171,7 @@ KBS is single-user by design: one shared password and no per-workspace isolation
 | `KBS_AUTH_PASSWORD` | — | Workspace password; required in production |
 | `KBS_AUTH_SECRET` | — | Session signing secret, at least 32 characters; changing it signs everyone out |
 | `KBS_AUTH_CREDENTIAL_PATH` | `data/auth-credential.json` | Where a password changed in Settings is stored |
+| `KBS_TRUST_PROXY` | unset | Set to `1` only behind a reverse proxy that appends `X-Forwarded-For`; without it failed sign-ins are delayed rather than blocked per address |
 | `ATTACHMENTS_DIR` | `data/attachments` | Uploaded images and files |
 | `BACKUPS_DIR` | `data/backups` | Folders written by `npm run backup` |
 | `KBS_PORT` | `3000` | Host port published by the compose stack |
@@ -186,6 +187,7 @@ KBS is single-user by design: one shared password and no per-workspace isolation
 | `npm run test:dom` | Component tests in jsdom |
 | `npm run test:api` | API route tests against a temporary database |
 | `npm run test:db` | PostgreSQL transaction checks in a temporary database |
+| `npm run test:notion` | Notion importer tests against a local Notion API harness |
 | `npm run test:browser` | Playwright workflow tests on an isolated server and database |
 | `npm run bench:search` | Measure search on a seeded workspace of 20,000 pages |
 | `npm run db:migrate` | Apply pending migrations |

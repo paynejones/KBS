@@ -34,6 +34,42 @@ function decodeEntities(value: string) {
   });
 }
 
+/** Expands an IPv6 literal into its eight 16-bit groups, or null when it is not one. */
+function expandIpv6(address: string): number[] | null {
+  const halves = address.split("%")[0].split("::");
+  if (halves.length > 2) return null;
+
+  const parseGroups = (segment: string): number[] | null => {
+    if (!segment) return [];
+    const groups: number[] = [];
+    for (const piece of segment.split(":")) {
+      if (piece.includes(".")) {
+        const octets = piece.split(".").map(Number);
+        if (octets.length !== 4) return null;
+        if (octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) return null;
+        groups.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]);
+        continue;
+      }
+      if (!/^[0-9a-f]{1,4}$/i.test(piece)) return null;
+      groups.push(Number.parseInt(piece, 16));
+    }
+    return groups;
+  };
+
+  const head = parseGroups(halves[0]);
+  const tail = halves.length === 2 ? parseGroups(halves[1]) : [];
+  if (!head || !tail) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  if (head.length + tail.length > 8) return null;
+
+  return [...head, ...Array<number>(8 - head.length - tail.length).fill(0), ...tail];
+}
+
+/** The dotted quad held in the last 32 bits of an embedded-IPv4 literal. */
+function embeddedIpv4(groups: number[]): string {
+  return [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join(".");
+}
+
 /**
  * The server reads pages people capture, so every hop must land on a public
  * address. Loopback, private ranges, link-local metadata endpoints, and
@@ -57,12 +93,31 @@ export function isPublicAddress(address: string): boolean {
     return true;
   }
   if (version === 6) {
-    const normalized = address.toLowerCase();
-    if (normalized === "::" || normalized === "::1") return false;
-    const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPublicAddress(mapped[1]);
-    if (normalized.startsWith("fe80") || normalized.startsWith("fc") || normalized.startsWith("fd")) return false;
-    if (normalized.startsWith("ff")) return false;
+    const groups = expandIpv6(address);
+    if (!groups) return false;
+
+    const leading = (count: number) => groups.slice(0, count).every((group) => group === 0);
+
+    // `::` and `::1`, then the deprecated IPv4-compatible `::a.b.c.d` form.
+    if (leading(8)) return false;
+    if (leading(7) && groups[7] === 1) return false;
+    if (leading(6)) return isPublicAddress(embeddedIpv4(groups));
+
+    // IPv4-mapped `::ffff:a.b.c.d` reaches this in its hex form: `new URL`
+    // rewrites `[::ffff:127.0.0.1]` to `[::ffff:7f00:1]`, so matching the dotted
+    // spelling alone let loopback and metadata addresses through. NAT64
+    // `64:ff9b::/96` carries an IPv4 address the same way.
+    if (leading(5) && groups[5] === 0xffff) return isPublicAddress(embeddedIpv4(groups));
+    if (groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((group) => group === 0)) {
+      return isPublicAddress(embeddedIpv4(groups));
+    }
+
+    const first = groups[0];
+    if ((first & 0xffc0) === 0xfe80) return false; // link-local fe80::/10
+    if ((first & 0xffc0) === 0xfec0) return false; // deprecated site-local fec0::/10
+    if ((first & 0xfe00) === 0xfc00) return false; // unique-local fc00::/7
+    if ((first & 0xff00) === 0xff00) return false; // multicast
+    if (first === 0x2001 && groups[1] === 0x0db8) return false; // documentation 2001:db8::/32
     return true;
   }
   return false;

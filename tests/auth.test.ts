@@ -3,13 +3,17 @@ import test from "node:test";
 import {
   MAX_SIGN_IN_ATTEMPTS,
   SESSION_TTL_SECONDS,
+  UNVERIFIED_ATTEMPT_DELAY_MS,
   SignInAttemptLimiter,
   createSessionToken,
   readAuthConfig,
+  recordFailedSignInAttempt,
+  requestClientAddress,
   resolveAuthGate,
   safeNextPath,
   sessionCookieOptions,
   shouldUseSecureCookies,
+  trustProxyHeaders,
   verifyPassword,
   verifySessionToken,
   type AuthConfig,
@@ -131,6 +135,52 @@ test("the gate redirects pages, rejects API calls, and lets sign-in through", ()
     gate({ pathname: "/api/pages", configured: false, isProduction: false }),
     "allow",
   );
+});
+
+test("forwarded addresses are read only from a trusted proxy, nearest hop last", () => {
+  const forwarded = new Request("http://localhost/api/auth/login", {
+    // The left hop is what the caller sent; the proxy appended the real one.
+    headers: { "x-forwarded-for": "1.2.3.4, 203.0.113.9" },
+  });
+
+  assert.equal(requestClientAddress(forwarded, { trustProxy: false }), null);
+  assert.equal(requestClientAddress(forwarded, { trustProxy: true }), "203.0.113.9");
+
+  const single = new Request("http://localhost/", {
+    headers: { "x-forwarded-for": "198.51.100.7" },
+  });
+  assert.equal(requestClientAddress(single, { trustProxy: true }), "198.51.100.7");
+
+  const realIp = new Request("http://localhost/", {
+    headers: { "x-real-ip": "198.51.100.8" },
+  });
+  assert.equal(requestClientAddress(realIp, { trustProxy: false }), null);
+  assert.equal(requestClientAddress(realIp, { trustProxy: true }), "198.51.100.8");
+  assert.equal(requestClientAddress(new Request("http://localhost/"), { trustProxy: true }), null);
+
+  assert.equal(trustProxyHeaders({ KBS_TRUST_PROXY: "1" }), true);
+  assert.equal(trustProxyHeaders({ KBS_TRUST_PROXY: " true " }), true);
+  assert.equal(trustProxyHeaders({ KBS_TRUST_PROXY: "0" }), false);
+  assert.equal(trustProxyHeaders({}), false);
+});
+
+test("a failed attempt with no address is delayed instead of filling a shared bucket", async () => {
+  const limiter = new SignInAttemptLimiter(1, 60_000);
+  const startedAt = Date.now();
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await recordFailedSignInAttempt(limiter, null, { delayMs: 10 });
+  }
+
+  assert.equal(limiter.size, 0, "no shared bucket is created for anonymous callers");
+  assert.equal(limiter.isBlocked("unknown"), false);
+  assert.ok(Date.now() - startedAt >= 40, "every attempt paid the delay");
+
+  const known = new SignInAttemptLimiter(1, 60_000);
+  await recordFailedSignInAttempt(known, "203.0.113.9", { delayMs: 10 });
+  assert.equal(known.isBlocked("203.0.113.9"), true, "a known address is counted and blocked");
+  assert.equal(known.isBlocked("198.51.100.7"), false, "another address is unaffected");
+  assert.equal(UNVERIFIED_ATTEMPT_DELAY_MS, 500);
 });
 
 test("sign-in attempts are throttled per client and reset with the window", () => {

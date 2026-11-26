@@ -94,15 +94,63 @@ export function verifyPassword(input: string, expected: string): boolean {
   return timingSafeEqual(provided, wanted);
 }
 
-/** Best-effort client identity for per-address sign-in throttling. */
-export function requestClientAddress(request: Request) {
+/** Whether a reverse proxy in front of the app sets the forwarded headers. */
+export function trustProxyHeaders(env: Record<string, string | undefined> = process.env): boolean {
+  const value = env.KBS_TRUST_PROXY?.trim().toLowerCase();
+
+  return value === "1" || value === "true" || value === "yes";
+}
+
+/** How long a failed attempt is held back when there is no address to count it against. */
+export const UNVERIFIED_ATTEMPT_DELAY_MS = 500;
+
+/**
+ * The address to attribute a sign-in attempt to, or null when the app cannot see
+ * one. `X-Forwarded-For` and `X-Real-IP` are caller-controlled, so they are read
+ * only when `KBS_TRUST_PROXY` says a proxy appends them — and then only the last
+ * hop, which is the address that proxy observed. A forged earlier hop is
+ * ignored, so it cannot spend another address's allowance.
+ */
+export function requestClientAddress(
+  request: Request,
+  { trustProxy = trustProxyHeaders() }: { trustProxy?: boolean } = {},
+): string | null {
+  if (!trustProxy) return null;
+
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
+    const nearest = forwarded
+      .split(",")
+      .map((hop) => hop.trim())
+      .filter(Boolean)
+      .at(-1);
+
+    if (nearest) return nearest;
   }
 
-  return request.headers.get("x-real-ip")?.trim() || "unknown";
+  return request.headers.get("x-real-ip")?.trim() || null;
+}
+
+/**
+ * Counts a failed attempt against the address it came from. With no address the
+ * attempt pays a fixed delay instead of joining a shared bucket: anyone can spend
+ * a shared bucket, which would let an attacker lock the owner out for the whole
+ * window. The delay costs a guesser about the same as a typo costs the owner, and
+ * it never refuses a correct password.
+ */
+export async function recordFailedSignInAttempt(
+  limiter: SignInAttemptLimiter,
+  client: string | null,
+  { delayMs = UNVERIFIED_ATTEMPT_DELAY_MS }: { delayMs?: number } = {},
+) {
+  if (client) {
+    limiter.recordFailure(client);
+    if (limiter.size > 1000) limiter.prune();
+
+    return;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 /** Only same-origin absolute paths may be used as a post-sign-in destination. */

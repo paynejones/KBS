@@ -16,6 +16,10 @@ function htmlResponse(body: string, init: { status?: number; headers?: Record<st
 test("only public HTTP URLs can be fetched", async () => {
   assert.ok(await resolvePublicUrl("https://example.com/read?page=2", publicResolver));
   assert.ok(await resolvePublicUrl("http://93.184.216.34/", publicResolver), "public IP literals need no lookup");
+  assert.ok(
+    await resolvePublicUrl("http://[::ffff:93.184.216.34]/", publicResolver),
+    "a public IPv4 keeps its verdict in the mapped hex form a URL rewrites it to",
+  );
 
   const refused = [
     "ftp://example.com/file",
@@ -35,6 +39,13 @@ test("only public HTTP URLs can be fetched", async () => {
     "http://[::1]/",
     "http://[fe80::1]/",
     "http://[fd00::1]/",
+    "http://[::ffff:127.0.0.1]/",
+    "http://[::ffff:7f00:1]/",
+    "http://[::ffff:10.0.0.1]/",
+    "http://[::ffff:c0a8:1]/",
+    "http://[::ffff:a9fe:a9fe]/latest/meta-data/",
+    "http://[::127.0.0.1]/",
+    "http://[64:ff9b::7f00:1]/",
     "not a url",
   ];
   for (const url of refused) {
