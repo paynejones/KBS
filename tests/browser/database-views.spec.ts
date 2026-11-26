@@ -33,6 +33,16 @@ test("renders saved list, timeline, and chart views", async ({ page, request }) 
       { name: "Score", type: "number" },
     );
 
+    // A chart's date axis keeps only the past week before its horizon, so the
+    // dated records sit relative to today: both stay inside the default window
+    // and the current month on any day, with gamma still the earlier point.
+    const today = new Date();
+    const alphaDay = today.getDate() === 1 ? 2 : today.getDate();
+    const dayKey = (day: number) =>
+      `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const alphaDate = dayKey(alphaDay);
+    const gammaDate = dayKey(alphaDay - 1);
+
     const alpha = `${token} Alpha`;
     const beta = `${token} Beta`;
     const alphaRecord = await post<{ id: string }>(
@@ -42,7 +52,7 @@ test("renders saved list, timeline, and chart views", async ({ page, request }) 
     );
     await json(
       await request.patch(`/api/databases/${database.id}/records/${alphaRecord.id}`, {
-        data: { values: { [when.id]: "2026-11-20", [score.id]: 7 } },
+        data: { values: { [when.id]: alphaDate, [score.id]: 7 } },
       }),
     );
     await post(request, `/api/databases/${database.id}/records`, { title: beta });
@@ -54,7 +64,7 @@ test("renders saved list, timeline, and chart views", async ({ page, request }) 
     );
     await json(
       await request.patch(`/api/databases/${database.id}/records/${gammaRecord.id}`, {
-        data: { values: { [when.id]: "2026-11-18", [score.id]: 3 } },
+        data: { values: { [when.id]: gammaDate, [score.id]: 3 } },
       }),
     );
 
@@ -183,7 +193,7 @@ test("renders saved list, timeline, and chart views", async ({ page, request }) 
     await expect(chart.getByLabel("Chart range end")).toHaveValue(thisMonthTo);
     const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const expectedRecords = now.getFullYear() === 2026 && now.getMonth() === 10 ? 2 : 0;
+    const expectedRecords = 2;
     await expect(
       chart.getByText(
         `This month · ${shortMonths[now.getMonth()]} 1–${monthDays}, ${now.getFullYear()} · ${expectedRecords} records`,
