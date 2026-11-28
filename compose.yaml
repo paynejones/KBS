@@ -78,6 +78,9 @@ services:
         condition: service_healthy
     environment:
       <<: [*database-environment, *storage-environment]
+      # Read only by `npm run import:notion`, which runs in this image. Compose
+      # forwards nothing from the host's .env unless it is named here.
+      NOTION_TOKEN: ${NOTION_TOKEN:-}
       BACKUP_KEEP: ${BACKUP_KEEP:-7}
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
       BACKUP_ON_START: ${BACKUP_ON_START:-true}

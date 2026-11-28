@@ -39,6 +39,23 @@ callouts, so a few things cannot be copied. They are listed under
    | `NOTION_API_BASE` | Optional API base override; used by local test harnesses. |
    | `ATTACHMENTS_DIR` | Where file bytes are stored. Defaults to `data/attachments`, the directory the app reads. |
 
+   The importer reads those from the process environment, with `.env` in the
+   directory it runs from as a fallback — not `.env.local`, and not a variable
+   exported in another shell.
+
+In the container stack the importer runs in the `backup` image, which is the
+only one that ships `scripts/` and `tsx`. `docker compose run` forwards only the
+variables `compose.yaml` names, so the token goes in the host's `.env` (as
+`NOTION_TOKEN=…`) or on the command line:
+
+```bash
+# Host .env copied into the container by compose.yaml.
+docker compose run --rm backup npm run import:notion -- --dry-run
+
+# Or only for this one run.
+docker compose run --rm -e NOTION_TOKEN="$NOTION_TOKEN" backup npm run import:notion -- --dry-run
+```
+
 Import into an empty workspace unless you pass `--merge`.
 
 ## Quick start
@@ -607,7 +624,7 @@ Further limits worth knowing:
 
 | Symptom | Likely cause |
 | --- | --- |
-| `NOTION_TOKEN is required` | Token missing from the environment or `.env`. |
+| `NOTION_TOKEN is required` | Token missing from the environment or `.env`. Check that it is in `.env` (not `.env.local`) next to the `package.json` you run from, and that this `.env` is the one compose reads; `docker compose run` forwards nothing it is not given. |
 | `Notion object … was not found, or it is not shared with this integration` | The page/database was not shared with the integration, or the id is wrong. |
 | `Notion API 401` | The integration secret is wrong or revoked. |
 | `DATABASE_URL is required …` | Every mode except `--dry-run` needs a database. |
