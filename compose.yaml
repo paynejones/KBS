@@ -81,6 +81,10 @@ services:
       # Read only by `npm run import:notion`, which runs in this image. Compose
       # forwards nothing from the host's .env unless it is named here.
       NOTION_TOKEN: ${NOTION_TOKEN:-}
+      # The importer's default manifest directory is under the image's /app,
+      # which the runtime user cannot write to. Manifests belong on the volume
+      # anyway: a one-off `docker compose run` container is removed with them.
+      IMPORT_MANIFEST_DIR: /data/import-manifests
       BACKUP_KEEP: ${BACKUP_KEEP:-7}
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
       BACKUP_ON_START: ${BACKUP_ON_START:-true}

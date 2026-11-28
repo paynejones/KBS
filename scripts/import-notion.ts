@@ -59,7 +59,8 @@
  *                       Notion ids. Existing rows are kept. Add --dry-run to
  *                       preview.
  *   --manifest <file>   Where to write this run's manifest. Defaults to
- *                       data/import-manifests/notion-<timestamp>.json.
+ *                       data/import-manifests/notion-<timestamp>.json, or to
+ *                       IMPORT_MANIFEST_DIR when that is set.
  *   --undo <manifest>   Delete exactly the rows and files a recorded run
  *                       created, then mark the manifest undone.
  *   --yes               Skip the typed confirmation for --undo.
@@ -74,6 +75,8 @@
  *                       to --verify, to --retry-files, or to --update).
  *   ATTACHMENTS_DIR     Where attachment bytes are stored; defaults to
  *                       data/attachments, the same directory the app reads.
+ *   IMPORT_MANIFEST_DIR Where manifests are written when --manifest is not
+ *                       given; defaults to data/import-manifests.
  *
  * Ids are derived deterministically from Notion ids, so a second run adds only
  * objects that are new instead of duplicating the workspace. Notion's API does
@@ -5063,10 +5066,23 @@ function countManifestRows(rows: ManifestRows): number {
   );
 }
 
+/**
+ * Where the manifests go. IMPORT_MANIFEST_DIR exists because the directory
+ * under the working directory is not writable in the container image, and a
+ * manifest written inside a one-off container is lost with it: the stack points
+ * this at the data volume so `--undo` can still find the manifest later.
+ */
+function manifestDirectory(): string {
+  const configured = process.env.IMPORT_MANIFEST_DIR?.trim();
+  return configured
+    ? path.resolve(process.cwd(), configured)
+    : path.join(process.cwd(), "data", "import-manifests");
+}
+
 function defaultManifestPath(run: ManifestRun): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").slice(0, 19);
   const prefix = run === "update" ? "notion-update" : run === "retry-files" ? "notion-retry-files" : "notion";
-  return path.join(process.cwd(), "data", "import-manifests", `${prefix}-${stamp}.json`);
+  return path.join(manifestDirectory(), `${prefix}-${stamp}.json`);
 }
 
 async function currentDatabaseName(client: Client): Promise<string> {
@@ -5900,7 +5916,7 @@ type RestoreOptions = { dryRun: boolean; force: boolean };
 
 function defaultPruneManifestPath(): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").slice(0, 19);
-  return path.join(process.cwd(), "data", "import-manifests", `notion-prune-${stamp}.json`);
+  return path.join(manifestDirectory(), `notion-prune-${stamp}.json`);
 }
 
 /**
@@ -6341,8 +6357,9 @@ Options:
                        Notion ids. Rows that already exist are kept. Add
                        --dry-run to preview.
   --manifest <file>    Where to write this run's manifest. Defaults to
-                       data/import-manifests/notion-<timestamp>.json. It lists
-                       every row and file the run created.
+                       data/import-manifests/notion-<timestamp>.json (or to
+                       IMPORT_MANIFEST_DIR when that is set). It lists every
+                       row and file the run created.
   --undo <manifest>    Delete exactly the rows and files that run created and
                        mark the manifest undone. Add --dry-run to preview.
   --yes                Skip the typed confirmation for --undo or
@@ -6359,6 +6376,8 @@ Environment:
                        also required by --verify, --retry-files, --update,
                        --prune-trashed and --restore).
   ATTACHMENTS_DIR      Defaults to data/attachments.
+  IMPORT_MANIFEST_DIR  Where default manifests are written. Defaults to
+                       data/import-manifests.
 
 Before importing, run \`npm run db:migrate\` so the schema is current. Import into
 an empty workspace unless you pass --merge.

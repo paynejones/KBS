@@ -56,6 +56,12 @@ docker compose run --rm backup npm run import:notion -- --dry-run
 docker compose run --rm -e NOTION_TOKEN="$NOTION_TOKEN" backup npm run import:notion -- --dry-run
 ```
 
+Manifests are written to `IMPORT_MANIFEST_DIR` when it is set, and to
+`data/import-manifests` under the working directory otherwise. The image's
+`/app` is not writable at runtime, so the stack sets it to
+`/data/import-manifests` on the `kbs_data` volume: the manifest survives the
+one-off container that wrote it, which `--undo` needs.
+
 Import into an empty workspace unless you pass `--merge`.
 
 ## Quick start
@@ -89,7 +95,7 @@ retries throttled and server responses itself.
 | `--merge` | Allow importing into a workspace that already has content. Existing objects keep their current content and parent; only missing rows are added. | Rows, files |
 | `--dry-run` | Fetch and convert everything, then report. No rows are written, no files are downloaded or written, and no manifest is produced. | Nothing |
 | `--dump <file>` | Also write the converted workspace (pages, databases, properties, views, records, relations, links, attachments, warnings) to JSON. The import itself still runs unless `--dry-run` is also passed. | The JSON file, plus the normal import |
-| `--manifest <file>` | Where this run's manifest goes. Defaults to `data/import-manifests/notion-<timestamp>.json` (`/data` is gitignored). | The manifest |
+| `--manifest <file>` | Where this run's manifest goes. Defaults to `<IMPORT_MANIFEST_DIR or data/import-manifests>/notion-<timestamp>.json` (`/data` is gitignored). | The manifest |
 | `--undo <manifest>` | Delete exactly the rows and files a recorded run created, then mark the manifest undone. Needs a typed confirmation unless `--yes` is passed; add `--dry-run` to preview. | Deletes rows/files |
 | `--yes` | Skip the typed confirmation for `--undo` or `--prune-trashed`. | — |
 | `--force` | Undo or restore even when the manifest names a different database than `DATABASE_URL`. | — |
@@ -624,6 +630,7 @@ Further limits worth knowing:
 
 | Symptom | Likely cause |
 | --- | --- |
+| `EACCES: permission denied, mkdir '/app/data'` | The manifest directory is the default one under `/app`, which the runtime user cannot write to, and `IMPORT_MANIFEST_DIR` is not set. Set it (`/data/import-manifests` in the stack) or pass `--manifest /data/import-manifests/notion-<timestamp>.json`. |
 | `NOTION_TOKEN is required` | Token missing from the environment or `.env`. Check that it is in `.env` (not `.env.local`) next to the `package.json` you run from, and that this `.env` is the one compose reads; `docker compose run` forwards nothing it is not given. |
 | `Notion object … was not found, or it is not shared with this integration` | The page/database was not shared with the integration, or the id is wrong. |
 | `Notion API 401` | The integration secret is wrong or revoked. |
