@@ -23,7 +23,7 @@ test("renders the global error boundary when the root layout fails", async ({ pa
   await backHome.click();
   await expect(page).toHaveURL(`${BROWSER_TEST_BASE_URL}/`);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    /Good (morning|afternoon|evening)|Welcome back/,
+    /Good (morning|afternoon|evening)|Welcome back|Still up\?/,
   );
   await expect(heading).toHaveCount(0);
 });

@@ -481,6 +481,10 @@ test("renders list, timeline, and chart views inside database embeds", async ({ 
     );
 
     const alpha = `${token} Alpha`;
+    // The timeline reaches a week back from its horizon, so the dated record
+    // sits on today and stays inside the window on any run day.
+    const today = new Date();
+    const alphaDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     const alphaRecord = await post<{ id: string }>(
       request,
       `/api/databases/${database.id}/records`,
@@ -488,7 +492,7 @@ test("renders list, timeline, and chart views inside database embeds", async ({ 
     );
     await json(
       await request.patch(`/api/databases/${database.id}/records/${alphaRecord.id}`, {
-        data: { values: { [when.id]: "2026-11-20", [score.id]: 7 } },
+        data: { values: { [when.id]: alphaDate, [score.id]: 7 } },
       }),
     );
     await post(request, `/api/databases/${database.id}/records`, { title: `${token} Beta` });
